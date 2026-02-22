@@ -1338,18 +1338,25 @@
         <div class="hint">Create a bot via <a href="https://t.me/BotFather" target="_blank">@BotFather</a> on Telegram (takes 30 seconds)</div>
       </div>
 
-      <!-- Web Search - Bonus -->
-      <div class="collapsible" id="search-section">
-        <div class="collapsible-header" onclick="toggleCollapsible('search-section')">
-          <h3>🔍 Web Search <span class="tag-optional">Bonus</span></h3>
-          <span class="arrow">▶</span>
+      <!-- Web Search -->
+      <div class="superpower-card" id="search-section">
+        <div class="superpower-header">
+          <div class="superpower-icon">🌐</div>
+          <div>
+            <h3>Web Search</h3>
+            <p class="superpower-tagline">Your AI can search the internet for current information.</p>
+          </div>
         </div>
-        <div class="collapsible-body">
-          <p style="color: #94a3b8; font-size: 0.875rem; margin-bottom: 1rem;">Let your AI search the web for current information.</p>
-          <label for="brave-key">Brave Search API Key</label>
-          <input type="password" id="brave-key" placeholder="BSA..." autocomplete="off">
-          <div class="hint">Free tier at <a href="https://brave.com/search/api/" target="_blank">brave.com/search/api</a></div>
+
+        <div class="superpower-features">
+          <div class="feature-item">🔍 Search the web for up-to-date information</div>
+          <div class="feature-item">📰 Get news, weather, prices, and more</div>
+          <div class="feature-item">🔗 Find answers beyond what's in its training</div>
         </div>
+
+        <label for="brave-key">Brave Search API Key</label>
+        <input type="password" id="brave-key" placeholder="BSA..." autocomplete="off">
+        <div class="hint">Free tier (2,000 searches/month) at <a href="https://brave.com/search/api/" target="_blank">brave.com/search/api</a></div>
       </div>
 
       <div style="margin-top: 1.5rem;">
