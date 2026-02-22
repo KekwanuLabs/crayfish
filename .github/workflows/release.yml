@@ -73,11 +73,11 @@ jobs:
             goarch: arm
             goarm: 6
             name: linux-armv6
-          - os: macos-14
+          - os: macos-latest
             goos: darwin
             goarch: arm64
             name: darwin-arm64
-          - os: macos-13
+          - os: macos-latest
             goos: darwin
             goarch: amd64
             name: darwin-amd64
@@ -138,10 +138,10 @@ jobs:
             docker: true
             docker_platform: linux/arm/v7
             docker_image: arm32v7/debian:bookworm
-          - os: macos-14
+          - os: macos-latest
             platform: darwin-arm64
             docker: false
-          - os: macos-13
+          - os: macos-latest
             platform: darwin-amd64
             docker: false
 
