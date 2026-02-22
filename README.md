@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.png" alt="Crayfish" width="180">
+  <img src="assets/logo.png" alt="Crayfish" width="280">
 </p>
 
 <h1 align="center">Crayfish</h1>

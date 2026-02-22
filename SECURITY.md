@@ -228,7 +228,7 @@ MCP servers provide external tool access. They are powerful but risky.
 Found a security issue? Please report responsibly:
 
 1. **Do NOT** open a public GitHub issue
-2. Email: security@crayfish.ai (TODO: set up)
+2. Use [GitHub Security Advisories](https://github.com/KekwanuLabs/crayfish/security/advisories/new) to report privately
 3. Include: description, reproduction steps, impact assessment
 4. We'll respond within 48 hours
 
