@@ -1,0 +1,544 @@
+// Package runtime implements the agent processing loop — the core of Crayfish.
+// It consumes events from CrayfishBus, assembles context, calls the LLM,
+// executes tools in a loop, and persists results. All within strict resource budgets.
+package runtime
+
+import (
+	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"log/slog"
+	"strings"
+	"time"
+
+	"github.com/KekwanuLabs/crayfish/internal/bus"
+	"github.com/KekwanuLabs/crayfish/internal/provider"
+	"github.com/KekwanuLabs/crayfish/internal/queue"
+	"github.com/KekwanuLabs/crayfish/internal/security"
+	"github.com/KekwanuLabs/crayfish/internal/tools"
+)
+
+const (
+	// maxHistoryMessages is the number of recent messages to include in context.
+	maxHistoryMessages = 20
+
+	// maxTokenBudget is the hard ceiling for context assembly (tokens).
+	maxTokenBudget = 4096
+
+	// maxToolIterations is the maximum number of tool call rounds per message.
+	maxToolIterations = 10
+
+	// toolExecTimeout is the hard kill timeout for a single tool execution.
+	toolExecTimeout = 30 * time.Second
+
+	// responseCacheTTL is how long cached responses are valid.
+	responseCacheTTL = 5 * time.Minute
+)
+
+// Config holds runtime configuration.
+type Config struct {
+	Name         string `json:"name" yaml:"name"`                   // The Crayfish's given name
+	Personality  string `json:"personality" yaml:"personality"`     // friendly, professional, casual, minimal
+	SystemPrompt string `json:"system_prompt" yaml:"system_prompt"` // Custom override (optional)
+	Model        string `json:"model" yaml:"model"`
+	MaxTokens    int    `json:"max_tokens" yaml:"max_tokens"`
+}
+
+// DefaultConfig returns sensible defaults for the runtime.
+func DefaultConfig() Config {
+	return Config{
+		Name:        "Crayfish",
+		Personality: "friendly",
+		Model:       "",
+		MaxTokens:   1024,
+	}
+}
+
+// BuildSystemPrompt creates the system prompt incorporating the Crayfish's name and personality.
+// If a custom SystemPrompt is set, it's used instead of the default.
+func (c Config) BuildSystemPrompt() string {
+	if c.SystemPrompt != "" {
+		// Custom prompt — still inject the name if {{name}} placeholder exists
+		return strings.ReplaceAll(c.SystemPrompt, "{{name}}", c.Name)
+	}
+
+	name := c.Name
+	if name == "" {
+		name = "Crayfish"
+	}
+
+	// Personality-specific tone guidance
+	personalityGuide := ""
+	switch c.Personality {
+	case "professional":
+		personalityGuide = "You communicate in a professional, polished manner. Use proper grammar, avoid slang, and maintain a respectful tone. Be thorough but efficient."
+	case "casual":
+		personalityGuide = "You're casual and fun to talk to. Use friendly language, occasional humor, and feel free to use expressions like 'cool', 'awesome', etc. Keep things light."
+	case "minimal":
+		personalityGuide = "You are extremely concise. Give the shortest possible answers that are still complete. No pleasantries, no filler words, just the facts. Act autonomously — when asked to do something, just do it. Don't ask for confirmation unless the action is irreversible or involves money."
+	default: // friendly
+		personalityGuide = "You are warm and approachable. You care about the person you're talking to. Use a conversational tone and show genuine interest in helping."
+	}
+
+	return fmt.Sprintf(`You are %s — a personal AI assistant. Built for everyone, not just the privileged few.
+
+Your name is %s. When people address you, they call you %s. This is your identity.
+
+%s
+
+You run on tiny hardware in your owner's home, so you keep things sharp and to the point. No fluff unless they ask.
+You have access to tools when the user's trust tier allows it.
+
+If someone asks what you are: "I'm Crayfish — AI for the rest of us. I run on a tiny computer in your home, not someone else's cloud."
+If someone asks your name: "I'm %s."
+
+You are resourceful, practical, and accessible — like crayfish itself. Found everywhere, affordable, and makes everything better.`, name, name, name, personalityGuide, name)
+}
+
+// Runtime is the agent processing loop.
+type Runtime struct {
+	config          Config
+	bus             bus.Bus
+	db              *sql.DB
+	provider        provider.Provider
+	sessions        *security.SessionStore
+	tools           *tools.Registry
+	summarizer      *Summarizer
+	memoryExtractor *MemoryExtractor
+	memoryRetriever *MemoryRetriever
+	queue           *queue.OfflineQueue
+	pairing         *security.PairingService
+	guardrails      *security.Guardrails
+	logger          *slog.Logger
+	respCh          chan Response
+}
+
+// Response carries an outbound message from the runtime to a channel adapter.
+type Response struct {
+	SessionID string
+	Channel   string
+	To        string // The recipient identifier for the channel adapter (e.g., numeric chat ID for Telegram).
+	Text      string
+}
+
+// New creates a new agent runtime.
+func New(cfg Config, b bus.Bus, db *sql.DB, prov provider.Provider, sessions *security.SessionStore, toolReg *tools.Registry, q *queue.OfflineQueue, pairing *security.PairingService, memExtractor *MemoryExtractor, memRetriever *MemoryRetriever, logger *slog.Logger) *Runtime {
+	return &Runtime{
+		config:          cfg,
+		bus:             b,
+		db:              db,
+		provider:        prov,
+		sessions:        sessions,
+		tools:           toolReg,
+		summarizer:      NewSummarizer(db, prov, logger.With("component", "summarizer")),
+		memoryExtractor: memExtractor,
+		memoryRetriever: memRetriever,
+		queue:           q,
+		pairing:         pairing,
+		guardrails:      security.NewGuardrails(),
+		logger:          logger,
+		respCh:          make(chan Response, 32),
+	}
+}
+
+// ResponseChan returns the channel where outbound responses are sent.
+func (r *Runtime) ResponseChan() <-chan Response {
+	return r.respCh
+}
+
+// Run starts the agent loop, consuming inbound message events from the bus.
+func (r *Runtime) Run(ctx context.Context) error {
+	events, err := r.bus.Subscribe(ctx, []string{bus.TypeMessageInbound})
+	if err != nil {
+		return fmt.Errorf("runtime.Run: subscribe: %w", err)
+	}
+
+	r.logger.Info("agent runtime started", "provider", r.provider.Name())
+
+	for {
+		select {
+		case <-ctx.Done():
+			r.logger.Info("agent runtime shutting down")
+			return ctx.Err()
+		case event, ok := <-events:
+			if !ok {
+				return nil
+			}
+			if err := r.handleInbound(ctx, event); err != nil {
+				r.logger.Error("failed to handle inbound message",
+					"event_id", event.ID, "error", err)
+			}
+		}
+	}
+}
+
+// handleInbound processes a single inbound message through the full agentic cycle,
+// including multi-turn tool execution.
+func (r *Runtime) handleInbound(ctx context.Context, event bus.Event) error {
+	start := time.Now()
+
+	var msg bus.InboundMessage
+	if err := json.Unmarshal(event.Payload, &msg); err != nil {
+		return fmt.Errorf("parse inbound: %w", err)
+	}
+
+	r.logger.Info("processing message",
+		"event_id", event.ID, "channel", event.Channel,
+		"session_id", event.SessionID, "from", msg.From)
+
+	// Guardrail: Check for prompt injection attempts.
+	if attempt := r.guardrails.CheckInput(msg.Text); attempt != nil {
+		r.logger.Warn("prompt injection detected",
+			"type", attempt.Type, "confidence", attempt.Confidence,
+			"from", msg.From, "channel", event.Channel)
+		r.sendResponse(event.SessionID, event.Channel, msg.From,
+			r.guardrails.RefusalResponse(attempt))
+		return nil
+	}
+
+	// Session resolution.
+	sess, err := r.sessions.Resolve(ctx, event.Channel, msg.From)
+	if err != nil {
+		return fmt.Errorf("resolve session: %w", err)
+	}
+
+	// Auto-promote CLI and Telegram to operator.
+	// CLI is local access; Telegram requires the secret bot token, so both are trusted.
+	if (event.Channel == "cli" || event.Channel == "telegram") && sess.Trust < security.TierOperator {
+		r.sessions.SetTrust(ctx, sess.ID, security.TierOperator)
+		sess.Trust = security.TierOperator
+	}
+
+	// Handle pairing commands.
+	if r.pairing != nil {
+		if handled := r.handlePairingCommand(ctx, event, sess, msg); handled {
+			return nil
+		}
+	}
+
+	// Check response cache.
+	if cached := r.checkCache(ctx, msg.Text); cached != "" {
+		r.logger.Info("cache hit", "session_id", sess.ID)
+		r.sendResponse(event.SessionID, event.Channel, msg.From, cached)
+		return nil
+	}
+
+	// Persist user message.
+	r.persistMessage(ctx, sess.ID, provider.RoleUser, msg.Text)
+
+	// Context assembly.
+	messages, err := r.assembleContext(ctx, sess, msg.Text)
+	if err != nil {
+		return fmt.Errorf("assemble context: %w", err)
+	}
+
+	// Get tools for this trust tier.
+	availableTools := r.tools.ForTier(sess.Trust)
+	var toolDefs []provider.ToolDef
+	for _, t := range availableTools {
+		toolDefs = append(toolDefs, provider.ToolDef{
+			Name:        t.Name,
+			Description: t.Description,
+			InputSchema: t.InputSchema,
+		})
+	}
+
+	// === Agentic loop: model call → tool exec → repeat until text response ===
+	var finalContent string
+	totalTokens := 0
+
+	for iteration := 0; iteration < maxToolIterations; iteration++ {
+		resp, err := r.provider.Complete(ctx, provider.CompletionRequest{
+			Model:       r.config.Model,
+			Messages:    messages,
+			Tools:       toolDefs,
+			MaxTokens:   r.config.MaxTokens,
+			TokenBudget: maxTokenBudget,
+		})
+		if err != nil {
+			// Queue the failed message for retry if offline queue is available.
+			if r.queue != nil {
+				queueErr := r.queue.Enqueue(ctx, queue.QueueItem{
+					EventType: bus.TypeMessageInbound,
+					Channel:   event.Channel,
+					SessionID: event.SessionID,
+					Payload:   event.Payload,
+					Priority:  0,
+				})
+				if queueErr != nil {
+					r.logger.Error("failed to enqueue for retry", "error", queueErr)
+				} else {
+					r.logger.Info("message queued for retry", "session_id", event.SessionID)
+				}
+			}
+			errMsg := fmt.Sprintf("Sorry, I couldn't process that: %v", err)
+			r.sendResponse(event.SessionID, event.Channel, msg.From, errMsg)
+			return fmt.Errorf("model call (iteration %d): %w", iteration, err)
+		}
+
+		totalTokens += resp.TokensUsed
+
+		// No tool calls → we're done.
+		if len(resp.ToolCalls) == 0 {
+			finalContent = resp.Content
+			break
+		}
+
+		// Model wants tools. Add assistant message with tool calls to context.
+		messages = append(messages, provider.Message{
+			Role:      provider.RoleAssistant,
+			Content:   resp.Content,
+			ToolCalls: resp.ToolCalls,
+		})
+
+		r.logger.Info("tool calls requested", "iteration", iteration, "count", len(resp.ToolCalls))
+
+		// Execute each tool and add results.
+		for _, tc := range resp.ToolCalls {
+			result, toolErr := r.executeTool(ctx, sess, tc)
+			toolMsg := provider.Message{
+				Role:      provider.RoleToolResult,
+				ToolUseID: tc.ID,
+				Content:   result,
+			}
+			if toolErr != nil {
+				toolMsg.Content = fmt.Sprintf("Error: %v", toolErr)
+				toolMsg.IsError = true
+			}
+			messages = append(messages, toolMsg)
+		}
+
+		// Safety: if last iteration, use whatever text we have.
+		if iteration == maxToolIterations-1 {
+			finalContent = resp.Content
+			if finalContent == "" {
+				finalContent = "I've completed the requested actions."
+			}
+		}
+	}
+
+	// Persist, cache, publish, route.
+	r.persistMessage(ctx, sess.ID, provider.RoleAssistant, finalContent)
+	r.cacheResponse(ctx, msg.Text, finalContent)
+
+	r.bus.Publish(ctx, bus.Event{
+		Type:      bus.TypeMessageOutbound,
+		Channel:   event.Channel,
+		SessionID: event.SessionID,
+		Payload:   bus.MustJSON(bus.OutboundMessage{To: msg.From, Text: finalContent}),
+	})
+
+	r.sendResponse(event.SessionID, event.Channel, msg.From, finalContent)
+
+	r.logger.Info("message processed",
+		"event_id", event.ID, "tokens_used", totalTokens,
+		"elapsed_ms", time.Since(start).Milliseconds())
+
+	// Trigger memory extraction asynchronously (non-blocking)
+	if r.memoryExtractor != nil {
+		go func() {
+			// Use background context independent of request lifecycle
+			extractCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			if err := r.memoryExtractor.ExtractFromTurn(extractCtx, sess.ID, msg.Text, finalContent); err != nil {
+				r.logger.Warn("memory extraction failed", "error", err, "session_id", sess.ID)
+			}
+		}()
+	}
+
+	return nil
+}
+
+// executeTool runs a single tool call with a hard timeout.
+func (r *Runtime) executeTool(ctx context.Context, sess *security.Session, tc provider.ToolCall) (string, error) {
+	toolCtx, cancel := context.WithTimeout(ctx, toolExecTimeout)
+	defer cancel()
+
+	r.logger.Info("executing tool", "tool", tc.Name, "session", sess.ID, "trust", sess.Trust)
+
+	r.bus.Publish(ctx, bus.Event{
+		Type: bus.TypeToolRequest, SessionID: sess.ID, Payload: bus.MustJSON(tc),
+	})
+
+	result, err := r.tools.Execute(toolCtx, sess, tc.Name, json.RawMessage(tc.Input))
+
+	resultPayload := map[string]any{"tool": tc.Name, "result": result}
+	if err != nil {
+		resultPayload["error"] = err.Error()
+	}
+	r.bus.Publish(ctx, bus.Event{
+		Type: bus.TypeToolResult, SessionID: sess.ID, Payload: bus.MustJSON(resultPayload),
+	})
+
+	return result, err
+}
+
+// assembleContext builds the message array for the LLM call.
+// It loads conversation history and applies summarization when the history exceeds the threshold.
+func (r *Runtime) assembleContext(ctx context.Context, sess *security.Session, currentMessage string) ([]provider.Message, error) {
+	var messages []provider.Message
+
+	messages = append(messages, provider.Message{
+		Role:    provider.RoleSystem,
+		Content: r.config.BuildSystemPrompt(),
+	})
+
+	// Retrieve and inject relevant memories
+	if r.memoryRetriever != nil {
+		memories, err := r.memoryRetriever.RetrieveRelevant(ctx, sess.ID, currentMessage, 5)
+		if err != nil {
+			r.logger.Warn("failed to retrieve memories", "error", err)
+		} else if len(memories) > 0 {
+			memoryContent := r.memoryRetriever.FormatForContext(memories)
+			if memoryContent != "" {
+				messages = append(messages, provider.Message{
+					Role:    provider.RoleSystem,
+					Content: memoryContent,
+				})
+			}
+		}
+	}
+
+	history, err := r.loadHistory(ctx, sess.ID, maxHistoryMessages)
+	if err != nil {
+		r.logger.Warn("failed to load history", "error", err)
+	} else {
+		// Apply summarization if history is long enough.
+		if r.summarizer != nil && len(history) > 0 {
+			history, err = r.summarizer.SummarizeIfNeeded(ctx, sess.ID, history, KeepRecentDefault)
+			if err != nil {
+				r.logger.Warn("summarization failed, using full history", "error", err)
+			}
+		}
+		messages = append(messages, history...)
+	}
+
+	messages = append(messages, provider.Message{
+		Role:    provider.RoleUser,
+		Content: security.WrapUserMessage(currentMessage),
+	})
+
+	return messages, nil
+}
+
+func (r *Runtime) loadHistory(ctx context.Context, sessionID string, limit int) ([]provider.Message, error) {
+	rows, err := r.db.QueryContext(ctx,
+		"SELECT role, content FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT ?",
+		sessionID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var msgs []provider.Message
+	for rows.Next() {
+		var m provider.Message
+		if err := rows.Scan(&m.Role, &m.Content); err != nil {
+			return nil, err
+		}
+		msgs = append(msgs, m)
+	}
+	// Reverse to chronological order.
+	for i, j := 0, len(msgs)-1; i < j; i, j = i+1, j-1 {
+		msgs[i], msgs[j] = msgs[j], msgs[i]
+	}
+	return msgs, rows.Err()
+}
+
+func (r *Runtime) persistMessage(ctx context.Context, sessionID, role, content string) error {
+	_, err := r.db.ExecContext(ctx,
+		"INSERT INTO messages (session_id, role, content, created_at) VALUES (?, ?, ?, datetime('now'))",
+		sessionID, role, content)
+	return err
+}
+
+func (r *Runtime) sendResponse(sessionID, channel, to, text string) {
+	// Guardrail: Sanitize output to remove any leaked secrets.
+	sanitized, redacted := r.guardrails.SanitizeOutput(text)
+	if redacted {
+		r.logger.Warn("sensitive data redacted from response", "session_id", sessionID)
+	}
+
+	select {
+	case r.respCh <- Response{SessionID: sessionID, Channel: channel, To: to, Text: sanitized}:
+	default:
+		r.logger.Warn("response channel full", "session_id", sessionID)
+	}
+}
+
+// --- Pairing flow ---
+
+// handlePairingCommand intercepts /pair and /pair <OTP> commands.
+// Returns true if the message was a pairing command and was handled.
+func (r *Runtime) handlePairingCommand(ctx context.Context, event bus.Event, sess *security.Session, msg bus.InboundMessage) bool {
+	text := strings.TrimSpace(msg.Text)
+
+	// Operator generates OTP: "/pair" from CLI (operator-only).
+	if text == "/pair" {
+		if sess.Trust < security.TierOperator {
+			r.sendResponse(event.SessionID, event.Channel, msg.From,
+				"Only operators can generate pairing codes. Use the CLI to run /pair.")
+			return true
+		}
+
+		otp, err := r.pairing.GenerateOTP(ctx, sess.ID)
+		if err != nil {
+			r.sendResponse(event.SessionID, event.Channel, msg.From,
+				fmt.Sprintf("Failed to generate pairing code: %v", err))
+			return true
+		}
+
+		r.sendResponse(event.SessionID, event.Channel, msg.From,
+			fmt.Sprintf("Pairing code: %s\nSend this to your Telegram bot within 5 minutes.\nThe user should type: /pair %s", otp, otp))
+		return true
+	}
+
+	// User redeems OTP: "/pair 123456" from any channel.
+	if strings.HasPrefix(text, "/pair ") {
+		otp := strings.TrimSpace(strings.TrimPrefix(text, "/pair "))
+		if otp == "" {
+			r.sendResponse(event.SessionID, event.Channel, msg.From,
+				"Usage: /pair <code>\nGet a pairing code from the operator's CLI first.")
+			return true
+		}
+
+		err := r.pairing.RedeemOTP(ctx, sess.ID, otp)
+		if err != nil {
+			r.sendResponse(event.SessionID, event.Channel, msg.From,
+				fmt.Sprintf("Pairing failed: %v", err))
+			return true
+		}
+
+		r.sendResponse(event.SessionID, event.Channel, msg.From,
+			"Paired successfully! You now have operator access. Na crayfish dey make soup sweet.")
+		return true
+	}
+
+	return false
+}
+
+// --- Response cache ---
+
+func hashPrompt(text string) string {
+	h := sha256.Sum256([]byte(text))
+	return hex.EncodeToString(h[:])
+}
+
+func (r *Runtime) checkCache(ctx context.Context, prompt string) string {
+	var response string
+	r.db.QueryRowContext(ctx,
+		"SELECT response FROM message_cache WHERE hash = ? AND expires_at > datetime('now')",
+		hashPrompt(prompt)).Scan(&response)
+	return response
+}
+
+func (r *Runtime) cacheResponse(ctx context.Context, prompt, response string) {
+	expires := time.Now().Add(responseCacheTTL).UTC().Format("2006-01-02 15:04:05")
+	r.db.ExecContext(ctx,
+		"INSERT OR REPLACE INTO message_cache (hash, response, created_at, expires_at) VALUES (?, ?, datetime('now'), ?)",
+		hashPrompt(prompt), response, expires)
+}

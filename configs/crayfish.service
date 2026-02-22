@@ -1,0 +1,41 @@
+[Unit]
+Description=Crayfish Agentic AI Gateway
+Documentation=https://github.com/crayfish-ai/crayfish
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=crayfish
+Group=crayfish
+ExecStart=/usr/local/bin/crayfish
+WorkingDirectory=/var/lib/crayfish
+Restart=always
+RestartSec=5
+
+# Environment
+EnvironmentFile=-/etc/crayfish/env
+Environment=CRAYFISH_DB_PATH=/var/lib/crayfish/crayfish.db
+Environment=CRAYFISH_LISTEN=:8119
+Environment=CRAYFISH_CONFIG=/etc/crayfish/crayfish.yaml
+Environment=CRAYFISH_AUTO_UPDATE=true
+
+# Resource limits — enforce the performance budget
+MemoryMax=128M
+MemoryHigh=100M
+CPUQuota=80%
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/crayfish /etc/crayfish
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=crayfish
+
+[Install]
+WantedBy=multi-user.target
