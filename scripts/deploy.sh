@@ -25,6 +25,17 @@ error() { echo -e "${RED}[deploy]${NC} $*" >&2; }
 DEPLOY_CONF=".deploy.env"
 BINARY="crayfish"
 SERVICE="crayfish"
+CLEAN_INSTALL=false
+
+# Parse arguments
+for arg in "$@"; do
+    case "$arg" in
+        --clean|-c)
+            CLEAN_INSTALL=true
+            shift
+            ;;
+    esac
+done
 
 # ==================================================================
 # Load or prompt for deploy config
@@ -292,6 +303,29 @@ EOF
 }
 
 # ==================================================================
+# Clean install (wipe all data)
+# ==================================================================
+
+clean_remote() {
+    step "Wiping all Crayfish data on ${PI_HOST}..."
+    warn "This will delete all settings, database, and downloaded models!"
+
+    ssh "${PI_USER}@${PI_HOST}" bash -s << 'CLEAN_SCRIPT'
+set -e
+echo "[deploy] Stopping service..."
+sudo systemctl stop crayfish 2>/dev/null || true
+
+echo "[deploy] Removing data directories..."
+rm -rf ~/.crayfish
+rm -rf ~/.config/crayfish
+
+echo "[deploy] Data wiped. Fresh start!"
+CLEAN_SCRIPT
+
+    info "Remote data wiped"
+}
+
+# ==================================================================
 # Push binary and restart
 # ==================================================================
 
@@ -343,6 +377,12 @@ echo ""
 load_config "${1:-}"
 test_ssh
 build_binary
+
+# Wipe data if --clean flag was passed
+if [ "$CLEAN_INSTALL" = true ]; then
+    clean_remote
+fi
+
 setup_remote
 install_service
 push_and_restart
