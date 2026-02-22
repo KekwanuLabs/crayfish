@@ -795,12 +795,208 @@
     font-size: 0.75rem;
   }
 
+  /* Superpower Cards */
+  .superpower-card {
+    background: rgba(30, 41, 59, 0.6);
+    border: 1px solid rgba(71, 85, 105, 0.5);
+    border-radius: 12px;
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+  }
+
+  .superpower-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+
+  .superpower-icon {
+    font-size: 2rem;
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(249, 115, 22, 0.15);
+    border-radius: 10px;
+    flex-shrink: 0;
+  }
+
+  .superpower-header h3 {
+    color: #f8fafc;
+    font-size: 1.125rem;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+  }
+
+  .superpower-tagline {
+    color: #94a3b8;
+    font-size: 0.875rem;
+    margin: 0;
+  }
+
+  .superpower-features {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    background: rgba(15, 23, 42, 0.4);
+    border-radius: 8px;
+  }
+
+  .feature-item {
+    font-size: 0.875rem;
+    color: #cbd5e1;
+  }
+
+  .feature-item strong {
+    color: #f8fafc;
+  }
+
+  .superpower-examples {
+    background: rgba(249, 115, 22, 0.08);
+    border: 1px solid rgba(249, 115, 22, 0.2);
+    border-radius: 8px;
+    padding: 0.75rem;
+    margin-bottom: 1rem;
+  }
+
+  .example {
+    font-size: 0.8125rem;
+    color: #f97316;
+    font-style: italic;
+    padding: 0.25rem 0;
+  }
+
+  .example::before {
+    content: '"';
+  }
+
+  .example::after {
+    content: '"';
+  }
+
+  /* Google Connect Options */
+  .google-connect-options {
+    margin-top: 1rem;
+  }
+
+  .btn-google {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    padding: 0.875rem 1rem;
+    background: #fff;
+    color: #3c4043;
+    font-weight: 600;
+    font-size: 0.9375rem;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-google:hover {
+    background: #f8f9fa;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  }
+
+  .divider-text {
+    display: flex;
+    align-items: center;
+    margin: 1rem 0;
+    color: #64748b;
+    font-size: 0.8125rem;
+  }
+
+  .divider-text::before,
+  .divider-text::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: rgba(71, 85, 105, 0.5);
+  }
+
+  .divider-text span {
+    padding: 0 0.75rem;
+  }
+
+  .simple-gmail-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    background: rgba(30, 41, 59, 0.5);
+    border: 1px solid rgba(71, 85, 105, 0.5);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.875rem;
+    color: #94a3b8;
+    transition: all 0.2s;
+  }
+
+  .simple-gmail-toggle:hover {
+    border-color: #64748b;
+    color: #e2e8f0;
+  }
+
+  .simple-gmail-toggle .arrow {
+    font-size: 0.75rem;
+    transition: transform 0.2s;
+  }
+
+  .simple-gmail-toggle.open .arrow {
+    transform: rotate(180deg);
+  }
+
+  /* Status Banner */
+  .status-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+    background: rgba(110, 231, 183, 0.1);
+    border: 1px solid rgba(110, 231, 183, 0.3);
+    border-radius: 8px;
+    margin-bottom: 1rem;
+    font-size: 0.875rem;
+    color: #6ee7b7;
+  }
+
+  .status-banner.loading {
+    background: rgba(251, 191, 36, 0.1);
+    border-color: rgba(251, 191, 36, 0.3);
+    color: #fcd34d;
+  }
+
+  .status-banner.error {
+    background: rgba(248, 113, 113, 0.1);
+    border-color: rgba(248, 113, 113, 0.3);
+    color: #f87171;
+  }
+
+  /* Optional Tag */
+  .tag-optional {
+    font-size: 0.6875rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    background: rgba(100, 116, 139, 0.3);
+    color: #94a3b8;
+    font-weight: 500;
+    margin-left: 0.5rem;
+  }
+
   /* Responsive */
   @media (max-width: 480px) {
     body { padding: 1rem; }
     .provider-grid { grid-template-columns: 1fr; }
     .btn-row { flex-direction: column; }
     .btn-row .btn-back { width: 100%; }
+    .superpower-header { flex-direction: column; gap: 0.75rem; }
+    .superpower-icon { width: 40px; height: 40px; font-size: 1.5rem; }
   }
 </style>
 </head>
@@ -1050,45 +1246,102 @@
     <div id="test-status" class="status"></div>
   </div>
 
-  <!-- Step 4: Optional Features -->
+  <!-- Step 4: Superpowers -->
   <div class="step" id="step-4">
     <div class="card">
       <div class="card-header">
-        <h2>Add extra features</h2>
-        <p>These are optional. You can always add them later.</p>
+        <h2>Give your AI superpowers</h2>
+        <p>This is where the magic happens. Connect your accounts so your AI can actually help you.</p>
       </div>
 
-      <div class="collapsible open" id="telegram-section">
-        <div class="collapsible-header" onclick="toggleCollapsible('telegram-section')">
-          <h3>💬 Telegram <span class="tag">Recommended</span></h3>
-          <span class="arrow">▶</span>
+      <!-- Voice Status -->
+      <div id="voice-status" class="status-banner" style="display: none;">
+        <span id="voice-status-icon">🎤</span>
+        <span id="voice-status-text">Setting up voice recognition...</span>
+      </div>
+
+      <!-- Google Workspace - The Star -->
+      <div class="superpower-card" id="google-section">
+        <div class="superpower-header">
+          <div class="superpower-icon">🚀</div>
+          <div>
+            <h3>Google Workspace</h3>
+            <p class="superpower-tagline">The full package. Your AI becomes your executive assistant.</p>
+          </div>
         </div>
-        <div class="collapsible-body">
-          <p style="color: #94a3b8; font-size: 0.875rem; margin-bottom: 1rem;">Chat with your AI from your phone via Telegram.</p>
-          <label for="telegram-token">Bot Token</label>
-          <input type="password" id="telegram-token" placeholder="Paste your bot token..." autocomplete="off">
-          <div class="hint">Create a bot via <a href="https://t.me/BotFather" target="_blank">@BotFather</a> on Telegram</div>
+
+        <div class="superpower-features">
+          <div class="feature-item">📧 <strong>Gmail</strong> — Read, search, draft, and send emails</div>
+          <div class="feature-item">📅 <strong>Calendar</strong> — Check schedule, create events, get reminders</div>
+          <div class="feature-item">📁 <strong>Drive</strong> — Find and organize your files</div>
+          <div class="feature-item">📝 <strong>Docs & Sheets</strong> — Read and edit documents</div>
+          <div class="feature-item">👥 <strong>Contacts</strong> — Look up people and their details</div>
+        </div>
+
+        <div class="superpower-examples">
+          <p style="color: #94a3b8; font-size: 0.8rem; margin-bottom: 0.5rem;">You'll be able to say things like:</p>
+          <div class="example">"Send Mom an email saying I'll be late for dinner"</div>
+          <div class="example">"What's on my calendar tomorrow?"</div>
+          <div class="example">"Schedule a meeting with Alex for Friday at 2pm"</div>
+          <div class="example">"Find that spreadsheet from last month"</div>
+        </div>
+
+        <div class="google-connect-options">
+          <button class="btn btn-google" onclick="connectGoogleWorkspace()">
+            <svg width="18" height="18" viewBox="0 0 24 24" style="margin-right: 8px;">
+              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+            </svg>
+            Connect Google Workspace
+          </button>
+
+          <div class="divider-text">
+            <span>or use simple email access</span>
+          </div>
+
+          <div class="simple-gmail-toggle" onclick="toggleSimpleGmail()">
+            <span>📧 Just Gmail & Calendar (App Password)</span>
+            <span class="arrow" id="simple-gmail-arrow">▼</span>
+          </div>
+
+          <div id="simple-gmail-form" style="display: none; margin-top: 1rem;">
+            <p style="color: #94a3b8; font-size: 0.8rem; margin-bottom: 1rem;">Basic access — reads emails and calendar only.</p>
+            <label for="gmail-user">Gmail Address</label>
+            <input type="email" id="gmail-user" placeholder="you@gmail.com">
+            <label for="gmail-pass">App Password</label>
+            <input type="password" id="gmail-pass" placeholder="xxxx xxxx xxxx xxxx" autocomplete="off">
+            <div class="hint">Create at <a href="https://myaccount.google.com/apppasswords" target="_blank">Google App Passwords</a></div>
+          </div>
         </div>
       </div>
 
-      <div class="collapsible" id="gmail-section">
-        <div class="collapsible-header" onclick="toggleCollapsible('gmail-section')">
-          <h3>📧 Gmail & Calendar</h3>
-          <span class="arrow">▶</span>
+      <!-- Telegram - Important but secondary -->
+      <div class="superpower-card" id="telegram-section">
+        <div class="superpower-header">
+          <div class="superpower-icon">💬</div>
+          <div>
+            <h3>Telegram</h3>
+            <p class="superpower-tagline">Chat with your AI from anywhere in the world.</p>
+          </div>
         </div>
-        <div class="collapsible-body">
-          <p style="color: #94a3b8; font-size: 0.875rem; margin-bottom: 1rem;">Let your AI read emails, check your schedule, and add events. One password works for both.</p>
-          <label for="gmail-user">Gmail Address</label>
-          <input type="email" id="gmail-user" placeholder="you@gmail.com">
-          <label for="gmail-pass">App Password</label>
-          <input type="password" id="gmail-pass" placeholder="xxxx xxxx xxxx xxxx" autocomplete="off">
-          <div class="hint">Create at <a href="https://myaccount.google.com/apppasswords" target="_blank">Google App Passwords</a></div>
+
+        <div class="superpower-features">
+          <div class="feature-item">📱 Message your AI from your phone</div>
+          <div class="feature-item">🎤 Send voice messages — it transcribes and responds</div>
+          <div class="feature-item">🔔 Get proactive updates about emails and meetings</div>
         </div>
+
+        <label for="telegram-token">Bot Token</label>
+        <input type="password" id="telegram-token" placeholder="Paste your bot token..." autocomplete="off">
+        <div class="hint">Create a bot via <a href="https://t.me/BotFather" target="_blank">@BotFather</a> on Telegram (takes 30 seconds)</div>
       </div>
 
+      <!-- Web Search - Bonus -->
       <div class="collapsible" id="search-section">
         <div class="collapsible-header" onclick="toggleCollapsible('search-section')">
-          <h3>🔍 Web Search</h3>
+          <h3>🔍 Web Search <span class="tag-optional">Bonus</span></h3>
           <span class="arrow">▶</span>
         </div>
         <div class="collapsible-body">
@@ -1178,7 +1431,47 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Initialize Ollama recovery in case page was refreshed mid-operation
   initOllamaRecovery();
+
+  // Check voice recognition status
+  checkVoiceStatus();
 });
+
+async function checkVoiceStatus() {
+  const statusEl = document.getElementById('voice-status');
+  const iconEl = document.getElementById('voice-status-icon');
+  const textEl = document.getElementById('voice-status-text');
+
+  try {
+    const resp = await fetch('/api/voice/status');
+    if (!resp.ok) return;
+
+    const data = await resp.json();
+
+    if (data.ready) {
+      statusEl.style.display = 'flex';
+      statusEl.className = 'status-banner';
+      iconEl.textContent = '🎤';
+      textEl.textContent = 'Voice recognition ready! Send voice messages via Telegram.';
+    } else if (data.installing) {
+      statusEl.style.display = 'flex';
+      statusEl.className = 'status-banner loading';
+      iconEl.innerHTML = '<span class="spinner"></span>';
+      textEl.textContent = data.status || 'Setting up voice recognition...';
+
+      // Poll for updates
+      setTimeout(checkVoiceStatus, 3000);
+    } else if (data.error) {
+      statusEl.style.display = 'flex';
+      statusEl.className = 'status-banner error';
+      iconEl.textContent = '⚠️';
+      textEl.textContent = 'Voice setup pending: ' + data.error;
+    }
+    // If not ready and not installing, hide the banner (will auto-install on first use)
+  } catch (e) {
+    // Voice API not available, hide banner
+    console.log('Voice status not available');
+  }
+}
 
 async function fetchHardwareInfo() {
   try {
@@ -1930,6 +2223,68 @@ function initOllamaRecovery() {
 
 function toggleCollapsible(id) {
   document.getElementById(id).classList.toggle('open');
+}
+
+function toggleSimpleGmail() {
+  const form = document.getElementById('simple-gmail-form');
+  const toggle = document.querySelector('.simple-gmail-toggle');
+
+  if (form.style.display === 'none') {
+    form.style.display = 'block';
+    toggle.classList.add('open');
+  } else {
+    form.style.display = 'none';
+    toggle.classList.remove('open');
+  }
+}
+
+async function connectGoogleWorkspace() {
+  // For now, show a message that full OAuth is coming soon
+  // In production, this would redirect to Google OAuth flow
+  const btn = document.querySelector('.btn-google');
+  const originalText = btn.innerHTML;
+
+  btn.innerHTML = '<span class="spinner"></span> Connecting...';
+  btn.disabled = true;
+
+  try {
+    // Check if backend supports OAuth
+    const resp = await fetch('/api/google/oauth-url');
+
+    if (resp.ok) {
+      const data = await resp.json();
+      if (data.url) {
+        // Redirect to Google OAuth
+        window.location.href = data.url;
+        return;
+      }
+    }
+
+    // OAuth not configured - show fallback message
+    btn.innerHTML = originalText;
+    btn.disabled = false;
+
+    alert('Full Google Workspace integration is coming soon!\n\nFor now, use the "Simple Gmail" option below with an app password.');
+
+    // Auto-expand the simple Gmail form
+    const form = document.getElementById('simple-gmail-form');
+    const toggle = document.querySelector('.simple-gmail-toggle');
+    form.style.display = 'block';
+    toggle.classList.add('open');
+
+  } catch (e) {
+    console.log('Google OAuth not available:', e);
+    btn.innerHTML = originalText;
+    btn.disabled = false;
+
+    // Show simple Gmail option
+    alert('Full Google Workspace integration is coming soon!\n\nFor now, use the "Simple Gmail" option below.');
+
+    const form = document.getElementById('simple-gmail-form');
+    const toggle = document.querySelector('.simple-gmail-toggle');
+    form.style.display = 'block';
+    toggle.classList.add('open');
+  }
 }
 
 function showStatus(id, msg, type) {
