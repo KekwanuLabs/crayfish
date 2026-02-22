@@ -1,6 +1,6 @@
 module github.com/KekwanuLabs/crayfish
 
-go 1.22.0
+go 1.26.0
 
 require (
 	github.com/emersion/go-imap v1.2.1
