@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <em>A personal AI assistant that runs on a $35 Raspberry Pi.<br>No PhD required. No cloud bills. No nonsense.</em>
+  <em>A personal AI assistant that runs on anything from a $5 Pi Zero to a Mac Studio.<br>No PhD required. No jargon. No gatekeeping.</em>
 </p>
 
 ---
@@ -18,7 +18,7 @@
 
 AI assistants today are like lobster dinners — powerful, impressive, and priced for the privileged few. You need expensive hardware, technical expertise, or a monthly subscription that adds up fast.
 
-**Crayfish is the $35 alternative.** Same delicious AI capabilities, fraction of the cost, and you don't need to be a chef to enjoy it.
+**Crayfish is the alternative.** Same delicious AI capabilities. Runs on a $5 Pi Zero or a $5,000 workstation. Open source, built iteratively by and for everyone.
 
 ---
 
@@ -42,26 +42,34 @@ You open a webpage. You fill in a form. It works.
 
 ## Who is this for?
 
-**Crayfish is for people who want AI to help them, not become their second job.**
+**Everyone.**
 
-You might be:
-- A busy parent who wants help managing the household
+- A busy parent managing the household
 - A small business owner drowning in emails
-- A student who wants a smart assistant without the smart price
+- A student who wants AI without the price tag
 - Someone who's heard about AI but doesn't know where to start
-- A person who values privacy and wants their data at home
+- A tinkerer who wants to hack on something fun
+- A developer who appreciates clean, simple architecture
 
-If you've ever felt like AI was "not for people like me" — Crayfish is for you.
+Crayfish removes the jargon. No "just SSH in and edit the config." No "you'll need to understand Docker." No gatekeeping.
 
-*(Tech folks welcome too. You'll appreciate the clean architecture.)*
+If you've ever felt like AI was "not for people like me" — we built this for you.
+
+And if you're technical? You'll love the codebase. It's Go, it's clean, and PRs are welcome.
 
 ---
 
 ## How it Works
 
-### 1. Get a Raspberry Pi
+### 1. Get Any Device
 
-Any model works. A $35 Pi 4 is perfect. Got an old Pi collecting dust? Even better.
+- **$5 Pi Zero** — tiny and perfect
+- **$35 Pi 4** — the sweet spot
+- **Old laptop** — give it new life
+- **Mac or PC** — works great too
+- **Cloud server** — if that's your thing
+
+Got old hardware collecting dust? Perfect.
 
 ### 2. Install Crayfish
 
@@ -120,12 +128,13 @@ Got a beefier Pi or don't want to pay for cloud AI? Run local models with Ollama
 
 | | Lobster (Premium AI) | Crayfish |
 |---|---|---|
-| **Hardware** | $2000+ Mac/PC | $35 Raspberry Pi |
+| **Hardware** | "You need a good machine" | $5 Pi Zero to Mac Studio — anything works |
 | **Setup** | Hours of configuration | 5 minutes, browser-based |
-| **Technical skill** | High | None |
+| **Technical skill** | "Just edit the YAML and..." | None. Point, click, done. |
 | **Monthly cost** | $20-100/month | $0-5/month |
-| **Your data** | In their cloud | In your home |
-| **Runs 24/7** | Drains your laptop | Sips 5 watts |
+| **Your data** | In their cloud | On your device |
+| **Runs 24/7** | Drains your laptop | Sips 2-5 watts |
+| **Community** | "Read the docs" | Built for everyone, with everyone |
 
 ---
 
@@ -134,8 +143,8 @@ Got a beefier Pi or don't want to pay for cloud AI? Run local models with Ollama
 ### Do I need to know how to code?
 No. If you can use a web browser, you can set up Crayfish.
 
-### What Raspberry Pi do I need?
-Any Pi 2, 3, 4, or 5 works. More RAM = can run local AI models. But even a basic Pi works great with cloud AI.
+### What hardware do I need?
+Anything. Pi Zero, Pi 2/3/4/5, old laptop, Mac, PC, cloud server. More RAM = can run local AI models. But even a $5 Pi Zero works great with cloud AI.
 
 ### Is it really free?
 The software is free and open source. You pay for:
@@ -165,5 +174,5 @@ Absolutely. It's written in Go, fully open source, and designed with clean archi
 
 <p align="center">
   <strong>Can't afford the lobster? Get the crayfish.</strong><br>
-  <em>Accessible AI for everyone.</em>
+  <em>Open source. Built for everyone, with everyone.</em>
 </p>
