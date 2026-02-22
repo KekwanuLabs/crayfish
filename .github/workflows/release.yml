@@ -188,7 +188,7 @@ jobs:
           fi
 
           echo "Building whisper.cpp version: ${WHISPER_VERSION}"
-          git clone --depth 1 --branch "${WHISPER_VERSION}" https://github.com/ggerganov/whisper.cpp.git
+          git clone --depth 1 --branch "${WHISPER_VERSION}" https://github.com/ggml-org/whisper.cpp.git
           cd whisper.cpp
           cmake -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
@@ -205,7 +205,7 @@ jobs:
             -v $PWD:/work -w /work ${{ matrix.docker_image }} bash -c '
             apt-get update && apt-get install -y cmake g++ git
             echo "Building whisper.cpp version: ${WHISPER_VERSION}"
-            git clone --depth 1 --branch "${WHISPER_VERSION}" https://github.com/ggerganov/whisper.cpp.git
+            git clone --depth 1 --branch "${WHISPER_VERSION}" https://github.com/ggml-org/whisper.cpp.git
             cd whisper.cpp
             cmake -B build -DCMAKE_BUILD_TYPE=Release
             cmake --build build -j$(nproc)

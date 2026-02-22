@@ -954,7 +954,7 @@ func (w *Wizard) handleVoiceInstall(rw http.ResponseWriter, r *http.Request) {
 
 		// Clone repository
 		if _, err := os.Stat(filepath.Join(srcDir, "Makefile")); err != nil {
-			cmd := exec.Command("git", "clone", "--depth", "1", "https://github.com/ggerganov/whisper.cpp.git", srcDir)
+			cmd := exec.Command("git", "clone", "--depth", "1", "https://github.com/ggml-org/whisper.cpp.git", srcDir)
 			if output, err := cmd.CombinedOutput(); err != nil {
 				sendEvent("error", fmt.Sprintf(`{"message": "Failed to clone whisper.cpp: %s"}`, string(output)))
 				return

@@ -1,5 +1,5 @@
 # Whisper.cpp version to build
 # Change this to trigger a rebuild of whisper binaries
-# Format: tag, branch, or commit SHA from https://github.com/ggerganov/whisper.cpp
+# Format: tag, branch, or commit SHA from https://github.com/ggml-org/whisper.cpp
 
-v1.7.4
+v1.8.3

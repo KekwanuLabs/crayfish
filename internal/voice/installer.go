@@ -358,7 +358,7 @@ func (i *Installer) compileFromSource(ctx context.Context) error {
 	if _, err := os.Stat(filepath.Join(whisperDir, "Makefile")); err != nil {
 		i.logger.Info("cloning whisper.cpp repository")
 		cmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1",
-			"https://github.com/ggerganov/whisper.cpp.git", whisperDir)
+			"https://github.com/ggml-org/whisper.cpp.git", whisperDir)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
