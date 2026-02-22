@@ -1,0 +1,280 @@
+name: Release
+
+# Automatically build and release on every push to main.
+# Creates versioned releases with binaries for all platforms.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:  # Manual trigger
+
+env:
+  GO_VERSION: '1.22'
+
+jobs:
+  # Detect if this is a version bump or regular commit
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      should_release: ${{ steps.changes.outputs.should_release }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Get version from commit or generate
+        id: version
+        run: |
+          # Check if commit message contains version like "v0.4.1" or "release 0.4.1"
+          VERSION=$(git log -1 --pretty=%B | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "")
+
+          if [ -z "$VERSION" ]; then
+            # Auto-generate version: v0.4.0-<short-sha>-<date>
+            SHORT_SHA=$(git rev-parse --short HEAD)
+            DATE=$(date +'%Y%m%d')
+            VERSION="v0.4.0-dev.${DATE}.${SHORT_SHA}"
+          else
+            # Ensure version starts with 'v'
+            VERSION="v${VERSION#v}"
+          fi
+
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Version: ${VERSION}"
+
+      - name: Check for code changes
+        id: changes
+        run: |
+          # Always release on push to main
+          echo "should_release=true" >> $GITHUB_OUTPUT
+
+  # Build Crayfish binaries for all platforms
+  build:
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            name: linux-amd64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: arm64
+            name: linux-arm64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: arm
+            goarm: 7
+            name: linux-armv7
+          - os: ubuntu-latest
+            goos: linux
+            goarch: arm
+            goarm: 6
+            name: linux-armv6
+          - os: macos-14
+            goos: darwin
+            goarch: arm64
+            name: darwin-arm64
+          - os: macos-13
+            goos: darwin
+            goarch: amd64
+            name: darwin-amd64
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+          CGO_ENABLED: 0
+        run: |
+          VERSION="${{ needs.prepare.outputs.version }}"
+          COMMIT=$(git rev-parse --short HEAD)
+          LDFLAGS="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}"
+
+          go build -ldflags "${LDFLAGS}" -o crayfish-${{ matrix.name }} ./cmd/crayfish
+
+          # Create tarball
+          tar -czvf crayfish-${{ matrix.name }}.tar.gz crayfish-${{ matrix.name }}
+
+          # Also keep raw binary for direct download
+          chmod +x crayfish-${{ matrix.name }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: crayfish-${{ matrix.name }}
+          path: |
+            crayfish-${{ matrix.name }}
+            crayfish-${{ matrix.name }}.tar.gz
+
+  # Build whisper binaries (for voice recognition)
+  build-whisper:
+    needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-amd64
+            docker: false
+          - os: ubuntu-latest
+            platform: linux-arm64
+            docker: true
+            docker_platform: linux/arm64
+            docker_image: arm64v8/debian:bookworm
+          - os: ubuntu-latest
+            platform: linux-armv7
+            docker: true
+            docker_platform: linux/arm/v7
+            docker_image: arm32v7/debian:bookworm
+          - os: macos-14
+            platform: darwin-arm64
+            docker: false
+          - os: macos-13
+            platform: darwin-amd64
+            docker: false
+
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Set up QEMU (for ARM builds)
+        if: matrix.docker
+        uses: docker/setup-qemu-action@v3
+
+      - name: Build whisper (native)
+        if: "!matrix.docker"
+        run: |
+          # Install cmake if needed (Linux)
+          if [ "$RUNNER_OS" == "Linux" ]; then
+            sudo apt-get update && sudo apt-get install -y cmake g++ git
+          fi
+
+          git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git
+          cd whisper.cpp
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
+
+          mkdir -p ../dist
+          cp build/bin/whisper-cli ../dist/whisper 2>/dev/null || cp build/bin/main ../dist/whisper
+          chmod +x ../dist/whisper
+
+      - name: Build whisper (Docker/ARM)
+        if: matrix.docker
+        run: |
+          docker run --rm --platform ${{ matrix.docker_platform }} -v $PWD:/work -w /work ${{ matrix.docker_image }} bash -c '
+            apt-get update && apt-get install -y cmake g++ git
+            git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git
+            cd whisper.cpp
+            cmake -B build -DCMAKE_BUILD_TYPE=Release
+            cmake --build build -j$(nproc)
+            mkdir -p /work/dist
+            cp build/bin/whisper-cli /work/dist/whisper 2>/dev/null || cp build/bin/main /work/dist/whisper
+            chmod +x /work/dist/whisper
+          '
+
+      - name: Package whisper
+        run: |
+          tar -czvf whisper-${{ matrix.platform }}.tar.gz -C dist whisper
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: whisper-${{ matrix.platform }}
+          path: whisper-${{ matrix.platform }}.tar.gz
+
+  # Create GitHub release with all binaries
+  release:
+    needs: [prepare, build, build-whisper]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release files
+        run: |
+          mkdir -p release
+
+          # Move all files to release directory
+          find artifacts -type f \( -name "*.tar.gz" -o -name "crayfish-*" \) -exec cp {} release/ \;
+
+          # Create checksums
+          cd release
+          sha256sum * > SHA256SUMS.txt
+
+          ls -la
+
+      - name: Delete existing release (if exists)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Delete the 'latest' release if it exists (we'll recreate it)
+          gh release delete latest --yes 2>/dev/null || true
+          git push origin :refs/tags/latest 2>/dev/null || true
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: latest
+          name: "Latest Build (${{ needs.prepare.outputs.version }})"
+          body: |
+            ## Crayfish ${{ needs.prepare.outputs.version }}
+
+            Accessible AI for everyone.
+
+            ### Quick Install
+
+            **On Raspberry Pi / Linux:**
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/KekwanuLabs/crayfish/main/scripts/install.sh | bash
+            ```
+
+            **Manual download:**
+            - `crayfish-linux-arm64` - Raspberry Pi 3/4/5 (64-bit OS)
+            - `crayfish-linux-armv7` - Raspberry Pi 2, Pi 3/4 (32-bit OS)
+            - `crayfish-linux-amd64` - Linux servers, NUCs
+            - `crayfish-darwin-arm64` - Mac M1/M2/M3
+            - `crayfish-darwin-amd64` - Mac Intel
+
+            ### Voice Recognition (Optional)
+
+            Whisper binaries for speech-to-text are included. Crayfish downloads the correct one automatically.
+
+            ### Changes
+
+            See commit history for details.
+          files: release/*
+          draft: false
+          prerelease: false
+          make_latest: true
+
+      - name: Create versioned release (if version tag)
+        if: "!contains(needs.prepare.outputs.version, 'dev')"
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ needs.prepare.outputs.version }}
+          name: "Crayfish ${{ needs.prepare.outputs.version }}"
+          body: |
+            ## Crayfish ${{ needs.prepare.outputs.version }}
+
+            Accessible AI for everyone.
+
+            See the [latest release](https://github.com/KekwanuLabs/crayfish/releases/tag/latest) for installation instructions.
+          files: release/*
+          draft: false
+          prerelease: false
