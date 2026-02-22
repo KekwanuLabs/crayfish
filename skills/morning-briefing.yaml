@@ -1,0 +1,36 @@
+name: morning_briefing
+version: 1
+description: "Daily morning briefing with email summary and tasks"
+type: workflow
+min_tier: trusted
+
+trigger:
+  schedule: "0 7 * * *"
+  command: "/briefing"
+  keywords:
+    - "morning briefing"
+    - "daily briefing"
+    - "what's on today"
+
+steps:
+  - tool: email_check
+    params: {}
+    store_as: emails
+
+  - tool: todo_list
+    params: {}
+    store_as: todos
+
+prompt: |
+  Create a concise morning briefing for the user.
+
+  Unread emails:
+  {{emails}}
+
+  Todo list:
+  {{todos}}
+
+  Format: Start with a warm greeting, then the most important
+  emails (one line each), and top 3 todos for the day.
+  Keep it under 200 words. End with something encouraging.
+  Remember: you're Crayfish — warm, direct, resourceful.

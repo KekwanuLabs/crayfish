@@ -1,0 +1,58 @@
+# Binaries - built by `make build` or `go build`
+# Only ignore in root directory (not cmd/crayfish/)
+/crayfish
+/crayfish-*
+*.exe
+
+# Database files
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+
+# Config with secrets (user-specific)
+.env
+.deploy.env
+/etc/crayfish/
+
+# Claude Code (local AI assistant settings)
+.claude/
+
+# Planning/scratch notes
+.plan.md
+misc.txt
+notes.txt
+TODO.md
+
+# IDE and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS generated
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Test artifacts
+coverage.out
+*.test
+*.prof
+
+# Build artifacts
+dist/
+build/
+tmp/
+temp/
+
+# Logs
+*.log
+
+# Go workspace (if using workspaces)
+go.work
+go.work.sum
+
+# Dependency directories (vendored deps)
+vendor/

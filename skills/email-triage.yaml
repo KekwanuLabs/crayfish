@@ -1,0 +1,39 @@
+name: email_triage
+version: 1
+description: "Triage and prioritize unread emails"
+type: workflow
+min_tier: trusted
+
+trigger:
+  command: "/triage"
+  keywords:
+    - "triage my email"
+    - "prioritize my email"
+    - "sort my inbox"
+    - "what's important in my email"
+
+steps:
+  - tool: email_check
+    params: {}
+    store_as: emails
+
+  - tool: email_summarize
+    params: {}
+    store_as: summary
+
+prompt: |
+  You are triaging the user's inbox. Categorize each unread email into:
+
+  🔴 URGENT — needs reply today
+  🟡 IMPORTANT — needs attention this week
+  🟢 FYI — read when you have time
+  ⚪ SKIP — newsletters, promotions, noise
+
+  Emails:
+  {{emails}}
+
+  Summary:
+  {{summary}}
+
+  For each email, give: priority emoji, sender (short), subject, and
+  one-sentence action item. Group by priority. Be direct.
