@@ -12,9 +12,9 @@ GOFLAGS   := -trimpath
 # All release targets: linux (4 archs) + macOS (2 archs)
 TARGETS := linux-armv6 linux-armv7 linux-arm64 linux-amd64 darwin-amd64 darwin-arm64
 
-.PHONY: all build $(addprefix build-,$(TARGETS)) build-all \
+.PHONY: all build run $(addprefix build-,$(TARGETS)) build-all \
         test bench clean install lint vet fmt \
-        check-size check-size-all help release deploy
+        check-size check-size-all help release deploy deploy-clean
 
 # ==================================================================
 # Build
@@ -72,11 +72,22 @@ vet:
 	go vet ./...
 
 # ==================================================================
+# Run (local development)
+# ==================================================================
+
+run: build
+	./$(BINARY)
+
+# ==================================================================
 # Deploy (dev workflow: MacBook → Pi, one command)
 # ==================================================================
 
 deploy:
 	@bash scripts/deploy.sh
+
+# Fresh deploy: wipe all data on Pi, then deploy
+deploy-clean:
+	@bash scripts/deploy.sh --clean
 
 # ==================================================================
 # Install
@@ -115,12 +126,20 @@ check-size-all:
 # ==================================================================
 
 help:
-	@echo "Crayfish — Agentic AI for the Rest of the World"
+	@echo "Crayfish — Accessible AI for Everyone"
 	@echo ""
-	@echo "  make deploy     Build + push + setup + restart on Pi (one command)"
-	@echo "  make build      Build for current platform"
-	@echo "  make test       Run tests"
-	@echo "  make lint       Run linters"
-	@echo "  make build-all  Cross-compile all 6 targets"
-	@echo "  make clean      Remove build artifacts"
-	@echo "  make help       This message"
+	@echo "Development:"
+	@echo "  make build        Build for current platform"
+	@echo "  make run          Build and run locally"
+	@echo "  make test         Run tests"
+	@echo "  make lint         Run linters"
+	@echo ""
+	@echo "Deploy to Pi:"
+	@echo "  make deploy       Build + push + restart on your Pi"
+	@echo "  make deploy-clean Wipe Pi data, then deploy fresh"
+	@echo ""
+	@echo "Release:"
+	@echo "  make build-all    Cross-compile all 6 platforms"
+	@echo "  make clean        Remove build artifacts"
+	@echo ""
+	@echo "  make help         This message"

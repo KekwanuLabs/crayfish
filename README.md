@@ -61,7 +61,7 @@ And if you're technical? You'll love the codebase. It's Go, it's clean, and PRs 
 
 ## How it Works
 
-### 1. Get Any Device
+### Step 1: Get Any Device
 
 - **$5 Pi Zero** — tiny and perfect
 - **$35 Pi 4** — the sweet spot
@@ -71,17 +71,52 @@ And if you're technical? You'll love the codebase. It's Go, it's clean, and PRs 
 
 Got old hardware collecting dust? Perfect.
 
-### 2. Install Crayfish
+### Step 2: Install Crayfish
+
+**Option A: One-Line Install (Recommended)**
+
+If you can access your device directly (keyboard + monitor, or remote desktop):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/KekwanuLabs/crayfish/main/scripts/install.sh | bash
 ```
 
-### 3. Open Your Browser
+That's it. The script downloads everything, sets it up, and starts it automatically.
 
-Navigate to `http://your-pi-ip:8119` from your phone or laptop.
+**Option B: Install from Another Computer**
 
-### 4. Follow the Setup Wizard
+Don't want to plug a keyboard into your Pi? Install remotely from your Mac or PC:
+
+1. Make sure your Pi is on and connected to your network
+2. Find your Pi's IP address (check your router, or it's often `raspberrypi.local`)
+3. Run this on your Mac/PC:
+
+```bash
+git clone https://github.com/KekwanuLabs/crayfish.git
+cd crayfish
+make deploy
+```
+
+The first time, it will ask you:
+- **IP address** — Where is your Pi? (e.g., `192.168.1.42` or `raspberrypi.local`)
+- **Username** — Usually `pi` for Raspberry Pi
+- **Device type** — What kind of Pi is it?
+
+It remembers your answers, so next time you just run `make deploy` again.
+
+> **Note:** You'll need Go installed on your Mac/PC to build. On Mac: `brew install go`. On Ubuntu/Debian: `sudo apt install golang`.
+
+### Step 3: Open the Setup Wizard
+
+Once installed, open your web browser and go to:
+
+```
+http://your-device-ip:8119
+```
+
+For example: `http://192.168.1.42:8119` or `http://raspberrypi.local:8119`
+
+### Step 4: Follow the Wizard
 
 <p align="center">
   <em>Point. Click. Done.</em>
@@ -93,7 +128,7 @@ The wizard walks you through:
 - Setting up Telegram (so you can chat from anywhere)
 - Linking Gmail & Calendar (optional, for email/scheduling magic)
 
-No terminal. No YAML files. No documentation rabbit holes.
+No config files. No command line. Just fill in the blanks.
 
 ---
 
@@ -146,6 +181,12 @@ No. If you can use a web browser, you can set up Crayfish.
 ### What hardware do I need?
 Anything. Pi Zero, Pi 2/3/4/5, old laptop, Mac, PC, cloud server. More RAM = can run local AI models. But even a $5 Pi Zero works great with cloud AI.
 
+### How do I find my Pi's IP address?
+A few ways:
+- **Check your router** — Look for "Raspberry Pi" in the connected devices list
+- **Try `raspberrypi.local`** — Works on most home networks
+- **On the Pi itself** — Run `hostname -I` if you have a keyboard connected
+
 ### Is it really free?
 The software is free and open source. You pay for:
 - A Raspberry Pi (~$35-80 one-time)
@@ -158,15 +199,69 @@ Your Pi sits in your home. Your conversations, emails, and calendar data stay on
 ### Can I use it without Telegram?
 Yes! There's a web interface and CLI too. But Telegram is the magic — it means you can chat with your Crayfish from anywhere.
 
-### I'm technical, can I still use this?
-Absolutely. It's written in Go, fully open source, and designed with clean architecture. Hack away. PRs welcome.
+### How do I update Crayfish?
+Crayfish updates itself automatically by default. You don't need to do anything.
+
+If you installed via `make deploy`, just run it again to push the latest version.
+
+---
+
+## For Developers
+
+Want to hack on Crayfish? Welcome!
+
+### Build from Source
+
+```bash
+git clone https://github.com/KekwanuLabs/crayfish.git
+cd crayfish
+make build      # Build for your current machine
+make run        # Build and run locally
+```
+
+### Deploy to a Pi
+
+```bash
+make deploy     # Cross-compile and push to your Pi
+```
+
+First run prompts for:
+- Pi's IP address (e.g., `192.168.1.42`)
+- SSH username (usually `pi`)
+- Architecture (`arm64` for Pi 3/4/5, `armv7` for Pi 2, `armv6` for Pi Zero)
+
+Settings are saved to `.deploy.env` — delete it to reconfigure.
+
+### Fresh Install (Wipe Everything)
+
+```bash
+make deploy-clean   # Wipes data on Pi, then deploys fresh
+```
+
+### Project Structure
+
+```
+cmd/crayfish/       # Main entry point
+internal/           # Core packages
+  brain/            # LLM integration
+  telegram/         # Telegram bot
+  gmail/            # Email integration
+  calendar/         # Google Calendar
+  voice/            # Speech recognition (whisper.cpp)
+  setup/            # Web setup wizard
+scripts/            # Install and deploy scripts
+```
+
+### Contributing
+
+PRs welcome! The codebase is intentionally simple — no frameworks, minimal dependencies, easy to understand.
 
 ---
 
 ## Quick Links
 
-- **Install:** `curl -fsSL https://raw.githubusercontent.com/KekwanuLabs/crayfish/main/scripts/install.sh | bash`
-- **Documentation:** [Coming soon]
+- **Install on device:** `curl -fsSL https://raw.githubusercontent.com/KekwanuLabs/crayfish/main/scripts/install.sh | bash`
+- **Install from laptop:** `git clone ... && make deploy`
 - **Issues:** [GitHub Issues](https://github.com/KekwanuLabs/crayfish/issues)
 - **License:** MIT
 
