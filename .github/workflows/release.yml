@@ -2,7 +2,7 @@ name: Release
 
 # Automatically build and release on every push to main.
 # - Crayfish binaries: Built on every push
-# - Whisper binaries: Only rebuilt weekly or manually (they rarely change)
+# - Whisper binaries: Only rebuilt when WHISPER_VERSION file changes
 
 on:
   push:
@@ -14,9 +14,6 @@ on:
         required: false
         default: 'false'
         type: boolean
-  schedule:
-    # Rebuild whisper weekly (Sundays at midnight UTC)
-    - cron: '0 0 * * 0'
 
 env:
   GO_VERSION: '1.26'
@@ -28,25 +25,23 @@ jobs:
     outputs:
       version: ${{ steps.version.outputs.version }}
       is_release: ${{ steps.version.outputs.is_release }}
-      rebuild_whisper: ${{ steps.check.outputs.rebuild_whisper }}
+      rebuild_whisper: ${{ steps.whisper.outputs.rebuild }}
+      whisper_version: ${{ steps.whisper.outputs.whisper_version }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 2  # Need previous commit to detect changes
 
       - name: Determine version
         id: version
         run: |
-          # Check if commit message contains a version tag like "v0.5.0" or "release: 0.5.0"
           COMMIT_MSG=$(git log -1 --pretty=%B)
           VERSION=$(echo "$COMMIT_MSG" | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "")
 
           if [ -n "$VERSION" ]; then
-            # This is a versioned release
             VERSION="v${VERSION#v}"
             echo "is_release=true" >> $GITHUB_OUTPUT
           else
-            # Development build: v0.4.0-dev.YYYYMMDD.sha
             SHORT_SHA=$(git rev-parse --short HEAD)
             DATE=$(date +'%Y%m%d')
             VERSION="v0.4.0-dev.${DATE}.${SHORT_SHA}"
@@ -57,34 +52,35 @@ jobs:
           echo "Version: ${VERSION}"
 
       - name: Check if whisper rebuild needed
-        id: check
+        id: whisper
         run: |
-          # Rebuild whisper if:
-          # 1. Manual trigger with rebuild_whisper=true
-          # 2. Scheduled run (weekly)
-          # 3. No existing whisper binaries in latest release
+          # Read pinned whisper version
+          WHISPER_VERSION=$(grep -v '^#' WHISPER_VERSION | tr -d '[:space:]')
+          echo "whisper_version=${WHISPER_VERSION}" >> $GITHUB_OUTPUT
+          echo "Whisper version: ${WHISPER_VERSION}"
 
-          if [ "${{ github.event_name }}" == "schedule" ]; then
-            echo "rebuild_whisper=true" >> $GITHUB_OUTPUT
-            echo "Whisper rebuild: scheduled"
+          # Check if WHISPER_VERSION file changed in this commit
+          if git diff --name-only HEAD~1 HEAD 2>/dev/null | grep -q "WHISPER_VERSION"; then
+            echo "rebuild=true" >> $GITHUB_OUTPUT
+            echo "Whisper rebuild: WHISPER_VERSION changed"
           elif [ "${{ inputs.rebuild_whisper }}" == "true" ]; then
-            echo "rebuild_whisper=true" >> $GITHUB_OUTPUT
+            echo "rebuild=true" >> $GITHUB_OUTPUT
             echo "Whisper rebuild: manual trigger"
           else
             # Check if whisper binaries exist in latest release
             WHISPER_EXISTS=$(gh release view latest --json assets -q '.assets[].name' 2>/dev/null | grep -c "whisper-" || echo "0")
             if [ "$WHISPER_EXISTS" -eq 0 ]; then
-              echo "rebuild_whisper=true" >> $GITHUB_OUTPUT
+              echo "rebuild=true" >> $GITHUB_OUTPUT
               echo "Whisper rebuild: no existing binaries"
             else
-              echo "rebuild_whisper=false" >> $GITHUB_OUTPUT
-              echo "Whisper rebuild: skipped (binaries exist)"
+              echo "rebuild=false" >> $GITHUB_OUTPUT
+              echo "Whisper rebuild: skipped (no changes)"
             fi
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # Build Crayfish binaries for all platforms (runs on every push)
+  # Build Crayfish binaries for all platforms
   build:
     needs: prepare
     strategy:
@@ -138,8 +134,6 @@ jobs:
           LDFLAGS="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}"
 
           go build -ldflags "${LDFLAGS}" -o crayfish-${{ matrix.name }} ./cmd/crayfish
-
-          # Create tarball
           tar -czvf crayfish-${{ matrix.name }}.tar.gz crayfish-${{ matrix.name }}
           chmod +x crayfish-${{ matrix.name }}
 
@@ -151,7 +145,7 @@ jobs:
             crayfish-${{ matrix.name }}
             crayfish-${{ matrix.name }}.tar.gz
 
-  # Build whisper binaries (only when needed)
+  # Build whisper binaries (only when WHISPER_VERSION changes)
   build-whisper:
     needs: prepare
     if: needs.prepare.outputs.rebuild_whisper == 'true'
@@ -179,6 +173,8 @@ jobs:
             docker: false
 
     runs-on: ${{ matrix.os }}
+    env:
+      WHISPER_VERSION: ${{ needs.prepare.outputs.whisper_version }}
     steps:
       - name: Set up QEMU (for ARM builds)
         if: matrix.docker
@@ -191,7 +187,8 @@ jobs:
             sudo apt-get update && sudo apt-get install -y cmake g++ git
           fi
 
-          git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git
+          echo "Building whisper.cpp version: ${WHISPER_VERSION}"
+          git clone --depth 1 --branch "${WHISPER_VERSION}" https://github.com/ggerganov/whisper.cpp.git
           cd whisper.cpp
           cmake -B build -DCMAKE_BUILD_TYPE=Release
           cmake --build build -j$(nproc 2>/dev/null || sysctl -n hw.ncpu)
@@ -203,9 +200,12 @@ jobs:
       - name: Build whisper (Docker/ARM)
         if: matrix.docker
         run: |
-          docker run --rm --platform ${{ matrix.docker_platform }} -v $PWD:/work -w /work ${{ matrix.docker_image }} bash -c '
+          docker run --rm --platform ${{ matrix.docker_platform }} \
+            -e WHISPER_VERSION="${WHISPER_VERSION}" \
+            -v $PWD:/work -w /work ${{ matrix.docker_image }} bash -c '
             apt-get update && apt-get install -y cmake g++ git
-            git clone --depth 1 https://github.com/ggerganov/whisper.cpp.git
+            echo "Building whisper.cpp version: ${WHISPER_VERSION}"
+            git clone --depth 1 --branch "${WHISPER_VERSION}" https://github.com/ggerganov/whisper.cpp.git
             cd whisper.cpp
             cmake -B build -DCMAKE_BUILD_TYPE=Release
             cmake --build build -j$(nproc)
@@ -226,7 +226,6 @@ jobs:
   # Create GitHub release
   release:
     needs: [prepare, build]
-    # Don't require whisper build - it may have been skipped
     if: always() && needs.build.result == 'success'
     runs-on: ubuntu-latest
     permissions:
@@ -245,15 +244,14 @@ jobs:
         with:
           path: artifacts
           pattern: whisper-*
-        continue-on-error: true  # May not exist if whisper build was skipped
+        continue-on-error: true
 
       - name: Download existing whisper binaries (if not rebuilt)
         if: needs.prepare.outputs.rebuild_whisper != 'true'
         run: |
-          mkdir -p artifacts
-          # Download existing whisper binaries from latest release
+          mkdir -p artifacts/whisper-existing
           for platform in linux-amd64 linux-arm64 linux-armv7 darwin-arm64 darwin-amd64; do
-            gh release download latest --pattern "whisper-${platform}.tar.gz" --dir artifacts/ 2>/dev/null || true
+            gh release download latest --pattern "whisper-${platform}.tar.gz" --dir artifacts/whisper-existing/ 2>/dev/null || true
           done
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -261,14 +259,9 @@ jobs:
       - name: Prepare release files
         run: |
           mkdir -p release
-
-          # Move all artifacts to release directory
           find artifacts -type f \( -name "*.tar.gz" -o -name "crayfish-*" \) -exec cp {} release/ \;
-
-          # Create checksums
           cd release
           sha256sum * > SHA256SUMS.txt 2>/dev/null || shasum -a 256 * > SHA256SUMS.txt
-
           echo "Release contents:"
           ls -la
 
@@ -276,11 +269,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Delete existing latest release
           gh release delete latest --yes 2>/dev/null || true
           git push origin :refs/tags/latest 2>/dev/null || true
 
-          # Create new latest release
+          WHISPER_VERSION=$(grep -v '^#' WHISPER_VERSION | tr -d '[:space:]')
+
           gh release create latest \
             --title "Latest Build (${{ needs.prepare.outputs.version }})" \
             --notes "## Crayfish ${{ needs.prepare.outputs.version }}
@@ -289,7 +282,6 @@ jobs:
 
           ### Quick Install
 
-          **Raspberry Pi / Linux:**
           \`\`\`bash
           curl -fsSL https://raw.githubusercontent.com/KekwanuLabs/crayfish/main/scripts/install.sh | bash
           \`\`\`
@@ -304,7 +296,7 @@ jobs:
           | Mac Apple Silicon | crayfish-darwin-arm64 |
           | Mac Intel | crayfish-darwin-amd64 |
 
-          Voice recognition (whisper) binaries are included and downloaded automatically by Crayfish." \
+          **Whisper version:** ${WHISPER_VERSION}" \
             --latest \
             release/*
 
@@ -314,7 +306,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
-
           gh release create "${VERSION}" \
             --title "Crayfish ${VERSION}" \
             --notes "## Crayfish ${VERSION}
