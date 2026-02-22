@@ -1,0 +1,2015 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Set Up Your Crayfish</title>
+<link rel="icon" type="image/png" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAACXBIWXMAAAsTAAALEwEAmpwYAAAE8klEQVR4nO2WW2xUVRSGv33OzJlbZ6YznYEChQItBcpFLgKiRIOXGBOjiRofTHzRJz7ogz74YGI0Jj7ogw/GS4wxxsSY+OSDiTFqTLzERLwgIAXKpZROO51O55w5M2fmnG17kJm2UykwvugKVrKz9/7Xt9b6197w/1aLbYE1/jfYFljjfwNqEdv4r6AWs45/B/wDwALa/jsgC3QC/fU1QBwIA0GgG1gEbATeAvYCc4AiEAO6gY1ADvgQ+BFIB+qIAdcBfwJvAFMAA1wFjAH7gIXAKHAA+BVYBLQDW4F7gO+AHwKA24BTgPHaGbNBP9BRHxCrA4JAGPgE+BIYBjxgEXAU+BoYAeYDvcAO4APgAPAr4NTPMEAr0BuoIwbMArYBJwOjQE8dEKwDxoE/Aq8Bi8A84CzgC+AI4AA54F7gS+BDIAu4QC9wPvALsAPoA8aBXqA/UIdfP/MCYBR4C5gGXGAh8DIwBOSAJHAb8DkwAIwAG4G7gCHgNWBOHZAAdtfPRICNQE9gzXRgLLAGwF1AAHgZCNUBxwFXAp8Bw0AR2ABsBf4A9gD/Ar3A88B+YAjoALYE6ngfWA5MAzYDnweWPAR8EliwA3g4sCQO3At8DgwCRWALcBvwOfA3cAi4HHgKGAU+BPoDS3YH1rQHakgG1hwMAAzwbWDJYOClwIKDwMb6kreBv4HlwCnA50AKmAicDLwBjAA5oA+4HRgC/gKywKWBJX8FahgHPqovSQJXA+8Ao8BcYBPwKXAY2AssAS4FPgaGgBCwCfgIGAIuCdTxS2BNT+AMAB/WlwwGluwPLMkGNlwDfFY/cwZwfmDJMLAUuDSwZAAYAa4ILPkrUMfC+pkA8CHwdWDJUOCsecCbwAhQCOwxDswDXgvcVQZ2B9b8EVgyCVwTuOsv4C9gE/BKYM0YcHl9zy/At0AXsCewJAOcE1iyNwBwNvBOfU8BWBK4ywa+Dtw1AtwQWPNVYMkMcEVgzb56HROBJemq9C8KhSKtocj4D4C/AZcB/QWgBHQF/gsB/+qiMDMdZ7avuB0AVxaA/XXU/wC4HnCBUWAdsBi4DkgGvvEF1rQF3hWBJfvqa8J1wD91RPLAfXXAUB2wKXBWfWN+YH9wdH1NZ+B9YE8YuCG4J1Tfc3/tBHCBbuBE4GfqGAqsqQMLAs+OqNfQHTgqsKYc2L8o8GZ+YI2/f0Hg7uB+Ctz1a+A7+4BtgX8Cz/QFznaCwPHAB8F1wJuBNdm6PBcCnwPNQFfgzsCeN4GHAHcV8FvguxzQC1wJTAPHA18ASaAE9AAXAJPAaOC9CZgrWLMY+CtQR7y+xi3AAOB2YBmwqH4HRoGfAt+5B0jXz+xbXYHBwC1u/V0n0APcBRwGTq7XsAL4A0gDS4C7A2dkgfOBi4BB4EjgqsAaB1gfuCsLlIHLgd+Bd4AFwDxgW+C8GHA+8F/gOWAucH7gm2HgEmALMBE4Kjg/sCcP3BTYY4Efg3cnq7JTAoqB/0LAQiAceOdQYE8msGcLMFpfswfoAy4HDgMfABuA5cDJgW++AjqBi+pnfgU0AJcG/hkBbgisOQx8V1+TBhYCf9T3ZIDzAvv3BvaUA/s3B87KBv45I7CmUF/TE1hTBJ4P7MkB5wb2bAv8kwfuDewpA/fUz8oAXfXzZwF9wAH+L9R/AXV2UyNCBJxzAAAAAElFTkSuQmCC">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+    background: linear-gradient(135deg, #0c1222 0%, #1a1a2e 50%, #16213e 100%);
+    color: #e2e8f0;
+    min-height: 100vh;
+    padding: 1.5rem;
+  }
+
+  .container {
+    max-width: 520px;
+    margin: 0 auto;
+  }
+
+  /* Logo Section */
+  .logo-section {
+    text-align: center;
+    padding: 1.5rem 0 2rem;
+  }
+
+  .logo-icon {
+    width: 80px;
+    height: auto;
+    margin: 0 auto 0.75rem;
+    animation: float 3s ease-in-out infinite;
+    display: block;
+  }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-6px); }
+  }
+
+  .logo-section h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #ff6b35 0%, #f7931e 50%, #ffb347 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 0.25rem;
+  }
+
+  .tagline {
+    color: #94a3b8;
+    font-size: 0.9375rem;
+  }
+
+  /* Progress Steps */
+  .progress-bar {
+    display: flex;
+    justify-content: center;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .progress-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #475569;
+    transition: all 0.3s;
+  }
+
+  .progress-dot.active {
+    background: #f97316;
+    transform: scale(1.2);
+  }
+
+  .progress-dot.completed {
+    background: #6ee7b7;
+  }
+
+  /* Step Container */
+  .step {
+    display: none;
+    animation: fadeIn 0.3s ease-out;
+  }
+
+  .step.active {
+    display: block;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Cards */
+  .card {
+    background: rgba(30, 41, 59, 0.8);
+    backdrop-filter: blur(10px);
+    border-radius: 16px;
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+    border: 1px solid rgba(71, 85, 105, 0.5);
+  }
+
+  .card-header {
+    margin-bottom: 1.25rem;
+  }
+
+  .card-header h2 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #f8fafc;
+    margin-bottom: 0.5rem;
+  }
+
+  .card-header p {
+    color: #94a3b8;
+    font-size: 0.9375rem;
+    line-height: 1.5;
+  }
+
+  /* Form Elements */
+  label {
+    display: block;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: #94a3b8;
+    margin-bottom: 0.375rem;
+  }
+
+  input, select, textarea {
+    width: 100%;
+    padding: 0.875rem 1rem;
+    border-radius: 10px;
+    border: 1px solid #475569;
+    background: rgba(15, 23, 42, 0.8);
+    color: #f8fafc;
+    font-size: 1rem;
+    margin-bottom: 1rem;
+    outline: none;
+    transition: all 0.2s;
+  }
+
+  input:focus, select:focus, textarea:focus {
+    border-color: #f97316;
+    box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.15);
+  }
+
+  input::placeholder, textarea::placeholder { color: #64748b; }
+
+  textarea {
+    resize: vertical;
+    min-height: 80px;
+    font-family: inherit;
+  }
+
+  select {
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' fill='%2394a3b8'%3E%3Cpath d='M5 8l5 5 5-5z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.75rem center;
+    padding-right: 2.5rem;
+  }
+
+  .hint {
+    font-size: 0.8125rem;
+    color: #64748b;
+    margin-top: -0.75rem;
+    margin-bottom: 1rem;
+    line-height: 1.5;
+  }
+
+  .hint a {
+    color: #60a5fa;
+    text-decoration: none;
+  }
+
+  .hint a:hover {
+    text-decoration: underline;
+  }
+
+  /* Personality Chips */
+  .personality-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+  }
+
+  .chip {
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    font-size: 0.875rem;
+    border: 1px solid #475569;
+    background: transparent;
+    color: #94a3b8;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .chip:hover {
+    border-color: #f97316;
+    color: #f97316;
+  }
+
+  .chip.active {
+    background: linear-gradient(135deg, #f97316 0%, #fb923c 100%);
+    color: #0f172a;
+    border-color: transparent;
+  }
+
+  /* Brain Options */
+  .brain-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    padding: 1.25rem;
+    border-radius: 12px;
+    border: 2px solid #475569;
+    background: rgba(15, 23, 42, 0.5);
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-bottom: 0.75rem;
+  }
+
+  .brain-option:hover {
+    border-color: #64748b;
+    background: rgba(30, 41, 59, 0.8);
+  }
+
+  .brain-option.selected {
+    border-color: #f97316;
+    background: rgba(249, 115, 22, 0.1);
+  }
+
+  .brain-icon {
+    font-size: 2rem;
+    width: 56px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(71, 85, 105, 0.3);
+    border-radius: 12px;
+    flex-shrink: 0;
+  }
+
+  .brain-option.selected .brain-icon {
+    background: rgba(249, 115, 22, 0.2);
+  }
+
+  .brain-content {
+    flex: 1;
+  }
+
+  .brain-content h3 {
+    color: #f8fafc;
+    font-size: 1.0625rem;
+    font-weight: 600;
+    margin-bottom: 0.25rem;
+  }
+
+  .brain-content p {
+    color: #94a3b8;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    margin-bottom: 0.5rem;
+  }
+
+  .brain-tag {
+    display: inline-block;
+    padding: 0.25rem 0.625rem;
+    border-radius: 12px;
+    font-size: 0.75rem;
+    font-weight: 500;
+  }
+
+  .brain-tag.paid {
+    background: rgba(251, 191, 36, 0.2);
+    color: #fbbf24;
+  }
+
+  .brain-tag.free {
+    background: rgba(110, 231, 183, 0.2);
+    color: #6ee7b7;
+  }
+
+  .brain-check {
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    border: 2px solid #475569;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 0.25rem;
+  }
+
+  .brain-option.selected .brain-check {
+    border-color: #f97316;
+    background: #f97316;
+  }
+
+  .brain-option.selected .brain-check::after {
+    content: "✓";
+    color: #0f172a;
+    font-size: 0.875rem;
+    font-weight: bold;
+  }
+
+  /* Provider Cards */
+  .provider-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+  }
+
+  .provider-card {
+    padding: 1rem;
+    border-radius: 12px;
+    border: 2px solid #475569;
+    background: rgba(15, 23, 42, 0.5);
+    cursor: pointer;
+    transition: all 0.2s;
+    text-align: center;
+  }
+
+  .provider-card:hover {
+    border-color: #64748b;
+  }
+
+  .provider-card.selected {
+    border-color: #f97316;
+    background: rgba(249, 115, 22, 0.1);
+  }
+
+  .provider-card .icon {
+    font-size: 1.5rem;
+    margin-bottom: 0.5rem;
+  }
+
+  .provider-card .name {
+    font-weight: 600;
+    color: #f8fafc;
+    font-size: 0.9375rem;
+  }
+
+  .provider-card .company {
+    color: #64748b;
+    font-size: 0.75rem;
+  }
+
+  /* Model Cards */
+  .model-card {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1rem;
+    border-radius: 10px;
+    border: 1px solid #475569;
+    background: rgba(15, 23, 42, 0.5);
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-bottom: 0.5rem;
+  }
+
+  .model-card:hover {
+    border-color: #64748b;
+  }
+
+  .model-card.selected {
+    border-color: #f97316;
+    background: rgba(249, 115, 22, 0.1);
+  }
+
+  .model-card.disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .model-card .model-info {
+    flex: 1;
+  }
+
+  .model-card .model-name {
+    font-weight: 600;
+    color: #f8fafc;
+    font-size: 0.9375rem;
+  }
+
+  .model-card .model-desc {
+    color: #94a3b8;
+    font-size: 0.8125rem;
+  }
+
+  .model-card .model-tag {
+    padding: 0.25rem 0.5rem;
+    border-radius: 6px;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .model-tag.fits {
+    background: rgba(110, 231, 183, 0.2);
+    color: #6ee7b7;
+  }
+
+  .model-tag.no-fit {
+    background: rgba(248, 113, 113, 0.2);
+    color: #f87171;
+  }
+
+  .model-tag.recommended {
+    background: linear-gradient(135deg, #f97316 0%, #fb923c 100%);
+    color: #0f172a;
+  }
+
+  /* Info Box */
+  .info-box {
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    border-radius: 10px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+    font-size: 0.875rem;
+    color: #93c5fd;
+    line-height: 1.5;
+  }
+
+  .info-box.warning {
+    background: rgba(251, 191, 36, 0.1);
+    border-color: rgba(251, 191, 36, 0.3);
+    color: #fcd34d;
+  }
+
+  .info-box.success {
+    background: rgba(110, 231, 183, 0.1);
+    border-color: rgba(110, 231, 183, 0.3);
+    color: #6ee7b7;
+  }
+
+  /* Progress Bar */
+  .progress-bar {
+    width: 100%;
+    height: 8px;
+    background: rgba(71, 85, 105, 0.5);
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #14b8a6, #6ee7b7);
+    border-radius: 4px;
+    width: 0%;
+    transition: width 0.3s ease;
+  }
+
+  .progress-fill.indeterminate {
+    width: 30%;
+    animation: indeterminate 1.5s ease-in-out infinite;
+  }
+
+  @keyframes indeterminate {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(400%); }
+  }
+
+  .progress-text {
+    font-size: 0.875rem;
+    color: #94a3b8;
+    margin-top: 0.5rem;
+    text-align: center;
+    line-height: 1.5;
+  }
+
+  .progress-text small {
+    display: block;
+    margin-top: 0.25rem;
+  }
+
+  .progress-text a {
+    color: inherit;
+    text-decoration: underline;
+  }
+
+  /* Spinner */
+  .spinner {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border: 2px solid rgba(148, 163, 184, 0.3);
+    border-top-color: #6ee7b7;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-right: 0.5rem;
+    vertical-align: middle;
+  }
+
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+
+  /* Setup Guide */
+  .setup-guide {
+    background: rgba(30, 41, 59, 0.8);
+    border-radius: 12px;
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+    border: 1px solid rgba(71, 85, 105, 0.3);
+  }
+
+  .setup-guide h4 {
+    color: #f8fafc;
+    font-size: 0.9375rem;
+    margin-bottom: 1rem;
+  }
+
+  .guide-step {
+    display: flex;
+    gap: 1rem;
+    padding: 0.75rem 0;
+    border-top: 1px solid rgba(71, 85, 105, 0.3);
+  }
+
+  .guide-step:first-of-type {
+    border-top: none;
+    padding-top: 0;
+  }
+
+  .guide-num {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #f97316 0%, #fb923c 100%);
+    color: #0f172a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.875rem;
+    font-weight: 700;
+    flex-shrink: 0;
+  }
+
+  .guide-text {
+    flex: 1;
+    font-size: 0.875rem;
+    color: #cbd5e1;
+    line-height: 1.5;
+  }
+
+  .guide-text strong {
+    color: #f8fafc;
+  }
+
+  .guide-text code {
+    background: rgba(15, 23, 42, 0.8);
+    padding: 0.25rem 0.5rem;
+    border-radius: 6px;
+    font-size: 0.8125rem;
+    color: #f97316;
+    display: inline-block;
+    margin-top: 0.25rem;
+  }
+
+  .guide-text a {
+    color: #60a5fa;
+    text-decoration: none;
+  }
+
+  /* Collapsible Sections */
+  .collapsible {
+    border: 1px solid rgba(71, 85, 105, 0.5);
+    border-radius: 12px;
+    margin-bottom: 0.75rem;
+    overflow: hidden;
+  }
+
+  .collapsible-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 1rem 1.25rem;
+    cursor: pointer;
+    background: rgba(30, 41, 59, 0.5);
+    transition: background 0.2s;
+  }
+
+  .collapsible-header:hover {
+    background: rgba(30, 41, 59, 0.8);
+  }
+
+  .collapsible-header h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #f8fafc;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .collapsible-header .tag {
+    font-size: 0.6875rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    background: rgba(100, 116, 139, 0.3);
+    color: #94a3b8;
+    font-weight: 500;
+  }
+
+  .collapsible-header .arrow {
+    color: #64748b;
+    transition: transform 0.2s;
+  }
+
+  .collapsible.open .collapsible-header .arrow {
+    transform: rotate(90deg);
+  }
+
+  .collapsible-body {
+    display: none;
+    padding: 1.25rem;
+    background: rgba(15, 23, 42, 0.3);
+    border-top: 1px solid rgba(71, 85, 105, 0.3);
+  }
+
+  .collapsible.open .collapsible-body {
+    display: block;
+    animation: slideDown 0.2s ease-out;
+  }
+
+  @keyframes slideDown {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  /* Buttons */
+  .btn {
+    display: block;
+    width: 100%;
+    padding: 1rem;
+    border: none;
+    border-radius: 12px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-primary {
+    background: linear-gradient(135deg, #f97316 0%, #fb923c 100%);
+    color: #0f172a;
+    box-shadow: 0 4px 14px rgba(249, 115, 22, 0.4);
+  }
+
+  .btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(249, 115, 22, 0.5);
+  }
+
+  .btn-primary:disabled {
+    background: #78350f;
+    color: #a16207;
+    cursor: not-allowed;
+    box-shadow: none;
+    transform: none;
+  }
+
+  .btn-secondary {
+    background: transparent;
+    border: 1px solid #475569;
+    color: #94a3b8;
+  }
+
+  .btn-secondary:hover {
+    border-color: #64748b;
+    color: #e2e8f0;
+  }
+
+  .btn-row {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 1.5rem;
+  }
+
+  .btn-row .btn {
+    flex: 1;
+  }
+
+  .btn-row .btn-back {
+    flex: 0 0 auto;
+    width: auto;
+    padding: 1rem 1.5rem;
+  }
+
+  /* Status Messages */
+  .status {
+    text-align: center;
+    padding: 0.75rem 1rem;
+    font-size: 0.875rem;
+    border-radius: 10px;
+    margin-top: 0.75rem;
+    display: none;
+  }
+
+  .status.show { display: block; }
+  .status-ok { background: rgba(6, 78, 59, 0.8); color: #6ee7b7; }
+  .status-err { background: rgba(127, 29, 29, 0.8); color: #fca5a5; }
+  .status-loading { background: rgba(30, 41, 59, 0.8); color: #94a3b8; }
+
+  /* Success Overlay */
+  .success-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: linear-gradient(135deg, #0c1222 0%, #1a1a2e 50%, #16213e 100%);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+  }
+
+  .success-overlay.show {
+    display: flex;
+    animation: fadeIn 0.3s ease-out;
+  }
+
+  .success-content {
+    max-width: 440px;
+    text-align: center;
+  }
+
+  .success-icon {
+    font-size: 4rem;
+    margin-bottom: 1rem;
+  }
+
+  .success-title {
+    font-size: 1.75rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, #6ee7b7 0%, #34d399 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 0.5rem;
+  }
+
+  .success-subtitle {
+    color: #94a3b8;
+    margin-bottom: 2rem;
+    line-height: 1.6;
+  }
+
+  .success-card {
+    background: rgba(30, 41, 59, 0.8);
+    border-radius: 16px;
+    padding: 1.5rem;
+    text-align: left;
+    margin-bottom: 1.5rem;
+  }
+
+  .success-item {
+    padding: 0.625rem 0;
+    border-bottom: 1px solid rgba(71, 85, 105, 0.3);
+    font-size: 0.875rem;
+    color: #cbd5e1;
+  }
+
+  .success-item:last-child {
+    border-bottom: none;
+  }
+
+  .success-item strong {
+    color: #f8fafc;
+  }
+
+  .success-footer {
+    color: #64748b;
+    font-style: italic;
+    font-size: 0.875rem;
+  }
+
+  /* Footer */
+  .footer {
+    text-align: center;
+    padding: 2rem 0 1rem;
+    color: #475569;
+    font-size: 0.75rem;
+  }
+
+  /* Responsive */
+  @media (max-width: 480px) {
+    body { padding: 1rem; }
+    .provider-grid { grid-template-columns: 1fr; }
+    .btn-row { flex-direction: column; }
+    .btn-row .btn-back { width: 100%; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Success Overlay -->
+<div class="success-overlay" id="success-overlay">
+  <div class="success-content">
+    <div class="success-icon"><img src="data:image/png;base64,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" alt="Crayfish" style="width: 80px; height: auto;"></div>
+    <h1 class="success-title" id="success-title">Your Crayfish is Ready!</h1>
+    <p class="success-subtitle" id="success-subtitle">
+      Meet your new AI assistant. Start chatting via Telegram!
+    </p>
+    <div class="success-card">
+      <div class="success-item"><strong>Name:</strong> <span id="final-name">Crayfish</span></div>
+      <div class="success-item"><strong>Brain:</strong> <span id="final-brain">Claude</span></div>
+      <div class="success-item"><strong>Tip:</strong> Try saying "Hi, what can you do?"</div>
+    </div>
+    <p class="success-footer">Accessible AI for everyone.</p>
+  </div>
+</div>
+
+<!-- Main Setup -->
+<div class="container" id="setup-container">
+
+  <!-- Logo -->
+  <div class="logo-section">
+    <img class="logo-icon" src="data:image/png;base64,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" alt="Crayfish">
+    <h1>Set Up Your Crayfish</h1>
+    <p class="tagline">Your personal AI, made simple</p>
+  </div>
+
+  <!-- Progress -->
+  <div class="progress-bar">
+    <div class="progress-dot active" id="dot-1"></div>
+    <div class="progress-dot" id="dot-2"></div>
+    <div class="progress-dot" id="dot-3"></div>
+    <div class="progress-dot" id="dot-4"></div>
+  </div>
+
+  <!-- Step 1: Name & Personality -->
+  <div class="step active" id="step-1">
+    <div class="card">
+      <div class="card-header">
+        <h2>Let's give your AI a name</h2>
+        <p>Your Crayfish is like a personal assistant. What would you like to call it?</p>
+      </div>
+
+      <label for="name">Name</label>
+      <input type="text" id="name" placeholder="e.g., Ada, Max, Kemi, Ori..." value="" autocomplete="off">
+      <div class="hint">Pick something you'd enjoy saying every day!</div>
+
+      <label>Personality</label>
+      <p style="color: #94a3b8; font-size: 0.875rem; margin-bottom: 0.75rem;">How should your AI talk to you?</p>
+      <div class="personality-chips">
+        <button type="button" class="chip active" data-personality="friendly">Friendly & Warm</button>
+        <button type="button" class="chip" data-personality="professional">Professional</button>
+        <button type="button" class="chip" data-personality="casual">Casual & Fun</button>
+        <button type="button" class="chip" data-personality="minimal">Brief & Direct</button>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="nextStep()">Continue</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 2: Choose Brain Type -->
+  <div class="step" id="step-2">
+    <div class="card">
+      <div class="card-header">
+        <h2>Choose how your AI thinks</h2>
+        <p>Every AI needs a "brain" to understand you and respond. Pick what works best for you.</p>
+      </div>
+
+      <div id="hardware-info" class="info-box" style="display:none;"></div>
+
+      <div class="brain-option" id="opt-cloud" onclick="selectBrainType('cloud')">
+        <div class="brain-icon">☁️</div>
+        <div class="brain-content">
+          <h3>Cloud AI</h3>
+          <p>Uses AI services from companies like Anthropic, OpenAI, or Google. Very smart and fast.</p>
+          <span class="brain-tag paid">~$5-20/month</span>
+        </div>
+        <div class="brain-check"></div>
+      </div>
+
+      <div class="brain-option" id="opt-local" onclick="selectBrainType('local')">
+        <div class="brain-icon">🏠</div>
+        <div class="brain-content">
+          <h3>On-Device AI</h3>
+          <p>Runs entirely on your device. Completely free, works offline, and your data stays private.</p>
+          <span class="brain-tag free">Free forever</span>
+        </div>
+        <div class="brain-check"></div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn btn-secondary btn-back" onclick="prevStep()">← Back</button>
+        <button class="btn btn-primary" id="step2-next" onclick="nextStep()" disabled>Continue</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 3: Configure Brain -->
+  <div class="step" id="step-3">
+    <div class="card" id="cloud-config" style="display:none;">
+      <div class="card-header">
+        <h2>Set up your Cloud AI</h2>
+        <p>Pick a provider and we'll help you get connected.</p>
+      </div>
+
+      <label>Choose a provider</label>
+      <div class="provider-grid">
+        <div class="provider-card selected" data-provider="anthropic" onclick="selectProvider('anthropic')">
+          <div class="icon">🟠</div>
+          <div class="name">Claude</div>
+          <div class="company">by Anthropic</div>
+        </div>
+        <div class="provider-card" data-provider="openai" onclick="selectProvider('openai')">
+          <div class="icon">🟢</div>
+          <div class="name">ChatGPT</div>
+          <div class="company">by OpenAI</div>
+        </div>
+        <div class="provider-card" data-provider="gemini" onclick="selectProvider('gemini')">
+          <div class="icon">🔵</div>
+          <div class="name">Gemini</div>
+          <div class="company">by Google</div>
+        </div>
+        <div class="provider-card" data-provider="grok" onclick="selectProvider('grok')">
+          <div class="icon">⚫</div>
+          <div class="name">Grok</div>
+          <div class="company">by xAI</div>
+        </div>
+      </div>
+
+      <div class="setup-guide" id="api-guide">
+        <h4>How to get your API key</h4>
+        <div class="guide-step">
+          <span class="guide-num">1</span>
+          <div class="guide-text">
+            <strong>Create an account</strong><br>
+            <a href="https://console.anthropic.com" target="_blank" id="provider-link">Go to Anthropic →</a>
+          </div>
+        </div>
+        <div class="guide-step">
+          <span class="guide-num">2</span>
+          <div class="guide-text">
+            <strong>Get your API key</strong><br>
+            Look for "API Keys" in your account settings and create one.
+          </div>
+        </div>
+        <div class="guide-step">
+          <span class="guide-num">3</span>
+          <div class="guide-text">
+            <strong>Paste it below</strong><br>
+            Copy the key and paste it here. It stays on your device.
+          </div>
+        </div>
+      </div>
+
+      <label for="apikey">Your API Key</label>
+      <input type="password" id="apikey" placeholder="Paste your API key here..." autocomplete="off">
+      <div class="hint">This key is stored locally on your device, never sent anywhere else.</div>
+    </div>
+
+    <div class="card" id="local-config" style="display:none;">
+      <div class="card-header">
+        <h2>Set up On-Device AI</h2>
+        <p>We'll help you get everything running on your device.</p>
+      </div>
+
+      <div id="local-hardware-msg" class="info-box success"></div>
+
+      <!-- Step 1: Ollama Status -->
+      <div id="ollama-status-section">
+        <div id="ollama-checking" class="info-box">
+          <span class="spinner"></span> Checking your device...
+        </div>
+
+        <div id="ollama-not-installed" style="display:none;">
+          <div class="info-box warning">
+            Ollama (the AI engine) isn't installed yet. No worries — we can set it up for you!
+          </div>
+          <button class="btn btn-primary" id="install-ollama-btn" onclick="installOllama()" style="margin-top: 1rem;">
+            Install Ollama
+          </button>
+          <div id="install-progress" style="display:none; margin-top: 1rem;">
+            <div class="progress-bar">
+              <div class="progress-fill" id="install-progress-fill"></div>
+            </div>
+            <div class="progress-text" id="install-progress-text">Starting installation...</div>
+          </div>
+          <div class="hint" style="margin-top: 0.5rem;">
+            On macOS? <a href="https://ollama.com/download" target="_blank">Download from ollama.com</a> instead.
+          </div>
+        </div>
+
+        <div id="ollama-ready" style="display:none;">
+          <div class="info-box success" id="ollama-ready-msg">
+            Ollama is running!
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2: Model Selection (shown when Ollama is ready) -->
+      <div id="model-selection-section" style="display:none;">
+        <label>Choose a model for your device</label>
+        <div id="model-list"></div>
+
+        <div id="model-download-section" style="display:none; margin-top: 1rem;">
+          <button class="btn btn-primary" id="download-model-btn" onclick="downloadModel()">
+            Download Selected Model
+          </button>
+          <div id="download-progress" style="display:none; margin-top: 1rem;">
+            <div class="progress-bar">
+              <div class="progress-fill" id="download-progress-fill"></div>
+            </div>
+            <div class="progress-text" id="download-progress-text">Preparing download...</div>
+          </div>
+        </div>
+
+        <div id="model-ready-section" style="display:none;">
+          <div class="info-box success">
+            Your AI model is ready to use!
+          </div>
+        </div>
+      </div>
+
+      <div class="collapsible" id="advanced-local" style="margin-top: 1.5rem;">
+        <div class="collapsible-header" onclick="toggleCollapsible('advanced-local')">
+          <h3>Advanced settings <span class="tag">Optional</span></h3>
+          <span class="arrow">▶</span>
+        </div>
+        <div class="collapsible-body">
+          <label for="endpoint">Ollama address</label>
+          <input type="text" id="endpoint" placeholder="http://localhost:11434" value="http://localhost:11434">
+          <div class="hint">Only change this if Ollama runs on a different computer.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn btn-secondary btn-back" onclick="prevStep()">← Back</button>
+      <button class="btn btn-primary" onclick="nextStep()">Continue</button>
+    </div>
+    <div id="test-status" class="status"></div>
+  </div>
+
+  <!-- Step 4: Optional Features -->
+  <div class="step" id="step-4">
+    <div class="card">
+      <div class="card-header">
+        <h2>Add extra features</h2>
+        <p>These are optional. You can always add them later.</p>
+      </div>
+
+      <div class="collapsible open" id="telegram-section">
+        <div class="collapsible-header" onclick="toggleCollapsible('telegram-section')">
+          <h3>💬 Telegram <span class="tag">Recommended</span></h3>
+          <span class="arrow">▶</span>
+        </div>
+        <div class="collapsible-body">
+          <p style="color: #94a3b8; font-size: 0.875rem; margin-bottom: 1rem;">Chat with your AI from your phone via Telegram.</p>
+          <label for="telegram-token">Bot Token</label>
+          <input type="password" id="telegram-token" placeholder="Paste your bot token..." autocomplete="off">
+          <div class="hint">Create a bot via <a href="https://t.me/BotFather" target="_blank">@BotFather</a> on Telegram</div>
+        </div>
+      </div>
+
+      <div class="collapsible" id="gmail-section">
+        <div class="collapsible-header" onclick="toggleCollapsible('gmail-section')">
+          <h3>📧 Gmail & Calendar</h3>
+          <span class="arrow">▶</span>
+        </div>
+        <div class="collapsible-body">
+          <p style="color: #94a3b8; font-size: 0.875rem; margin-bottom: 1rem;">Let your AI read emails, check your schedule, and add events. One password works for both.</p>
+          <label for="gmail-user">Gmail Address</label>
+          <input type="email" id="gmail-user" placeholder="you@gmail.com">
+          <label for="gmail-pass">App Password</label>
+          <input type="password" id="gmail-pass" placeholder="xxxx xxxx xxxx xxxx" autocomplete="off">
+          <div class="hint">Create at <a href="https://myaccount.google.com/apppasswords" target="_blank">Google App Passwords</a></div>
+        </div>
+      </div>
+
+      <div class="collapsible" id="search-section">
+        <div class="collapsible-header" onclick="toggleCollapsible('search-section')">
+          <h3>🔍 Web Search</h3>
+          <span class="arrow">▶</span>
+        </div>
+        <div class="collapsible-body">
+          <p style="color: #94a3b8; font-size: 0.875rem; margin-bottom: 1rem;">Let your AI search the web for current information.</p>
+          <label for="brave-key">Brave Search API Key</label>
+          <input type="password" id="brave-key" placeholder="BSA..." autocomplete="off">
+          <div class="hint">Free tier at <a href="https://brave.com/search/api/" target="_blank">brave.com/search/api</a></div>
+        </div>
+      </div>
+
+      <div style="margin-top: 1.5rem;">
+        <label style="display: flex; align-items: center; gap: 0.75rem; cursor: pointer;">
+          <input type="checkbox" id="auto-update" checked style="width: 20px; height: 20px; accent-color: #f97316;">
+          <span style="color: #e2e8f0; font-size: 0.9375rem;">Keep my Crayfish updated automatically</span>
+        </label>
+      </div>
+
+      <div class="btn-row" style="margin-top: 2rem;">
+        <button class="btn btn-secondary btn-back" onclick="prevStep()">← Back</button>
+        <button class="btn btn-primary" id="finish-btn" onclick="finishSetup()">
+          Finish Setup
+        </button>
+      </div>
+      <div id="save-status" class="status"></div>
+    </div>
+  </div>
+
+  <div class="footer">
+    Crayfish {{.Version}} · Accessible AI for everyone
+  </div>
+</div>
+
+<script>
+// State
+let currentStep = 1;
+let brainType = null; // 'cloud' or 'local'
+let selectedProvider = 'anthropic';
+let selectedModel = 'phi3';
+let selectedPersonality = 'friendly';
+let hardwareInfo = null;
+
+// Provider info
+const PROVIDERS = {
+  anthropic: {
+    name: 'Claude',
+    link: 'https://console.anthropic.com',
+    linkText: 'Go to Anthropic →',
+    placeholder: 'sk-ant-...',
+    endpoint: 'https://api.anthropic.com/v1/messages'
+  },
+  openai: {
+    name: 'ChatGPT',
+    link: 'https://platform.openai.com/api-keys',
+    linkText: 'Go to OpenAI →',
+    placeholder: 'sk-...',
+    endpoint: 'https://api.openai.com/v1/models'
+  },
+  gemini: {
+    name: 'Gemini',
+    link: 'https://aistudio.google.com/apikey',
+    linkText: 'Go to Google AI Studio →',
+    placeholder: 'AIza...',
+    endpoint: 'https://generativelanguage.googleapis.com/v1beta/models'
+  },
+  grok: {
+    name: 'Grok',
+    link: 'https://console.x.ai',
+    linkText: 'Go to xAI →',
+    placeholder: 'xai-...',
+    endpoint: 'https://api.x.ai/v1/models'
+  }
+};
+
+// Initialize
+document.addEventListener('DOMContentLoaded', () => {
+  // Set up personality chips
+  document.querySelectorAll('.chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+      chip.classList.add('active');
+      selectedPersonality = chip.dataset.personality;
+    });
+  });
+
+  // Fetch hardware info
+  fetchHardwareInfo();
+
+  // Initialize Ollama recovery in case page was refreshed mid-operation
+  initOllamaRecovery();
+});
+
+async function fetchHardwareInfo() {
+  try {
+    const resp = await fetch('/api/hardware');
+    hardwareInfo = await resp.json();
+  } catch (e) {
+    console.log('Could not detect hardware:', e);
+  }
+}
+
+function updateProgress() {
+  for (let i = 1; i <= 4; i++) {
+    const dot = document.getElementById('dot-' + i);
+    dot.classList.remove('active', 'completed');
+    if (i < currentStep) {
+      dot.classList.add('completed');
+    } else if (i === currentStep) {
+      dot.classList.add('active');
+    }
+  }
+}
+
+function showStep(n) {
+  document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+  document.getElementById('step-' + n).classList.add('active');
+  currentStep = n;
+  updateProgress();
+}
+
+function nextStep() {
+  if (currentStep === 1) {
+    // Validate name
+    const name = document.getElementById('name').value.trim();
+    if (!name) {
+      document.getElementById('name').focus();
+      return;
+    }
+  }
+
+  if (currentStep === 2) {
+    if (!brainType) return;
+
+    // Show appropriate config
+    if (brainType === 'cloud') {
+      document.getElementById('cloud-config').style.display = 'block';
+      document.getElementById('local-config').style.display = 'none';
+    } else {
+      document.getElementById('cloud-config').style.display = 'none';
+      document.getElementById('local-config').style.display = 'block';
+      // Check Ollama status and render model list when ready
+      checkOllamaStatus();
+    }
+  }
+
+  if (currentStep < 4) {
+    showStep(currentStep + 1);
+  }
+}
+
+function prevStep() {
+  if (currentStep > 1) {
+    showStep(currentStep - 1);
+  }
+}
+
+function selectBrainType(type) {
+  brainType = type;
+  document.getElementById('opt-cloud').classList.toggle('selected', type === 'cloud');
+  document.getElementById('opt-local').classList.toggle('selected', type === 'local');
+  document.getElementById('step2-next').disabled = false;
+
+  // Show hardware warning for local if needed
+  const infoBox = document.getElementById('hardware-info');
+  if (type === 'local' && hardwareInfo) {
+    if (!hardwareInfo.can_run_ollama) {
+      infoBox.className = 'info-box warning';
+      infoBox.innerHTML = hardwareInfo.message;
+      infoBox.style.display = 'block';
+    } else if (hardwareInfo.available_ram_gb < 2) {
+      infoBox.className = 'info-box warning';
+      infoBox.innerHTML = hardwareInfo.message;
+      infoBox.style.display = 'block';
+    } else {
+      infoBox.style.display = 'none';
+    }
+  } else {
+    infoBox.style.display = 'none';
+  }
+}
+
+function selectProvider(provider) {
+  selectedProvider = provider;
+  document.querySelectorAll('.provider-card').forEach(card => {
+    card.classList.toggle('selected', card.dataset.provider === provider);
+  });
+
+  // Update guide
+  const info = PROVIDERS[provider];
+  document.getElementById('provider-link').href = info.link;
+  document.getElementById('provider-link').textContent = info.linkText;
+  document.getElementById('apikey').placeholder = info.placeholder;
+}
+
+function renderModelList() {
+  const container = document.getElementById('model-list');
+  const msg = document.getElementById('local-hardware-msg');
+
+  if (hardwareInfo) {
+    msg.textContent = hardwareInfo.message;
+    msg.className = hardwareInfo.can_run_ollama ? 'info-box success' : 'info-box warning';
+  }
+
+  const models = hardwareInfo?.recommended_models || [
+    { id: 'phi3', name: 'Phi-3', description: 'Best balance of speed and smarts', fits: true, recommended: true },
+    { id: 'gemma:2b', name: 'Gemma 2B', description: 'Lightweight and capable', fits: true },
+    { id: 'tinyllama', name: 'TinyLlama', description: 'Smallest, good for simple tasks', fits: true },
+  ];
+
+  container.innerHTML = models.map(m => {
+    const tagClass = m.recommended ? 'recommended' : (m.fits ? 'fits' : 'no-fit');
+    const tagText = m.recommended ? 'Recommended' : (m.fits ? 'Will work' : 'Too large');
+    const disabled = !m.fits ? 'disabled' : '';
+    const selected = m.id === selectedModel ? 'selected' : '';
+
+    return `
+      <div class="model-card ${selected} ${disabled}" onclick="selectModel('${m.id}', ${m.fits})" data-model="${m.id}">
+        <div class="model-info">
+          <div class="model-name">${m.name}</div>
+          <div class="model-desc">${m.description}</div>
+        </div>
+        <span class="model-tag ${tagClass}">${tagText}</span>
+      </div>
+    `;
+  }).join('');
+
+  // Auto-select recommended model
+  const recommended = models.find(m => m.recommended) || models.find(m => m.fits) || models[0];
+  if (recommended && recommended.fits) {
+    selectedModel = recommended.id;
+  }
+
+  // Show download section
+  document.getElementById('model-download-section').style.display = 'block';
+}
+
+function selectModel(modelId, fits) {
+  if (!fits) return;
+  selectedModel = modelId;
+  document.querySelectorAll('.model-card').forEach(card => {
+    card.classList.toggle('selected', card.dataset.model === modelId);
+  });
+}
+
+// ==================== Ollama Management ====================
+
+// State management with localStorage for recovery
+const OllamaState = {
+  IDLE: 'idle',
+  CHECKING: 'checking',
+  NOT_INSTALLED: 'not_installed',
+  INSTALLING: 'installing',
+  STARTING: 'starting',
+  READY: 'ready',
+  DOWNLOADING: 'downloading',
+  MODEL_READY: 'model_ready'
+};
+
+let ollamaStatus = null;
+let modelDownloaded = false;
+let currentOllamaState = OllamaState.IDLE;
+let statusCheckRetries = 0;
+let activeAbortController = null;
+
+// Save state to localStorage for recovery
+function saveOllamaState(state, extra = {}) {
+  currentOllamaState = state;
+  try {
+    localStorage.setItem('crayfish_ollama_state', JSON.stringify({
+      state,
+      timestamp: Date.now(),
+      selectedModel,
+      modelDownloaded,
+      ...extra
+    }));
+  } catch (e) {}
+}
+
+// Restore state from localStorage
+function restoreOllamaState() {
+  try {
+    const saved = localStorage.getItem('crayfish_ollama_state');
+    if (saved) {
+      const data = JSON.parse(saved);
+      // Only restore if less than 10 minutes old
+      if (Date.now() - data.timestamp < 10 * 60 * 1000) {
+        if (data.selectedModel) selectedModel = data.selectedModel;
+        if (data.modelDownloaded) modelDownloaded = data.modelDownloaded;
+        return data.state;
+      }
+    }
+  } catch (e) {}
+  return null;
+}
+
+// Clear saved state
+function clearOllamaState() {
+  try {
+    localStorage.removeItem('crayfish_ollama_state');
+  } catch (e) {}
+}
+
+// Update UI based on state
+function updateOllamaUI(state, message = null) {
+  const elements = {
+    checking: document.getElementById('ollama-checking'),
+    notInstalled: document.getElementById('ollama-not-installed'),
+    ready: document.getElementById('ollama-ready'),
+    readyMsg: document.getElementById('ollama-ready-msg'),
+    modelSection: document.getElementById('model-selection-section'),
+    downloadSection: document.getElementById('model-download-section'),
+    modelReady: document.getElementById('model-ready-section')
+  };
+
+  // Hide all first
+  elements.checking.style.display = 'none';
+  elements.notInstalled.style.display = 'none';
+  elements.ready.style.display = 'none';
+
+  switch (state) {
+    case OllamaState.CHECKING:
+      elements.checking.style.display = 'block';
+      elements.checking.innerHTML = '<span class="spinner"></span> Checking your device...';
+      break;
+
+    case OllamaState.NOT_INSTALLED:
+      elements.notInstalled.style.display = 'block';
+      resetInstallUI();
+      break;
+
+    case OllamaState.INSTALLING:
+      elements.notInstalled.style.display = 'block';
+      break;
+
+    case OllamaState.STARTING:
+      elements.ready.style.display = 'block';
+      elements.readyMsg.innerHTML = '<span class="spinner"></span> ' + (message || 'Starting Ollama...');
+      break;
+
+    case OllamaState.READY:
+      elements.ready.style.display = 'block';
+      elements.readyMsg.textContent = message || 'Ollama is running!';
+      elements.modelSection.style.display = 'block';
+      if (!modelDownloaded) {
+        elements.downloadSection.style.display = 'block';
+        elements.modelReady.style.display = 'none';
+      }
+      break;
+
+    case OllamaState.DOWNLOADING:
+      elements.ready.style.display = 'block';
+      elements.readyMsg.textContent = 'Ollama is running!';
+      elements.modelSection.style.display = 'block';
+      elements.downloadSection.style.display = 'block';
+      break;
+
+    case OllamaState.MODEL_READY:
+      elements.ready.style.display = 'block';
+      elements.readyMsg.textContent = message || 'Ollama is ready!';
+      elements.modelSection.style.display = 'block';
+      elements.downloadSection.style.display = 'none';
+      elements.modelReady.style.display = 'block';
+      break;
+  }
+
+  saveOllamaState(state);
+}
+
+// Reset install UI to initial state
+function resetInstallUI() {
+  const btn = document.getElementById('install-ollama-btn');
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = 'Install Ollama';
+    btn.onclick = installOllama;
+  }
+  const progress = document.getElementById('install-progress');
+  if (progress) {
+    progress.style.display = 'none';
+  }
+}
+
+// Reset download UI to initial state
+function resetDownloadUI() {
+  const btn = document.getElementById('download-model-btn');
+  if (btn) {
+    btn.disabled = false;
+    btn.textContent = 'Download Selected Model';
+  }
+  const progress = document.getElementById('download-progress');
+  if (progress) {
+    progress.style.display = 'none';
+  }
+}
+
+async function checkOllamaStatus(isRecovery = false) {
+  // Cancel any ongoing operations
+  if (activeAbortController) {
+    activeAbortController.abort();
+    activeAbortController = null;
+  }
+
+  updateOllamaUI(OllamaState.CHECKING);
+
+  try {
+    const resp = await fetch('/api/ollama/status');
+    if (!resp.ok) throw new Error('Status check failed');
+
+    ollamaStatus = await resp.json();
+    statusCheckRetries = 0;
+
+    if (!ollamaStatus.installed) {
+      updateOllamaUI(OllamaState.NOT_INSTALLED);
+    } else if (!ollamaStatus.running) {
+      updateOllamaUI(OllamaState.STARTING, 'Waiting for Ollama to start...');
+      // Retry with exponential backoff, max 5 retries
+      if (statusCheckRetries < 5) {
+        statusCheckRetries++;
+        setTimeout(() => checkOllamaStatus(true), Math.min(1000 * Math.pow(2, statusCheckRetries), 10000));
+      } else {
+        updateOllamaUI(OllamaState.NOT_INSTALLED);
+        showManualStartInstructions();
+      }
+    } else {
+      // Running! Check for installed models
+      if (ollamaStatus.installed_models && ollamaStatus.installed_models.length > 0) {
+        selectedModel = ollamaStatus.installed_models[0];
+        modelDownloaded = true;
+        updateOllamaUI(OllamaState.MODEL_READY, ollamaStatus.message);
+      } else {
+        updateOllamaUI(OllamaState.READY, ollamaStatus.message);
+      }
+      renderModelList();
+      clearOllamaState(); // Clear recovery state on success
+    }
+  } catch (err) {
+    console.error('Ollama status check failed:', err);
+
+    // Retry on network errors
+    if (statusCheckRetries < 3) {
+      statusCheckRetries++;
+      setTimeout(() => checkOllamaStatus(true), 2000);
+    } else {
+      updateOllamaUI(OllamaState.NOT_INSTALLED);
+    }
+  }
+}
+
+function showManualStartInstructions() {
+  const container = document.getElementById('ollama-not-installed');
+  container.innerHTML = `
+    <div class="info-box warning">
+      <strong>Ollama is installed but not running</strong>
+      <p style="margin: 0.5rem 0; font-size: 0.9rem;">Please start Ollama manually:</p>
+      <code style="display: block; background: rgba(0,0,0,0.3); padding: 0.5rem; border-radius: 4px;">ollama serve</code>
+    </div>
+    <button class="btn btn-primary" onclick="checkOllamaStatus()" style="margin-top: 1rem;">
+      Check Again
+    </button>
+  `;
+}
+
+// Robust SSE stream parser with reconnection support
+class SSEParser {
+  constructor(onEvent, onError, onComplete) {
+    this.buffer = '';
+    this.onEvent = onEvent;
+    this.onError = onError;
+    this.onComplete = onComplete;
+    this.aborted = false;
+  }
+
+  abort() {
+    this.aborted = true;
+  }
+
+  async parse(response) {
+    if (!response.ok) {
+      this.onError({ message: `Server error: ${response.status}` });
+      return;
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+
+    try {
+      while (!this.aborted) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        this.buffer += decoder.decode(value, { stream: true });
+        this.processBuffer();
+      }
+
+      // Process any remaining data
+      if (this.buffer.trim()) {
+        this.processBuffer();
+      }
+
+      if (!this.aborted) {
+        this.onComplete();
+      }
+    } catch (err) {
+      if (!this.aborted) {
+        this.onError({ message: err.message || 'Connection lost' });
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+
+  processBuffer() {
+    const parts = this.buffer.split('\n\n');
+    this.buffer = parts.pop() || '';
+
+    for (const part of parts) {
+      if (!part.trim()) continue;
+
+      const lines = part.split('\n');
+      let eventType = 'message';
+      let eventData = null;
+
+      for (const line of lines) {
+        if (line.startsWith('event: ')) {
+          eventType = line.slice(7).trim();
+        } else if (line.startsWith('data: ')) {
+          try {
+            eventData = JSON.parse(line.slice(6));
+          } catch (e) {
+            eventData = { message: line.slice(6) };
+          }
+        }
+      }
+
+      if (eventData) {
+        this.onEvent(eventType, eventData);
+      }
+    }
+  }
+}
+
+async function installOllama() {
+  const btn = document.getElementById('install-ollama-btn');
+  const progressDiv = document.getElementById('install-progress');
+  const progressFill = document.getElementById('install-progress-fill');
+  const progressText = document.getElementById('install-progress-text');
+
+  // Update UI state
+  btn.disabled = true;
+  btn.textContent = 'Installing...';
+  progressDiv.style.display = 'block';
+  progressFill.classList.add('indeterminate');
+  progressFill.style.width = '0%';
+  progressText.textContent = 'Checking your system...';
+
+  saveOllamaState(OllamaState.INSTALLING);
+
+  // Create abort controller for cancellation
+  activeAbortController = new AbortController();
+  let completed = false;
+
+  const parser = new SSEParser(
+    // onEvent
+    (eventType, data) => {
+      switch (eventType) {
+        case 'progress':
+          progressText.textContent = data.message || data.status || 'Installing...';
+          break;
+
+        case 'manual':
+          completed = true;
+          progressFill.classList.remove('indeterminate');
+          progressDiv.style.display = 'none';
+          showManualInstall(data);
+          saveOllamaState(OllamaState.NOT_INSTALLED, { manualInstall: true });
+          break;
+
+        case 'complete':
+          completed = true;
+          progressFill.classList.remove('indeterminate');
+          progressFill.style.width = '100%';
+          progressText.textContent = data.message || 'Installed successfully!';
+          saveOllamaState(OllamaState.STARTING);
+          setTimeout(() => checkOllamaStatus(), 1500);
+          break;
+
+        case 'error':
+          completed = true;
+          handleInstallError(data.message || 'Installation failed');
+          break;
+      }
+    },
+    // onError
+    (err) => {
+      if (!completed) {
+        handleInstallError(err.message || 'Connection lost during installation');
+      }
+    },
+    // onComplete
+    () => {
+      if (!completed) {
+        // Stream ended without explicit complete/error - check status
+        setTimeout(() => checkOllamaStatus(), 1000);
+      }
+    }
+  );
+
+  try {
+    const resp = await fetch('/api/ollama/install', {
+      method: 'POST',
+      signal: activeAbortController.signal
+    });
+    await parser.parse(resp);
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      progressText.textContent = 'Installation cancelled';
+    } else {
+      handleInstallError(err.message || 'Failed to connect to server');
+    }
+  } finally {
+    activeAbortController = null;
+  }
+}
+
+function handleInstallError(message) {
+  const btn = document.getElementById('install-ollama-btn');
+  const progressFill = document.getElementById('install-progress-fill');
+  const progressText = document.getElementById('install-progress-text');
+
+  progressFill.classList.remove('indeterminate');
+  progressText.innerHTML = `
+    ${message}
+    <br><small style="color: #94a3b8;">Click "Retry" to try again, or install manually.</small>
+  `;
+  btn.textContent = 'Retry';
+  btn.disabled = false;
+  saveOllamaState(OllamaState.NOT_INSTALLED);
+}
+
+function showManualInstall(data) {
+  const container = document.getElementById('ollama-not-installed');
+  const osName = data.os === 'macos' ? 'macOS' : data.os === 'windows' ? 'Windows' : data.os || 'your system';
+
+  container.innerHTML = `
+    <div class="info-box" style="background: rgba(59, 130, 246, 0.1); border-color: rgba(59, 130, 246, 0.3); color: #93c5fd;">
+      <strong>${data.message || `Let's install Ollama on ${osName}`}</strong>
+      <p style="margin: 0.75rem 0; font-size: 0.9rem; color: #cbd5e1;">
+        ${data.instructions || 'Please install Ollama and come back.'}
+      </p>
+      ${data.command ? `
+        <div style="position: relative;">
+          <code style="display: block; background: rgba(0,0,0,0.3); padding: 0.5rem 2.5rem 0.5rem 0.5rem; border-radius: 4px; margin: 0.5rem 0; font-size: 0.85rem; word-break: break-all;">${data.command}</code>
+          <button onclick="copyToClipboard('${data.command}')" style="position: absolute; right: 4px; top: 50%; transform: translateY(-50%); background: rgba(255,255,255,0.1); border: none; padding: 4px 8px; border-radius: 4px; color: #94a3b8; cursor: pointer; font-size: 0.75rem;">Copy</button>
+        </div>
+      ` : ''}
+    </div>
+    <div style="display: flex; gap: 0.75rem; margin-top: 1rem; flex-wrap: wrap;">
+      ${data.url ? `<a href="${data.url}" target="_blank" class="btn btn-primary" style="text-decoration: none;">Download Ollama</a>` : ''}
+      <button class="btn btn-secondary" onclick="checkOllamaStatus()">I've installed it</button>
+    </div>
+    <p style="color: #64748b; font-size: 0.8rem; margin-top: 0.75rem;">
+      After installing, make sure to <strong>open Ollama</strong> so it starts running, then click "I've installed it" to continue.
+    </p>
+  `;
+}
+
+function copyToClipboard(text) {
+  navigator.clipboard.writeText(text).then(() => {
+    // Brief visual feedback
+    event.target.textContent = 'Copied!';
+    setTimeout(() => { event.target.textContent = 'Copy'; }, 1500);
+  });
+}
+
+async function downloadModel() {
+  if (!selectedModel) {
+    alert('Please select a model first');
+    return;
+  }
+
+  const btn = document.getElementById('download-model-btn');
+  const progressDiv = document.getElementById('download-progress');
+  const progressFill = document.getElementById('download-progress-fill');
+  const progressText = document.getElementById('download-progress-text');
+
+  // Update UI state
+  btn.disabled = true;
+  btn.textContent = 'Downloading...';
+  progressDiv.style.display = 'block';
+  progressFill.style.width = '0%';
+  progressText.textContent = 'Connecting to Ollama...';
+
+  saveOllamaState(OllamaState.DOWNLOADING, { downloadingModel: selectedModel });
+
+  // Create abort controller for cancellation
+  activeAbortController = new AbortController();
+  let completed = false;
+  let lastProgress = 0;
+  let stuckTimer = null;
+
+  // Detect stuck downloads (no progress for 30 seconds)
+  const resetStuckTimer = () => {
+    if (stuckTimer) clearTimeout(stuckTimer);
+    stuckTimer = setTimeout(() => {
+      if (!completed) {
+        progressText.innerHTML = `
+          Download seems stuck...
+          <br><small style="color: #94a3b8;">
+            <a href="#" onclick="retryDownload(); return false;" style="color: #6ee7b7;">Retry</a> or
+            <a href="#" onclick="cancelDownload(); return false;" style="color: #f87171;">Cancel</a>
+          </small>
+        `;
+      }
+    }, 30000);
+  };
+
+  const parser = new SSEParser(
+    // onEvent
+    (eventType, data) => {
+      resetStuckTimer();
+
+      switch (eventType) {
+        case 'progress':
+          if (data.percent !== undefined) {
+            progressFill.style.width = data.percent + '%';
+            lastProgress = data.percent;
+          }
+          if (data.status) {
+            let msg = data.status;
+            if (data.percent > 0) {
+              msg += ` (${data.percent}%)`;
+            }
+            if (data.total > 0) {
+              const downloadedMB = (data.completed / 1024 / 1024).toFixed(0);
+              const totalMB = (data.total / 1024 / 1024).toFixed(0);
+              msg += ` - ${downloadedMB}MB / ${totalMB}MB`;
+            }
+            progressText.textContent = msg;
+          }
+          break;
+
+        case 'complete':
+          completed = true;
+          if (stuckTimer) clearTimeout(stuckTimer);
+          progressFill.style.width = '100%';
+          progressText.textContent = data.message || 'Download complete!';
+          modelDownloaded = true;
+          saveOllamaState(OllamaState.MODEL_READY);
+          setTimeout(() => {
+            updateOllamaUI(OllamaState.MODEL_READY, 'Your AI is ready to use!');
+          }, 1000);
+          break;
+
+        case 'error':
+          completed = true;
+          if (stuckTimer) clearTimeout(stuckTimer);
+          handleDownloadError(data.message || 'Download failed');
+          break;
+      }
+    },
+    // onError
+    (err) => {
+      if (stuckTimer) clearTimeout(stuckTimer);
+      if (!completed) {
+        handleDownloadError(err.message || 'Connection lost during download');
+      }
+    },
+    // onComplete
+    () => {
+      if (stuckTimer) clearTimeout(stuckTimer);
+      if (!completed) {
+        // Stream ended - check if model was actually downloaded
+        checkOllamaStatus();
+      }
+    }
+  );
+
+  resetStuckTimer();
+
+  try {
+    const resp = await fetch('/api/ollama/pull', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: selectedModel }),
+      signal: activeAbortController.signal
+    });
+    await parser.parse(resp);
+  } catch (err) {
+    if (stuckTimer) clearTimeout(stuckTimer);
+    if (err.name === 'AbortError') {
+      progressText.textContent = 'Download cancelled';
+      resetDownloadUI();
+    } else {
+      handleDownloadError(err.message || 'Failed to connect to Ollama');
+    }
+  } finally {
+    activeAbortController = null;
+  }
+}
+
+function handleDownloadError(message) {
+  const btn = document.getElementById('download-model-btn');
+  const progressText = document.getElementById('download-progress-text');
+
+  progressText.innerHTML = `
+    ${message}
+    <br><small style="color: #94a3b8;">Check that Ollama is running and try again.</small>
+  `;
+  btn.textContent = 'Retry Download';
+  btn.disabled = false;
+  saveOllamaState(OllamaState.READY);
+}
+
+function retryDownload() {
+  resetDownloadUI();
+  downloadModel();
+}
+
+function cancelDownload() {
+  if (activeAbortController) {
+    activeAbortController.abort();
+  }
+  resetDownloadUI();
+  saveOllamaState(OllamaState.READY);
+}
+
+// Initialize: check for recovery state when page loads
+function initOllamaRecovery() {
+  const savedState = restoreOllamaState();
+  if (savedState) {
+    console.log('Recovering Ollama state:', savedState);
+
+    // If we were in the middle of something, re-check status
+    if ([OllamaState.INSTALLING, OllamaState.DOWNLOADING, OllamaState.STARTING].includes(savedState)) {
+      // Give a moment for any background processes, then check
+      setTimeout(() => checkOllamaStatus(true), 1000);
+    }
+  }
+}
+
+function toggleCollapsible(id) {
+  document.getElementById(id).classList.toggle('open');
+}
+
+function showStatus(id, msg, type) {
+  const el = document.getElementById(id);
+  el.className = 'status show status-' + type;
+  el.textContent = msg;
+}
+
+async function finishSetup() {
+  const btn = document.getElementById('finish-btn');
+  btn.disabled = true;
+  btn.textContent = 'Setting up...';
+
+  const name = document.getElementById('name').value.trim() || 'Crayfish';
+
+  const body = {
+    name: name,
+    personality: selectedPersonality,
+    provider: brainType === 'local' ? 'ollama' : selectedProvider,
+    api_key: brainType === 'local' ? '' : document.getElementById('apikey').value,
+    model: brainType === 'local' ? selectedModel : '',
+    endpoint: brainType === 'local' ? (document.getElementById('endpoint').value || 'http://localhost:11434') : '',
+    telegram_token: document.getElementById('telegram-token').value,
+    gmail_user: document.getElementById('gmail-user').value,
+    gmail_app_password: document.getElementById('gmail-pass').value,
+    brave_api_key: document.getElementById('brave-key').value,
+    auto_update: document.getElementById('auto-update').checked,
+  };
+
+  // Validate
+  if (brainType === 'cloud' && !body.api_key) {
+    showStatus('save-status', 'Please enter your API key', 'err');
+    btn.disabled = false;
+    btn.textContent = 'Finish Setup';
+    return;
+  }
+
+  if (brainType === 'local') {
+    if (!ollamaStatus || !ollamaStatus.running) {
+      showStatus('save-status', 'Please install and start Ollama first', 'err');
+      btn.disabled = false;
+      btn.textContent = 'Finish Setup';
+      return;
+    }
+    if (!modelDownloaded && (!ollamaStatus.installed_models || ollamaStatus.installed_models.length === 0)) {
+      showStatus('save-status', 'Please download a model first', 'err');
+      btn.disabled = false;
+      btn.textContent = 'Finish Setup';
+      return;
+    }
+  }
+
+  try {
+    const resp = await fetch('/api/setup', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body),
+    });
+    const data = await resp.json();
+
+    if (data.error) {
+      showStatus('save-status', data.error, 'err');
+      btn.disabled = false;
+      btn.textContent = 'Finish Setup';
+    } else {
+      // Show success
+      document.getElementById('final-name').textContent = name;
+      document.getElementById('final-brain').textContent = brainType === 'local' ?
+        'On-Device (' + selectedModel + ')' :
+        PROVIDERS[selectedProvider]?.name || selectedProvider;
+      document.getElementById('success-title').textContent = name + ' is Ready!';
+      document.getElementById('setup-container').style.display = 'none';
+      document.getElementById('success-overlay').classList.add('show');
+    }
+  } catch (e) {
+    showStatus('save-status', 'Error: ' + e.message, 'err');
+    btn.disabled = false;
+    btn.textContent = 'Finish Setup';
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,52 @@
+# Crayfish Configuration
+# Accessible AI for everyone.
+#
+# Environment variables override these values.
+# API keys should be set as environment variables (never in this file).
+#
+# Env var mapping:
+#   CRAYFISH_DB_PATH      → db_path
+#   CRAYFISH_LISTEN       → listen_addr
+#   CRAYFISH_PROVIDER     → provider
+#   CRAYFISH_API_KEY      → api_key (also ANTHROPIC_API_KEY)
+#   CRAYFISH_ENDPOINT     → endpoint
+#   CRAYFISH_MODEL        → model
+#   CRAYFISH_MAX_TOKENS   → max_tokens
+#   CRAYFISH_TELEGRAM_TOKEN → telegram_token
+#   CRAYFISH_SYSTEM_PROMPT → system_prompt
+
+# Storage
+db_path: "crayfish.db"
+
+# Network
+listen_addr: ":8119"
+
+# LLM Provider
+# Supported: "anthropic", "openai", "groq", "deepseek", "together",
+#            "openrouter", "ollama", "vllm", "lmstudio"
+# If empty, auto-detected from model name. Default: "anthropic".
+provider: ""
+
+# Custom API endpoint (required for Ollama/vLLM, optional for others)
+endpoint: ""
+
+# Model name. Examples:
+#   claude-sonnet-4-20250514 (Anthropic)
+#   gpt-4o-mini (OpenAI)
+#   llama3-8b (Groq/Ollama)
+#   deepseek-chat (DeepSeek)
+model: ""
+
+# Max tokens for responses
+max_tokens: 1024
+
+# Telegram Bot API token (get from @BotFather)
+telegram_token: ""
+
+# System prompt
+system_prompt: |
+  You are Crayfish — an AI assistant built for everyone, not just the privileged few.
+  You run on tiny hardware so you keep things sharp and to the point. No fluff unless they ask.
+  You have access to tools when the user's trust tier allows it.
+  If someone asks what you are: "I'm Crayfish — AI for the rest of us."
+  You are warm, direct, and resourceful — accessible like crayfish itself.

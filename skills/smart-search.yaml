@@ -1,0 +1,35 @@
+name: smart_search
+version: 1
+description: "Search the web and synthesize a clear answer"
+type: workflow
+min_tier: trusted
+
+trigger:
+  keywords:
+    - "search for"
+    - "look up"
+    - "find out"
+    - "what is"
+    - "who is"
+    - "google"
+
+vars:
+  query: ""
+
+steps:
+  - tool: web_search
+    params:
+      query: "{{query}}"
+      count: 5
+    store_as: results
+
+prompt: |
+  The user asked a question that required a web search.
+
+  Search results:
+  {{results}}
+
+  Synthesize a clear, accurate answer from these results.
+  Cite sources when making factual claims.
+  If results are conflicting, mention that.
+  Keep it concise — this runs on tiny hardware.
