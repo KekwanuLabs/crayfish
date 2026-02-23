@@ -151,6 +151,9 @@ During work hours, Crayfish checks your email and calendar and nudges you:
 ### Voice Messages
 Send a voice note on Telegram. Crayfish transcribes it and responds. No typing required.
 
+### Admin Dashboard
+Manage everything from your browser at `http://your-device:8119`. View sessions, search memories, configure settings, manage skills, and monitor events — all from a single page. Settings like name and personality apply instantly; provider changes show a "restart needed" indicator.
+
 ### Privacy First
 Your data lives on your Pi, in your home. Conversations aren't training someone else's AI. You own everything.
 
@@ -241,15 +244,25 @@ make deploy-clean   # Wipes data on Pi, then deploys fresh
 ### Project Structure
 
 ```
-cmd/crayfish/       # Main entry point
-internal/           # Core packages
-  brain/            # LLM integration
-  telegram/         # Telegram bot
-  gmail/            # Email integration
-  calendar/         # Google Calendar
-  voice/            # Speech recognition (whisper.cpp)
-  setup/            # Web setup wizard
-scripts/            # Install and deploy scripts
+cmd/crayfish/           # Main entry point
+internal/               # Core packages
+  app/                  # Application orchestration & config
+  bus/                  # Event bus (SQLite-backed)
+  channels/             # Channel adapters (Telegram, CLI)
+  gateway/              # HTTP server, dashboard, skills API
+  gmail/                # Email integration
+  calendar/             # Google Calendar
+  heartbeat/            # Proactive check-ins
+  provider/             # LLM providers (Anthropic, OpenAI, etc.)
+  runtime/              # Agent brain, tool execution, memory
+  security/             # Trust tiers, pairing, guardrails
+  setup/                # Web setup wizard
+  skills/               # YAML-defined workflows
+  storage/              # SQLite wrapper
+  tools/                # Built-in tool registry
+  voice/                # Speech recognition (whisper.cpp)
+scripts/                # Install and deploy scripts
+docs/                   # Architecture documentation
 ```
 
 ### Contributing

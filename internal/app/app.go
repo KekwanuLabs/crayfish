@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/KekwanuLabs/crayfish/internal/bus"
@@ -50,8 +52,13 @@ type App struct {
 	autoUpdater    *updater.Updater
 	voiceInstaller *voice.Installer
 
+	// Runtime reference for hot-reload
+	rt *runtime.Runtime
+
 	// Lifecycle
-	cancel context.CancelFunc
+	StartedAt time.Time
+	configMu  sync.RWMutex
+	cancel    context.CancelFunc
 }
 
 // New creates a new Crayfish application with the given config.
@@ -73,6 +80,7 @@ func (a *App) DB() *sql.DB {
 
 // Start initializes all components and begins processing.
 func (a *App) Start(ctx context.Context) error {
+	a.StartedAt = time.Now()
 	ctx, cancel := context.WithCancel(ctx)
 	a.cancel = cancel
 
@@ -305,6 +313,7 @@ func (a *App) Start(ctx context.Context) error {
 		a.offlineQueue, a.pairing, memExtractor, memRetriever,
 		snapshotMgr, a.Config.SessionResumeMinutes,
 		a.Logger.With("component", "runtime"))
+	a.rt = rt
 
 	// 15. Gateway
 	skillsDir := "skills" // Default to local directory for user-created skills
@@ -318,8 +327,9 @@ func (a *App) Start(ctx context.Context) error {
 		SkillsDir:  skillsDir,
 	}, db, a.Logger.With("component", "gateway"))
 
-	// Wire skill registry to gateway for API and web UI.
+	// Wire skill registry and app accessor to gateway for API, web UI, and dashboard.
 	a.gateway.SetSkillRegistry(a.skillRegistry)
+	a.gateway.SetAppAccessor(a)
 
 	a.gateway.RegisterAdapter(cliAdapter)
 	if a.Config.TelegramToken != "" {
@@ -393,6 +403,187 @@ func (a *App) Stop() error {
 	}
 
 	return nil
+}
+
+// DashboardConfig returns the current config with secrets masked.
+func (a *App) DashboardConfig() map[string]any {
+	a.configMu.RLock()
+	defer a.configMu.RUnlock()
+
+	mask := func(s string) string {
+		if len(s) <= 4 {
+			if s == "" {
+				return ""
+			}
+			return "****"
+		}
+		return s[:4] + strings.Repeat("*", len(s)-4)
+	}
+
+	return map[string]any{
+		"name":                   a.Config.Name,
+		"personality":            a.Config.Personality,
+		"db_path":                a.Config.DBPath,
+		"listen_addr":            a.Config.ListenAddr,
+		"provider":               a.Config.Provider,
+		"api_key":                mask(a.Config.APIKey),
+		"endpoint":               a.Config.Endpoint,
+		"model":                  a.Config.Model,
+		"max_tokens":             a.Config.MaxTokens,
+		"voice_enabled":          a.Config.VoiceEnabled,
+		"voice_model":            a.Config.VoiceModel,
+		"stt_enabled":            a.Config.STTEnabled,
+		"telegram_token":         mask(a.Config.TelegramToken),
+		"gmail_user":             a.Config.GmailUser,
+		"gmail_app_password":     mask(a.Config.GmailAppPassword),
+		"gmail_poll_minutes":     a.Config.GmailPollMinutes,
+		"brave_api_key":          mask(a.Config.BraveAPIKey),
+		"system_prompt":          a.Config.SystemPrompt,
+		"continuity_enabled":     a.Config.ContinuityEnabled,
+		"session_resume_minutes": a.Config.SessionResumeMinutes,
+		"snapshots_per_session":  a.Config.SnapshotsPerSession,
+		"auto_update":            a.Config.AutoUpdate,
+		"update_channel":         a.Config.UpdateChannel,
+	}
+}
+
+// UpdateConfig applies config updates. Returns true if a restart is needed.
+func (a *App) UpdateConfig(updates map[string]any) (bool, error) {
+	a.configMu.Lock()
+	defer a.configMu.Unlock()
+
+	restartNeeded := false
+
+	// Hot-reloadable fields.
+	hotFields := map[string]bool{
+		"name": true, "personality": true, "system_prompt": true,
+		"continuity_enabled": true, "session_resume_minutes": true,
+		"snapshots_per_session": true, "auto_update": true,
+		"update_channel": true,
+	}
+
+	for key, val := range updates {
+		changed := false
+		switch key {
+		case "name":
+			if s, ok := val.(string); ok && s != "" && s != a.Config.Name {
+				a.Config.Name = s
+				changed = true
+			}
+		case "personality":
+			if s, ok := val.(string); ok && s != "" && s != a.Config.Personality {
+				a.Config.Personality = s
+				changed = true
+			}
+		case "system_prompt":
+			if s, ok := val.(string); ok && s != a.Config.SystemPrompt {
+				a.Config.SystemPrompt = s
+				changed = true
+			}
+		case "api_key":
+			if s, ok := val.(string); ok && s != "" && !strings.Contains(s, "****") && s != a.Config.APIKey {
+				a.Config.APIKey = s
+				changed = true
+			}
+		case "provider":
+			if s, ok := val.(string); ok && s != "" && s != a.Config.Provider {
+				a.Config.Provider = s
+				changed = true
+			}
+		case "endpoint":
+			if s, ok := val.(string); ok && s != a.Config.Endpoint {
+				a.Config.Endpoint = s
+				changed = true
+			}
+		case "model":
+			if s, ok := val.(string); ok && s != "" && s != a.Config.Model {
+				a.Config.Model = s
+				changed = true
+			}
+		case "max_tokens":
+			if f, ok := val.(float64); ok && int(f) != a.Config.MaxTokens {
+				a.Config.MaxTokens = int(f)
+				changed = true
+			}
+		case "telegram_token":
+			if s, ok := val.(string); ok && !strings.Contains(s, "****") && s != a.Config.TelegramToken {
+				a.Config.TelegramToken = s
+				changed = true
+			}
+		case "gmail_user":
+			if s, ok := val.(string); ok && s != a.Config.GmailUser {
+				a.Config.GmailUser = s
+				changed = true
+			}
+		case "gmail_app_password":
+			if s, ok := val.(string); ok && !strings.Contains(s, "****") && s != a.Config.GmailAppPassword {
+				a.Config.GmailAppPassword = s
+				changed = true
+			}
+		case "brave_api_key":
+			if s, ok := val.(string); ok && !strings.Contains(s, "****") && s != a.Config.BraveAPIKey {
+				a.Config.BraveAPIKey = s
+				changed = true
+			}
+		case "listen_addr":
+			if s, ok := val.(string); ok && s != "" && s != a.Config.ListenAddr {
+				a.Config.ListenAddr = s
+				changed = true
+			}
+		case "continuity_enabled":
+			if b, ok := val.(bool); ok && b != a.Config.ContinuityEnabled {
+				a.Config.ContinuityEnabled = b
+				changed = true
+			}
+		case "session_resume_minutes":
+			if f, ok := val.(float64); ok && int(f) != a.Config.SessionResumeMinutes {
+				a.Config.SessionResumeMinutes = int(f)
+				changed = true
+			}
+		case "snapshots_per_session":
+			if f, ok := val.(float64); ok && int(f) != a.Config.SnapshotsPerSession {
+				a.Config.SnapshotsPerSession = int(f)
+				changed = true
+			}
+		case "auto_update":
+			if b, ok := val.(bool); ok && b != a.Config.AutoUpdate {
+				a.Config.AutoUpdate = b
+				changed = true
+			}
+		case "update_channel":
+			if s, ok := val.(string); ok && s != a.Config.UpdateChannel {
+				a.Config.UpdateChannel = s
+				changed = true
+			}
+		}
+
+		if changed && !hotFields[key] {
+			restartNeeded = true
+		}
+	}
+
+	// Save to YAML.
+	if err := a.Config.SaveConfig(); err != nil {
+		a.Logger.Warn("failed to save config", "error", err)
+		// Non-fatal: in-memory config is updated.
+	}
+
+	// Hot-reload runtime config.
+	if a.rt != nil {
+		a.rt.UpdateConfig(a.Config.Name, a.Config.Personality, a.Config.SystemPrompt)
+	}
+
+	return restartNeeded, nil
+}
+
+// Uptime returns how long the app has been running.
+func (a *App) Uptime() time.Duration {
+	return time.Since(a.StartedAt)
+}
+
+// AppVersion returns the app version string.
+func (a *App) AppVersion() string {
+	return a.Version
 }
 
 // cleanExpiredOTPs periodically removes expired pairing OTPs.

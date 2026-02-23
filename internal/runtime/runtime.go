@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/KekwanuLabs/crayfish/internal/bus"
@@ -104,6 +105,7 @@ You have a checkpoint tool. When session state is recovered, it will appear as [
 // Runtime is the agent processing loop.
 type Runtime struct {
 	config          Config
+	configMu        sync.RWMutex
 	bus             bus.Bus
 	db              *sql.DB
 	provider        provider.Provider
@@ -165,6 +167,19 @@ func New(cfg Config, b bus.Bus, db *sql.DB, prov provider.Provider, sessions *se
 // ResponseChan returns the channel where outbound responses are sent.
 func (r *Runtime) ResponseChan() <-chan Response {
 	return r.respCh
+}
+
+// UpdateConfig hot-reloads identity fields in the runtime config.
+func (r *Runtime) UpdateConfig(name, personality, systemPrompt string) {
+	r.configMu.Lock()
+	defer r.configMu.Unlock()
+	if name != "" {
+		r.config.Name = name
+	}
+	if personality != "" {
+		r.config.Personality = personality
+	}
+	r.config.SystemPrompt = systemPrompt
 }
 
 // Run starts the agent loop, consuming inbound message events from the bus.
@@ -400,9 +415,13 @@ func (r *Runtime) executeTool(ctx context.Context, sess *security.Session, tc pr
 func (r *Runtime) assembleContext(ctx context.Context, sess *security.Session, currentMessage string) ([]provider.Message, error) {
 	var messages []provider.Message
 
+	r.configMu.RLock()
+	systemPrompt := r.config.BuildSystemPrompt()
+	r.configMu.RUnlock()
+
 	messages = append(messages, provider.Message{
 		Role:    provider.RoleSystem,
-		Content: r.config.BuildSystemPrompt(),
+		Content: systemPrompt,
 	})
 
 	// Check if this is a session resume (idle gap exceeds threshold).
