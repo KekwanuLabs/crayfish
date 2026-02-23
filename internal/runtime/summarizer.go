@@ -33,6 +33,9 @@ type Summarizer struct {
 	// summaryCache stores recently computed summaries to avoid re-summarization
 	// key: session_id, value: *CachedSummary
 	summaryCache map[string]*CachedSummary
+
+	// snapshotMgr captures session state before summarization compresses messages.
+	snapshotMgr *SnapshotManager
 }
 
 // CachedSummary represents a cached summary with its metadata
@@ -51,6 +54,11 @@ func NewSummarizer(db *sql.DB, prov provider.Provider, logger *slog.Logger) *Sum
 		logger:       logger,
 		summaryCache: make(map[string]*CachedSummary),
 	}
+}
+
+// SetSnapshotManager configures the summarizer to capture session state before compaction.
+func (s *Summarizer) SetSnapshotManager(mgr *SnapshotManager) {
+	s.snapshotMgr = mgr
 }
 
 // SummarizeIfNeeded checks if the conversation needs summarization and performs it.
@@ -82,6 +90,20 @@ func (s *Summarizer) SummarizeIfNeeded(
 	if exists {
 		s.logger.Debug("using cached summary", "session_id", sessionID, "message_count", cached.MessageCount)
 		return s.buildOptimizedMessages(messages, cached.Summary, keepRecent)
+	}
+
+	// Capture a session snapshot before summarization compresses the messages.
+	// This runs in a background goroutine so summarization is not blocked.
+	if s.snapshotMgr != nil {
+		msgCopy := make([]provider.Message, len(messages))
+		copy(msgCopy, messages)
+		go func() {
+			snapCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			if err := s.snapshotMgr.GenerateAndSave(snapCtx, sessionID, "auto", msgCopy); err != nil {
+				s.logger.Warn("pre-summarization snapshot failed", "error", err, "session_id", sessionID)
+			}
+		}()
 	}
 
 	// Determine how many messages to summarize

@@ -52,6 +52,11 @@ type Config struct {
 	// Runtime
 	SystemPrompt string `yaml:"system_prompt"`
 
+	// Session continuity
+	ContinuityEnabled    bool `yaml:"continuity_enabled"`     // Enable session snapshot system (default: true)
+	SessionResumeMinutes int  `yaml:"session_resume_minutes"` // Idle gap threshold for snapshot injection (default: 30)
+	SnapshotsPerSession  int  `yaml:"snapshots_per_session"`  // Max snapshots retained per session (default: 3)
+
 	// Updates
 	AutoUpdate    bool   `yaml:"auto_update"`
 	UpdateChannel string `yaml:"update_channel"` // "stable" or "beta"
@@ -60,16 +65,19 @@ type Config struct {
 // DefaultConfig returns sensible defaults.
 func DefaultConfig() Config {
 	return Config{
-		Name:          "Crayfish", // Default name, owner should personalize
-		Personality:   "minimal",  // Concise responses, no filler
-		DBPath:        "crayfish.db",
-		ListenAddr:    ":8119",
-		AutoUpdate:    true,
-		UpdateChannel: "stable",
-		VoiceEnabled:  false,
-		VoiceModel:    "en_US-lessac-medium", // Default Piper voice
-		STTEnabled:    true,                  // Auto-enable if whisper.cpp is available
-		STTModelPath:  "",                    // Auto-detect
+		Name:                 "Crayfish", // Default name, owner should personalize
+		Personality:          "minimal",  // Concise responses, no filler
+		DBPath:               "crayfish.db",
+		ListenAddr:           ":8119",
+		ContinuityEnabled:    true,
+		SessionResumeMinutes: 30,
+		SnapshotsPerSession:  3,
+		AutoUpdate:           true,
+		UpdateChannel:        "stable",
+		VoiceEnabled:         false,
+		VoiceModel:           "en_US-lessac-medium", // Default Piper voice
+		STTEnabled:           true,                  // Auto-enable if whisper.cpp is available
+		STTModelPath:         "",                    // Auto-detect
 	}
 }
 
@@ -146,6 +154,9 @@ func LoadConfig(logger *slog.Logger) Config {
 	envStr("CRAYFISH_GMAIL_APP_PASSWORD", &cfg.GmailAppPassword)
 	envInt("CRAYFISH_GMAIL_POLL_MINUTES", &cfg.GmailPollMinutes)
 	envStr("CRAYFISH_BRAVE_API_KEY", &cfg.BraveAPIKey)
+	envBool("CRAYFISH_CONTINUITY_ENABLED", &cfg.ContinuityEnabled)
+	envInt("CRAYFISH_SESSION_RESUME_MINUTES", &cfg.SessionResumeMinutes)
+	envInt("CRAYFISH_SNAPSHOTS_PER_SESSION", &cfg.SnapshotsPerSession)
 	envBool("CRAYFISH_AUTO_UPDATE", &cfg.AutoUpdate)
 	envStr("CRAYFISH_UPDATE_CHANNEL", &cfg.UpdateChannel)
 

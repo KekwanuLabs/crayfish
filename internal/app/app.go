@@ -262,7 +262,28 @@ func (a *App) Start(ctx context.Context) error {
 	memRetriever := runtime.NewMemoryRetriever(db.Inner(),
 		a.Logger.With("component", "memory_retriever"))
 
-	// 14. Agent runtime
+	// 15. Session continuity (snapshot manager)
+	var snapshotMgr *runtime.SnapshotManager
+	if a.Config.ContinuityEnabled {
+		snapshotMgr = runtime.NewSnapshotManager(db.Inner(), llm,
+			a.Logger.With("component", "snapshot"))
+
+		// Register checkpoint tool
+		tools.RegisterCheckpointTool(toolReg, db.Inner(), snapshotMgr)
+
+		// Periodic snapshot cleanup
+		snapshotsPerSession := a.Config.SnapshotsPerSession
+		if snapshotsPerSession <= 0 {
+			snapshotsPerSession = 3
+		}
+		go a.cleanSnapshots(ctx, snapshotMgr, snapshotsPerSession)
+
+		a.Logger.Info("session continuity enabled",
+			"resume_minutes", a.Config.SessionResumeMinutes,
+			"snapshots_per_session", snapshotsPerSession)
+	}
+
+	// 16. Agent runtime
 	rtCfg := runtime.DefaultConfig()
 	if a.Config.Name != "" {
 		rtCfg.Name = a.Config.Name
@@ -282,6 +303,7 @@ func (a *App) Start(ctx context.Context) error {
 
 	rt := runtime.New(rtCfg, a.bus, db.Inner(), llm, a.sessions, toolReg,
 		a.offlineQueue, a.pairing, memExtractor, memRetriever,
+		snapshotMgr, a.Config.SessionResumeMinutes,
 		a.Logger.With("component", "runtime"))
 
 	// 15. Gateway
@@ -383,6 +405,22 @@ func (a *App) cleanExpiredOTPs(ctx context.Context) {
 			return
 		case <-ticker.C:
 			a.pairing.CleanExpired(context.Background())
+		}
+	}
+}
+
+// cleanSnapshots periodically removes old session snapshots.
+func (a *App) cleanSnapshots(ctx context.Context, mgr *runtime.SnapshotManager, keep int) {
+	ticker := time.NewTicker(1 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := mgr.Cleanup(context.Background(), keep, 7*24*time.Hour); err != nil {
+				a.Logger.Warn("snapshot cleanup failed", "error", err)
+			}
 		}
 	}
 }

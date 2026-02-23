@@ -134,6 +134,8 @@ func TestCategoryValidation(t *testing.T) {
 		{"decision", true},
 		{"context", true},
 		{"general", true},
+		{"session_state", true},
+		{"pending", true},
 		{"invalid", false},
 		{"", false},
 	}
