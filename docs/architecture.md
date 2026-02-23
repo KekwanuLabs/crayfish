@@ -92,10 +92,13 @@ The gateway is the front door. It runs 24/7, uses minimal resources, and handles
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │  HTTP Server (:8119)                                        │
+│  ├── /              → Admin dashboard (tabbed SPA)          │
 │  ├── /health         → Is Crayfish alive?                   │
 │  ├── /status         → What adapters are running?           │
 │  ├── /skills         → Web UI for managing skills           │
-│  └── /api/skills/*   → REST API for skills                  │
+│  ├── /api/skills/*   → REST API for skills                  │
+│  └── /api/dashboard/*→ Dashboard API (config, sessions,     │
+│                         memory, events, snapshots)          │
 │                                                             │
 │  Channel Adapters                                           │
 │  ├── Telegram        → Your phone/desktop Telegram          │
@@ -153,26 +156,30 @@ One database file. No external services.
 ├────────────────────────────────────────────────────────────┤
 │                                                            │
 │  ┌─────────────────────────────────────────────────────┐   │
-│  │ events              │ The event log (CrayfishBus)   │   │
-│  │                     │ Every message, tool call,     │   │
-│  │                     │ system event is recorded      │   │
+│  │ events              │ Append-only event log         │   │
+│  │                     │ (messages, tools, system)     │   │
 │  └─────────────────────────────────────────────────────┘   │
 │                                                            │
 │  ┌─────────────────────────────────────────────────────┐   │
-│  │ sessions            │ Who is this person?           │   │
-│  │                     │ What's their trust level?     │   │
-│  │                     │ When did they pair?           │   │
+│  │ sessions            │ User sessions with trust tier │   │
 │  └─────────────────────────────────────────────────────┘   │
 │                                                            │
 │  ┌─────────────────────────────────────────────────────┐   │
-│  │ memory_fts          │ Long-term memory (FTS5)       │   │
-│  │                     │ "Remember: Mom's birthday     │   │
-│  │                     │  is March 15th"               │   │
+│  │ messages            │ Conversation history          │   │
 │  └─────────────────────────────────────────────────────┘   │
 │                                                            │
 │  ┌─────────────────────────────────────────────────────┐   │
-│  │ gmail_cache         │ Cached emails for search      │   │
-│  │                     │ (indexed with FTS5)           │   │
+│  │ memory_fts +        │ Long-term memory (FTS5) with  │   │
+│  │ memory_metadata     │ categories and importance     │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                            │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ session_snapshots   │ Continuity across sessions    │   │
+│  │                     │ (task, tone, proposals)       │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                            │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ emails + emails_fts │ Cached emails (FTS5 indexed)  │   │
 │  └─────────────────────────────────────────────────────┘   │
 │                                                            │
 └────────────────────────────────────────────────────────────┘
@@ -330,6 +337,79 @@ Non-technical users can create skills through a web browser:
 
 ---
 
+## Admin Dashboard
+
+The dashboard is the control center — a tabbed single-page app served at `/` that replaces the old minimal "Crayfish is running" page. It's a single HTML file embedded in a Go const (same pattern as the skills UI), requiring no build tools.
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  Crayfish Dashboard                                       │
+├──────────────────────────────────────────────────────────┤
+│  [Overview] [Settings] [Skills] [Sessions] [Memory] [Events]
+├──────────────────────────────────────────────────────────┤
+│                                                          │
+│  Overview:    Stats, adapters, uptime                    │
+│  Settings:    Hot-reload name/personality/prompt;         │
+│               restart-needed for provider/API key         │
+│  Skills:      Create/edit/delete YAML workflows          │
+│  Sessions:    Browse sessions, view message history      │
+│  Memory:      FTS5 full-text search, delete entries      │
+│  Events:      Filter by type, auto-refresh               │
+│                                                          │
+└──────────────────────────────────────────────────────────┘
+```
+
+**Config hot-reload**: The `AppAccessor` interface bridges the gateway and app layers. Settings changes fall into two categories:
+
+| Immediate (green dot)          | Restart needed (yellow dot)      |
+|--------------------------------|----------------------------------|
+| name, personality, system_prompt | api_key, provider, model        |
+| continuity, session resume     | telegram_token, gmail settings   |
+| snapshots, auto_update         | listen_addr, brave_api_key       |
+
+The runtime's `UpdateConfig()` method applies identity changes immediately via a `sync.RWMutex`-protected config update. Config is persisted to YAML via `SaveConfig()`.
+
+---
+
+## Session Continuity
+
+Crayfish preserves conversational context across summarization boundaries and session gaps.
+
+```
+┌────────────────────────────────────────────────────────────┐
+│                   SESSION CONTINUITY                        │
+├────────────────────────────────────────────────────────────┤
+│                                                            │
+│  Problem: When conversation history is summarized to       │
+│  save tokens, the "texture" of the conversation is lost    │
+│  — active tasks, decisions in flight, conversational tone. │
+│                                                            │
+│  Solution: Session Snapshots                               │
+│  ┌─────────────────────────────────────────────────────┐   │
+│  │ Snapshot captures:                                  │   │
+│  │  • active_task — What was being worked on?          │   │
+│  │  • last_exchanges — Recent conversational texture   │   │
+│  │  • pending_proposals — Unresolved suggestions       │   │
+│  │  • decisions_in_flight — Things being decided       │   │
+│  │  • conversational_tone — Formal? Casual? Technical? │   │
+│  │  • key_resources — Files, URLs, references          │   │
+│  └─────────────────────────────────────────────────────┘   │
+│                                                            │
+│  Triggers:                                                 │
+│  • Summarization compresses history → snapshot saved       │
+│  • User resumes after idle gap → snapshot injected         │
+│  • Manual checkpoint via tool                              │
+│                                                            │
+│  Lifecycle:                                                │
+│  • Max snapshots per session (default: 3)                  │
+│  • Old snapshots cleaned up hourly                         │
+│  • Only the latest is marked "current"                     │
+│                                                            │
+└────────────────────────────────────────────────────────────┘
+```
+
+---
+
 ## MCP (Model Context Protocol)
 
 MCP lets Crayfish connect to external tools without code changes.
@@ -472,20 +552,32 @@ crayfish/
 │   └── crayfish/
 │       └── main.go           # Entry point
 ├── internal/
-│   ├── app/                  # Application orchestration
+│   ├── app/                  # Application orchestration & config
+│   │   ├── app.go            # Component wiring, AppAccessor
+│   │   └── config.go         # YAML/env config, SaveConfig
 │   ├── bus/                  # Event bus (CrayfishBus)
+│   ├── calendar/             # Google Calendar (CalDAV)
 │   ├── channels/             # Channel adapters
-│   │   ├── telegram/         # Telegram bot
+│   │   ├── telegram/         # Telegram bot (long-polling)
 │   │   └── cli/              # Terminal interface
-│   ├── gateway/              # HTTP server, routing
+│   ├── gateway/              # HTTP server & web UIs
+│   │   ├── gateway.go        # Main orchestrator, AppAccessor interface
+│   │   ├── dashboard_api.go  # REST API for dashboard
+│   │   ├── dashboard_ui.go   # Admin dashboard SPA
+│   │   ├── skills_api.go     # REST API for skills
+│   │   └── skills_ui.go      # Skills management UI
 │   ├── gmail/                # Gmail IMAP integration
-│   ├── mcp/                  # MCP client (~200 lines)
-│   ├── provider/             # LLM providers (Claude, OpenAI, Grok)
-│   ├── runtime/              # Agent runtime, tool execution
-│   ├── security/             # Sessions, pairing, trust tiers
-│   ├── skills/               # Skills system
-│   ├── storage/              # SQLite wrapper
-│   └── tools/                # Built-in tools
+│   ├── heartbeat/            # Proactive check-ins
+│   ├── mcp/                  # MCP client
+│   ├── provider/             # LLM providers (Anthropic, OpenAI, etc.)
+│   ├── runtime/              # Agent brain, tool loop, memory, snapshots
+│   ├── security/             # Sessions, pairing, trust, guardrails
+│   ├── setup/                # First-time web wizard
+│   ├── skills/               # Skills system (YAML workflows)
+│   ├── storage/              # SQLite wrapper & migrations
+│   ├── tools/                # Built-in tool registry
+│   ├── updater/              # Auto-update system
+│   └── voice/                # STT (whisper.cpp) & TTS (Piper)
 ├── scripts/
 │   └── deploy.sh             # One-touch Pi deployment
 ├── skills/                   # User-defined skills (YAML)

@@ -18,6 +18,14 @@ import (
 	"github.com/KekwanuLabs/crayfish/internal/storage"
 )
 
+// AppAccessor provides dashboard access to app-level state.
+type AppAccessor interface {
+	DashboardConfig() map[string]any
+	UpdateConfig(updates map[string]any) (restartNeeded bool, err error)
+	Uptime() time.Duration
+	AppVersion() string
+}
+
 // Config holds gateway configuration.
 type Config struct {
 	ListenAddr string `json:"listen_addr" yaml:"listen_addr"`
@@ -41,6 +49,7 @@ type Gateway struct {
 	rt            *runtime.Runtime
 	adapters      map[string]channels.ChannelAdapter
 	skillRegistry *skills.Registry
+	appRef        AppAccessor
 	server        *http.Server
 	logger        *slog.Logger
 	mu            sync.RWMutex
@@ -61,6 +70,11 @@ func New(cfg Config, db *storage.DB, logger *slog.Logger) *Gateway {
 // This enables the skills API and web UI.
 func (g *Gateway) SetSkillRegistry(registry *skills.Registry) {
 	g.skillRegistry = registry
+}
+
+// SetAppAccessor sets the app accessor for the dashboard.
+func (g *Gateway) SetAppAccessor(a AppAccessor) {
+	g.appRef = a
 }
 
 // RegisterAdapter adds a channel adapter to the gateway.
@@ -188,49 +202,46 @@ func (g *Gateway) routeResponses(ctx context.Context) {
 	}
 }
 
+// adapterNames returns the names of all registered adapters.
+func (g *Gateway) adapterNames() []string {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+	names := make([]string, 0, len(g.adapters))
+	for name := range g.adapters {
+		names = append(names, name)
+	}
+	return names
+}
+
 // httpHandler returns the HTTP handler for health and status endpoints.
 func (g *Gateway) httpHandler() http.Handler {
 	mux := http.NewServeMux()
 
-	// Root page - simple status
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		fmt.Fprintf(w, `<!DOCTYPE html>
-<html><head><title>Crayfish</title>
-<style>body{font-family:system-ui;max-width:600px;margin:50px auto;padding:20px;text-align:center}
-h1{color:#d63031}a{color:#0984e3}</style></head>
-<body><h1>🦐 Crayfish is running</h1>
-<p>Your AI assistant is ready.</p>
-<p><a href="/skills">Manage Skills</a> · <a href="/health">Health Check</a></p>
-</body></html>`)
-	})
-
+	// Health check — stable contract.
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		version := "0.1.0"
+		if g.appRef != nil {
+			version = g.appRef.AppVersion()
+		}
 		json.NewEncoder(w).Encode(map[string]string{
 			"status":  "ok",
-			"version": "0.1.0",
+			"version": version,
 		})
 	})
 
+	// Status API — stable contract.
 	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
-		g.mu.RLock()
-		adapterNames := make([]string, 0, len(g.adapters))
-		for name := range g.adapters {
-			adapterNames = append(adapterNames, name)
-		}
-		g.mu.RUnlock()
-
 		lastID, _ := g.bus.LastID(r.Context())
+		version := "0.1.0"
+		if g.appRef != nil {
+			version = g.appRef.AppVersion()
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{
-			"version":       "0.1.0",
-			"adapters":      adapterNames,
+			"version":       version,
+			"adapters":      g.adapterNames(),
 			"last_event_id": lastID,
 		})
 	})
@@ -244,6 +255,34 @@ h1{color:#d63031}a{color:#0984e3}</style></head>
 		skillsUI.RegisterRoutes(mux)
 
 		g.logger.Info("skills API and UI registered", "skills_dir", g.config.SkillsDir)
+	}
+
+	// Dashboard: replaces the old minimal "/" page.
+	if g.appRef != nil {
+		dashUI := NewDashboardUI(g.appRef.AppVersion())
+		dashUI.RegisterRoutes(mux)
+
+		dashAPI := NewDashboardAPI(g.db, g.bus, g.appRef, g.adapterNames, g.logger)
+		dashAPI.RegisterRoutes(mux)
+
+		g.logger.Info("dashboard registered")
+	} else {
+		// Fallback if no app accessor (shouldn't happen in normal use).
+		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/" {
+				http.NotFound(w, r)
+				return
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			fmt.Fprintf(w, `<!DOCTYPE html>
+<html><head><title>Crayfish</title>
+<style>body{font-family:system-ui;max-width:600px;margin:50px auto;padding:20px;text-align:center}
+h1{color:#d63031}a{color:#0984e3}</style></head>
+<body><h1>Crayfish is running</h1>
+<p>Your AI assistant is ready.</p>
+<p><a href="/skills">Manage Skills</a> &middot; <a href="/health">Health Check</a></p>
+</body></html>`)
+		})
 	}
 
 	return mux

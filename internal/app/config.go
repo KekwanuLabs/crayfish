@@ -2,8 +2,10 @@
 package app
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -60,6 +62,9 @@ type Config struct {
 	// Updates
 	AutoUpdate    bool   `yaml:"auto_update"`
 	UpdateChannel string `yaml:"update_channel"` // "stable" or "beta"
+
+	// Internal — resolved config file path, not serialized to YAML.
+	ConfigPath string `yaml:"-" json:"-"`
 }
 
 // DefaultConfig returns sensible defaults.
@@ -104,6 +109,7 @@ func LoadConfig(logger *slog.Logger) Config {
 	}
 
 	if configPath != "" {
+		cfg.ConfigPath = configPath
 		data, err := os.ReadFile(configPath)
 		if err != nil {
 			logger.Warn("failed to read config file", "path", configPath, "error", err)
@@ -113,6 +119,14 @@ func LoadConfig(logger *slog.Logger) Config {
 			} else {
 				logger.Info("loaded config from file", "path", configPath)
 			}
+			cfg.ConfigPath = configPath // Re-set after unmarshal (yaml:"-" won't populate it)
+		}
+	} else {
+		// Default config path for saves when no file was found.
+		if home, err := os.UserHomeDir(); err == nil {
+			cfg.ConfigPath = home + "/.config/crayfish/crayfish.yaml"
+		} else {
+			cfg.ConfigPath = "crayfish.yaml"
 		}
 	}
 
@@ -176,6 +190,22 @@ func (c Config) GmailPollInterval() time.Duration {
 		return time.Duration(c.GmailPollMinutes) * time.Minute
 	}
 	return 5 * time.Minute
+}
+
+// SaveConfig writes the current config to its YAML file.
+func (c Config) SaveConfig() error {
+	if c.ConfigPath == "" {
+		return fmt.Errorf("no config path set")
+	}
+	dir := filepath.Dir(c.ConfigPath)
+	if dir != "." && dir != "" {
+		os.MkdirAll(dir, 0750)
+	}
+	data, err := yaml.Marshal(c)
+	if err != nil {
+		return fmt.Errorf("marshal config: %w", err)
+	}
+	return os.WriteFile(c.ConfigPath, data, 0600)
 }
 
 // NeedsSetup returns true if the minimum required config is missing.
