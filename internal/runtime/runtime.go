@@ -95,7 +95,10 @@ You have access to tools when the user's trust tier allows it.
 If someone asks what you are: "I'm Crayfish — AI for the rest of us. I run on a tiny computer in your home, not someone else's cloud."
 If someone asks your name: "I'm %s."
 
-You are resourceful, practical, and accessible — like crayfish itself. Found everywhere, affordable, and makes everything better.`, name, name, name, personalityGuide, name)
+You are resourceful, practical, and accessible — like crayfish itself. Found everywhere, affordable, and makes everything better.
+
+## Session Continuity
+You have a checkpoint tool. When session state is recovered, it will appear as [Session State] in your context. Use it to continue seamlessly — never say "I don't remember" without checking the session state first. If you notice gaps, briefly acknowledge them. The user should never need to re-explain context.`, name, name, name, personalityGuide, name)
 }
 
 // Runtime is the agent processing loop.
@@ -107,6 +110,7 @@ type Runtime struct {
 	sessions        *security.SessionStore
 	tools           *tools.Registry
 	summarizer      *Summarizer
+	snapshotMgr     *SnapshotManager
 	memoryExtractor *MemoryExtractor
 	memoryRetriever *MemoryRetriever
 	queue           *queue.OfflineQueue
@@ -114,6 +118,9 @@ type Runtime struct {
 	guardrails      *security.Guardrails
 	logger          *slog.Logger
 	respCh          chan Response
+
+	// sessionResumeThreshold is the idle gap after which a snapshot is injected on resume.
+	sessionResumeThreshold time.Duration
 }
 
 // Response carries an outbound message from the runtime to a channel adapter.
@@ -125,22 +132,33 @@ type Response struct {
 }
 
 // New creates a new agent runtime.
-func New(cfg Config, b bus.Bus, db *sql.DB, prov provider.Provider, sessions *security.SessionStore, toolReg *tools.Registry, q *queue.OfflineQueue, pairing *security.PairingService, memExtractor *MemoryExtractor, memRetriever *MemoryRetriever, logger *slog.Logger) *Runtime {
+func New(cfg Config, b bus.Bus, db *sql.DB, prov provider.Provider, sessions *security.SessionStore, toolReg *tools.Registry, q *queue.OfflineQueue, pairing *security.PairingService, memExtractor *MemoryExtractor, memRetriever *MemoryRetriever, snapshotMgr *SnapshotManager, sessionResumeMinutes int, logger *slog.Logger) *Runtime {
+	summarizer := NewSummarizer(db, prov, logger.With("component", "summarizer"))
+	if snapshotMgr != nil {
+		summarizer.SetSnapshotManager(snapshotMgr)
+	}
+
+	if sessionResumeMinutes <= 0 {
+		sessionResumeMinutes = 30
+	}
+
 	return &Runtime{
-		config:          cfg,
-		bus:             b,
-		db:              db,
-		provider:        prov,
-		sessions:        sessions,
-		tools:           toolReg,
-		summarizer:      NewSummarizer(db, prov, logger.With("component", "summarizer")),
-		memoryExtractor: memExtractor,
-		memoryRetriever: memRetriever,
-		queue:           q,
-		pairing:         pairing,
-		guardrails:      security.NewGuardrails(),
-		logger:          logger,
-		respCh:          make(chan Response, 32),
+		config:                 cfg,
+		bus:                    b,
+		db:                     db,
+		provider:               prov,
+		sessions:               sessions,
+		tools:                  toolReg,
+		summarizer:             summarizer,
+		snapshotMgr:            snapshotMgr,
+		memoryExtractor:        memExtractor,
+		memoryRetriever:        memRetriever,
+		queue:                  q,
+		pairing:                pairing,
+		guardrails:             security.NewGuardrails(),
+		logger:                 logger,
+		respCh:                 make(chan Response, 32),
+		sessionResumeThreshold: time.Duration(sessionResumeMinutes) * time.Minute,
 	}
 }
 
@@ -387,6 +405,33 @@ func (r *Runtime) assembleContext(ctx context.Context, sess *security.Session, c
 		Content: r.config.BuildSystemPrompt(),
 	})
 
+	// Check if this is a session resume (idle gap exceeds threshold).
+	isResume := false
+	if r.snapshotMgr != nil {
+		isResume = r.snapshotMgr.IsSessionResume(ctx, sess.ID, r.sessionResumeThreshold)
+	}
+
+	// Inject session snapshot after system prompt, before memories.
+	// Injected when: (a) resuming after an idle gap, or (b) summarization just compressed history.
+	// We check resume first; summarization injection is handled after history loading below.
+	var snapshotInjected bool
+	if isResume && r.snapshotMgr != nil {
+		snap, err := r.snapshotMgr.LoadLatest(ctx, sess.ID)
+		if err != nil {
+			r.logger.Warn("failed to load session snapshot", "error", err)
+		} else if snap != nil {
+			content := r.snapshotMgr.FormatForContext(snap)
+			if content != "" {
+				messages = append(messages, provider.Message{
+					Role:    provider.RoleSystem,
+					Content: content,
+				})
+				snapshotInjected = true
+				r.logger.Info("session snapshot injected (resume)", "session_id", sess.ID)
+			}
+		}
+	}
+
 	// Retrieve and inject relevant memories
 	if r.memoryRetriever != nil {
 		memories, err := r.memoryRetriever.RetrieveRelevant(ctx, sess.ID, currentMessage, 5)
@@ -407,6 +452,7 @@ func (r *Runtime) assembleContext(ctx context.Context, sess *security.Session, c
 	if err != nil {
 		r.logger.Warn("failed to load history", "error", err)
 	} else {
+		historyLen := len(history)
 		// Apply summarization if history is long enough.
 		if r.summarizer != nil && len(history) > 0 {
 			history, err = r.summarizer.SummarizeIfNeeded(ctx, sess.ID, history, KeepRecentDefault)
@@ -414,6 +460,27 @@ func (r *Runtime) assembleContext(ctx context.Context, sess *security.Session, c
 				r.logger.Warn("summarization failed, using full history", "error", err)
 			}
 		}
+
+		// If summarization compressed the history and we haven't injected a snapshot yet,
+		// inject one now (the summarizer triggered a snapshot save in the background).
+		summarized := len(history) < historyLen
+		if summarized && !snapshotInjected && r.snapshotMgr != nil {
+			snap, err := r.snapshotMgr.LoadLatest(ctx, sess.ID)
+			if err != nil {
+				r.logger.Warn("failed to load post-summarization snapshot", "error", err)
+			} else if snap != nil {
+				content := r.snapshotMgr.FormatForContext(snap)
+				if content != "" {
+					// Insert snapshot right after system prompt (index 1 or after memories)
+					messages = append(messages, provider.Message{
+						Role:    provider.RoleSystem,
+						Content: content,
+					})
+					r.logger.Info("session snapshot injected (post-summarization)", "session_id", sess.ID)
+				}
+			}
+		}
+
 		messages = append(messages, history...)
 	}
 

@@ -392,6 +392,30 @@ var migrations = []migration{
 		CREATE INDEX IF NOT EXISTS idx_identities_fabric ON identities(fabric_agent_id);
 		`,
 	},
+	{
+		name: "session continuity snapshots",
+		sql: `
+		-- Session snapshots for preserving conversational texture across summarization.
+		CREATE TABLE IF NOT EXISTS session_snapshots (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			session_id TEXT NOT NULL,
+			trigger TEXT NOT NULL DEFAULT 'auto',
+			active_task TEXT NOT NULL DEFAULT '',
+			active_task_context TEXT NOT NULL DEFAULT '',
+			last_exchanges TEXT NOT NULL DEFAULT '[]',
+			pending_proposals TEXT NOT NULL DEFAULT '[]',
+			decisions_in_flight TEXT NOT NULL DEFAULT '[]',
+			conversational_tone TEXT NOT NULL DEFAULT '',
+			key_resources TEXT NOT NULL DEFAULT '[]',
+			message_count INTEGER NOT NULL DEFAULT 0,
+			is_current INTEGER NOT NULL DEFAULT 1,
+			created_at TEXT NOT NULL DEFAULT (datetime('now')),
+			FOREIGN KEY (session_id) REFERENCES sessions(id)
+		);
+		CREATE INDEX IF NOT EXISTS idx_snapshots_session ON session_snapshots(session_id);
+		CREATE INDEX IF NOT EXISTS idx_snapshots_current ON session_snapshots(session_id, is_current);
+		`,
+	},
 }
 
 // Now returns the current time formatted for SQLite storage.

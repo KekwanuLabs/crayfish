@@ -28,6 +28,8 @@ Categories:
 - personal: Personal info, background, interests, context about the user
 - decision: Decisions made, conclusions reached, plans
 - context: Important context for understanding future conversations
+- session_state: Active task, what we're working on right now
+- pending: Unresolved proposals, questions, or requests not yet addressed
 - general: Other memorable facts
 
 Extract 0-3 facts. Only extract if information is:
@@ -259,7 +261,7 @@ func isTrivialMessage(msg string) bool {
 
 // isValidCategory checks if a category is one of the allowed values.
 func isValidCategory(category string) bool {
-	validCategories := []string{"preference", "personal", "decision", "context", "general"}
+	validCategories := []string{"preference", "personal", "decision", "context", "session_state", "pending", "general"}
 	for _, valid := range validCategories {
 		if category == valid {
 			return true
