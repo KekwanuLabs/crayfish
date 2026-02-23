@@ -28,22 +28,22 @@ Crayfish is intentionally simple. While other AI assistants ship 400,000+ lines 
 ## System Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                              CRAYFISH                                    │
-│                         Your Personal AI                                 │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  ╔═══════════════════════════════════════════════════════════════════╗  │
-│  ║                      CHANNELS (Input/Output)                       ║  │
-│  ╠═══════════╦═══════════╦═══════════╦═══════════╦═══════════════════╣  │
-│  ║ Telegram  ║   CLI     ║  WhatsApp ║   Email   ║   Web Browser     ║  │
-│  ║    📱     ║    💻     ║    💬     ║    📧     ║       🌐          ║  │
-│  ╚═════╦═════╩═════╦═════╩═════╦═════╩═════╦═════╩═════════╦═════════╝  │
-│        │           │           │           │               │            │
-│        └───────────┴─────┬─────┴───────────┘               │            │
-│                          ▼                                 │            │
-│  ┌───────────────────────────────────────────────────────────────────┐  │
-│  │                         GATEWAY                                   │  │
+┌────────────────────────────────────────────────────────────────────────┐
+│                              CRAYFISH                                  │
+│                         Your Personal AI                               │
+├────────────────────────────────────────────────────────────────────────┤
+│                                                                        │
+│  ╔══════════════════════════════════════════════════════════════════╗  │
+│  ║                      CHANNELS (Input/Output)                     ║  │
+│  ╠═══════════╦═══════════╦═══════════╦═══════════╦══════════════════╣  │
+│  ║ Telegram  ║   CLI     ║  WhatsApp ║   Email   ║   Web Browser    ║  │
+│  ║    📱     ║    💻      ║    💬     ║    📧      ║       🌐         ║  │
+│  ╚═════╦════╩═════╦═════╩═════╦═════╩═════╦═════╩═════════╦═════════╝  │
+│        │           │           │           │               │           │
+│        └───────────┴─────┬─────┴───────────┘               │           │
+│                          ▼                                 │           │
+│  ┌──────────────────────────────────────────────────────────────────┐  │
+│  │                         GATEWAY                                  │  │
 │  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐   │  │
 │  │  │ HTTP Server │  │  Event Bus  │  │    Channel Adapters     │   │  │
 │  │  │  :8119      │  │  (SQLite)   │  │  (route msgs in/out)    │   │  │
@@ -53,29 +53,29 @@ Crayfish is intentionally simple. While other AI assistants ship 400,000+ lines 
 │            │    ┌───────────┴───────────┐          │                   │
 │            │    ▼                       ▼          │                   │
 │  ┌─────────┴────────────────────────────────────────────────────────┐  │
-│  │                          RUNTIME                                  │  │
-│  │                                                                   │  │
+│  │                          RUNTIME                                 │  │
+│  │                                                                  │  │
 │  │   Message ──▶ Session ──▶ Context ──▶ LLM ──▶ Tools ──▶ Reply    │  │
-│  │      │          │           │          │        │         │       │  │
-│  │      │     ┌────┴────┐ ┌────┴────┐ ┌───┴───┐ ┌──┴──┐     │       │  │
-│  │      │     │Identity │ │ Memory  │ │Claude │ │Email│     │       │  │
-│  │      │     │ Check   │ │Retrieval│ │OpenAI │ │Gmail│     │       │  │
-│  │      │     │(pairing)│ │ (FTS5)  │ │ Grok  │ │Web  │     │       │  │
-│  │      │     └─────────┘ └─────────┘ └───────┘ └─────┘     │       │  │
-│  │      │                                                    │       │  │
-│  └──────┼────────────────────────────────────────────────────┼───────┘  │
-│         │                                                    │          │
-│         ▼                                                    ▼          │
-│  ┌───────────────────────────────────────────────────────────────────┐  │
-│  │                         STORAGE                                   │  │
-│  │                      (Single SQLite File)                         │  │
-│  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────────┐  │  │
-│  │  │ Events  │ │Sessions │ │ Memory  │ │Messages │ │   Skills    │  │  │
-│  │  │  (WAL)  │ │ (Trust) │ │ (FTS5)  │ │ (Cache) │ │   (YAML)    │  │  │
-│  │  └─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────────┘  │  │
-│  └───────────────────────────────────────────────────────────────────┘  │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
+│  │      │          │           │          │        │         │      │  │
+│  │      │     ┌────┴────┐ ┌────┴────┐ ┌───┴───┐ ┌──┴──┐      │      │  │
+│  │      │     │Identity │ │ Memory  │ │Claude │ │Email│      │      │  │
+│  │      │     │ Check   │ │Retrieval│ │OpenAI │ │Gmail│      │      │  │
+│  │      │     │(pairing)│ │ (FTS5)  │ │ Grok  │ │Web  │      │      │  │
+│  │      │     └─────────┘ └─────────┘ └───────┘ └─────┘      │      │  │
+│  │      │                                                    │      │  │
+│  └──────┼────────────────────────────────────────────────────┼──────┘  │
+│         │                                                    │         │
+│         ▼                                                    ▼         │
+│  ┌───────────────────────────────────────────────────────────────────┐ │
+│  │                         STORAGE                                   │ │
+│  │                      (Single SQLite File)                         │ │
+│  │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────────┐  │ │
+│  │  │ Events  │ │Sessions │ │ Memory  │ │Messages │ │   Skills    │  │ │
+│  │  │  (WAL)  │ │ (Trust) │ │ (FTS5)  │ │ (Cache) │ │   (YAML)    │  │ │
+│  │  └─────────┘ └─────────┘ └─────────┘ └─────────┘ └─────────────┘  │ │
+│  └───────────────────────────────────────────────────────────────────┘ │
+│                                                                        │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -88,23 +88,23 @@ The gateway is the front door. It runs 24/7, uses minimal resources, and handles
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                         GATEWAY                              │
+│                         GATEWAY                             │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │  HTTP Server (:8119)                                        │
-│  ├── /health         → Is Crayfish alive?                  │
-│  ├── /status         → What adapters are running?          │
-│  ├── /skills         → Web UI for managing skills          │
-│  └── /api/skills/*   → REST API for skills                 │
+│  ├── /health         → Is Crayfish alive?                   │
+│  ├── /status         → What adapters are running?           │
+│  ├── /skills         → Web UI for managing skills           │
+│  └── /api/skills/*   → REST API for skills                  │
 │                                                             │
 │  Channel Adapters                                           │
-│  ├── Telegram        → Your phone/desktop Telegram         │
-│  ├── CLI             → Terminal interface                  │
-│  └── (WhatsApp)      → Coming soon                         │
+│  ├── Telegram        → Your phone/desktop Telegram          │
+│  ├── CLI             → Terminal interface                   │
+│  └── (WhatsApp)      → Coming soon                          │
 │                                                             │
 │  Event Bus (CrayfishBus)                                    │
-│  └── All messages flow through here as events              │
-│      Stored in SQLite for replay/debugging                 │
+│  └── All messages flow through here as events               │
+│      Stored in SQLite for replay/debugging                  │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -114,23 +114,23 @@ The gateway is the front door. It runs 24/7, uses minimal resources, and handles
 The runtime processes messages and calls the AI:
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                         RUNTIME                              │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
+┌────────────────────────────────────────────────────────────┐
+│                         RUNTIME                            │
+├────────────────────────────────────────────────────────────┤
+│                                                            │
 │  ┌─────────┐    ┌─────────┐    ┌─────────┐    ┌─────────┐  │
 │  │ Message │───▶│ Session │───▶│ Context │───▶│   LLM   │  │
-│  │ Arrives │    │ Lookup  │    │ Builder │    │  Call   │  │
+│  │ Arrives │    │ Lookup  │    │ Builder │    │   Call  │  │
 │  └─────────┘    └─────────┘    └─────────┘    └────┬────┘  │
-│                      │              │              │        │
-│                      ▼              ▼              ▼        │
+│                      │              │              │       │
+│                      ▼              ▼              ▼       │
 │                 ┌─────────┐   ┌─────────┐   ┌──────────┐   │
 │                 │ Trust   │   │ Memory  │   │  Tool    │   │
 │                 │ Check   │   │ Inject  │   │Execution │   │
 │                 │(Tier?)  │   │(FTS5)   │   │(sandbox) │   │
 │                 └─────────┘   └─────────┘   └──────────┘   │
-│                                                             │
-│  Tool Registry                                              │
+│                                                            │
+│  Tool Registry                                             │
 │  ├── email_search    → Search your Gmail                   │
 │  ├── email_read      → Read specific emails                │
 │  ├── email_send      → Send emails (trusted users only)    │
@@ -138,8 +138,8 @@ The runtime processes messages and calls the AI:
 │  ├── memory_store    → Remember something                  │
 │  ├── memory_recall   → Recall past information             │
 │  └── mcp_*           → External MCP tools                  │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+│                                                            │
+└────────────────────────────────────────────────────────────┘
 ```
 
 ### Layer 3: Storage (Everything in SQLite)
@@ -147,35 +147,35 @@ The runtime processes messages and calls the AI:
 One database file. No external services.
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    STORAGE (SQLite)                          │
-│                    📁 crayfish.db                            │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
+┌────────────────────────────────────────────────────────────┐
+│                    STORAGE (SQLite)                        │
+│                    📁 crayfish.db                          │
+├────────────────────────────────────────────────────────────┤
+│                                                            │
 │  ┌─────────────────────────────────────────────────────┐   │
 │  │ events              │ The event log (CrayfishBus)   │   │
 │  │                     │ Every message, tool call,     │   │
 │  │                     │ system event is recorded      │   │
 │  └─────────────────────────────────────────────────────┘   │
-│                                                             │
+│                                                            │
 │  ┌─────────────────────────────────────────────────────┐   │
 │  │ sessions            │ Who is this person?           │   │
 │  │                     │ What's their trust level?     │   │
 │  │                     │ When did they pair?           │   │
 │  └─────────────────────────────────────────────────────┘   │
-│                                                             │
+│                                                            │
 │  ┌─────────────────────────────────────────────────────┐   │
 │  │ memory_fts          │ Long-term memory (FTS5)       │   │
 │  │                     │ "Remember: Mom's birthday     │   │
 │  │                     │  is March 15th"               │   │
 │  └─────────────────────────────────────────────────────┘   │
-│                                                             │
+│                                                            │
 │  ┌─────────────────────────────────────────────────────┐   │
 │  │ gmail_cache         │ Cached emails for search      │   │
 │  │                     │ (indexed with FTS5)           │   │
 │  └─────────────────────────────────────────────────────┘   │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+│                                                            │
+└────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -186,40 +186,40 @@ Trust is earned, not assumed. Every user starts as "Unknown" and must prove who 
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     TRUST TIERS                              │
+│                     TRUST TIERS                             │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │ 👑 OPERATOR (You)                                   │   │
-│  │    • Full access to everything                      │   │
-│  │    • Can pair new devices                           │   │
-│  │    • Can run any tool                               │   │
-│  │    • First Telegram user to pair                    │   │
-│  └─────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │ 👑 OPERATOR (You)                                   │    │
+│  │    • Full access to everything                      │    │
+│  │    • Can pair new devices                           │    │
+│  │    • Can run any tool                               │    │
+│  │    • First Telegram user to pair                    │    │
+│  └─────────────────────────────────────────────────────┘    │
 │                          ▲                                  │
 │                          │                                  │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │ 👤 TRUSTED USER                                     │   │
-│  │    • Can read emails, search web                    │   │
-│  │    • Can use approved tools                         │   │
-│  │    • Cannot change settings                         │   │
-│  │    • Paired via OTP by operator                     │   │
-│  └─────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │ 👤 TRUSTED USER                                     │    │
+│  │    • Can read emails, search web                    │    │
+│  │    • Can use approved tools                         │    │
+│  │    • Cannot change settings                         │    │
+│  │    • Paired via OTP by operator                     │    │
+│  └─────────────────────────────────────────────────────┘    │
 │                          ▲                                  │
 │                          │                                  │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │ 👥 GROUP MEMBER                                     │   │
-│  │    • Read-only access                               │   │
-│  │    • Can ask questions                              │   │
-│  │    • Cannot trigger sensitive tools                 │   │
-│  └─────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │ 👥 GROUP MEMBER                                     │    │
+│  │    • Read-only access                               │    │
+│  │    • Can ask questions                              │    │
+│  │    • Cannot trigger sensitive tools                 │    │
+│  └─────────────────────────────────────────────────────┘    │
 │                          ▲                                  │
 │                          │                                  │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │ ❓ UNKNOWN                                          │   │
-│  │    • Can only request pairing                       │   │
-│  │    • "Who are you? Get an OTP from the owner."      │   │
-│  └─────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │ ❓ UNKNOWN                                          │    │
+│  │    • Can only request pairing                       │    │
+│  │    • "Who are you? Get an OTP from the owner."      │    │
+│  └─────────────────────────────────────────────────────┘    │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -245,7 +245,7 @@ Trust is earned, not assumed. Every user starts as "Unknown" and must prove who 
        │                              ├───────────────────────────▶│
        │                              │                            │
        │  "847291"                    │         (tells user)       │
-       ├─────────────────────────────▶│◀ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─│
+       ├─────────────────────────────▶│◀ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ │
        │                              │                            │
        │  "Welcome! You're now        │                            │
        │   a trusted user."           │                            │
@@ -260,32 +260,32 @@ Trust is earned, not assumed. Every user starts as "Unknown" and must prove who 
 Skills are reusable behaviors that extend Crayfish's capabilities.
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        SKILLS                                │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  Trigger Types:                                             │
+┌────────────────────────────────────────────────────────────┐
+│                        SKILLS                              │
+├────────────────────────────────────────────────────────────┤
+│                                                            │
+│  Trigger Types:                                            │
 │  ┌─────────────────────────────────────────────────────┐   │
 │  │ /command    │ User types "/briefing"                │   │
 │  │ schedule    │ Cron: "0 7 * * *" (daily at 7 AM)     │   │
 │  │ event       │ "email.new" → when new email arrives  │   │
 │  │ keywords    │ ["urgent", "asap"] in message         │   │
 │  └─────────────────────────────────────────────────────┘   │
-│                                                             │
-│  Skill Types:                                               │
+│                                                            │
+│  Skill Types:                                              │
 │  ┌─────────────────────────────────────────────────────┐   │
 │  │ workflow    │ Multi-step: fetch data → process →    │   │
 │  │             │ summarize → send                      │   │
 │  │ prompt      │ Inject context into AI conversation   │   │
 │  │ reactive    │ Respond to specific events            │   │
 │  └─────────────────────────────────────────────────────┘   │
-│                                                             │
-│  Example: Morning Briefing Skill                            │
+│                                                            │
+│  Example: Morning Briefing Skill                           │
 │  ┌─────────────────────────────────────────────────────┐   │
 │  │ name: morning-briefing                              │   │
 │  │ trigger:                                            │   │
-│  │   schedule: "0 7 * * *"    # 7 AM daily            │   │
-│  │   command: "/briefing"     # or manual trigger     │   │
+│  │   schedule: "0 7 * * *"    # 7 AM daily             │   │
+│  │   command: "/briefing"     # or manual trigger      │   │
 │  │ steps:                                              │   │
 │  │   - tool: email_check                               │   │
 │  │     params: { limit: 20 }                           │   │
@@ -298,8 +298,8 @@ Skills are reusable behaviors that extend Crayfish's capabilities.
 │  │   Emails: {{emails}}                                │   │
 │  │   News: {{news}}                                    │   │
 │  └─────────────────────────────────────────────────────┘   │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+│                                                            │
+└────────────────────────────────────────────────────────────┘
 ```
 
 ### Web UI for Skills
@@ -311,19 +311,19 @@ Non-technical users can create skills through a web browser:
 │  Crayfish Skills                           [+ New Skill]    │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │ morning-briefing                         [workflow] │   │
-│  │ Daily summary of emails and news                    │   │
-│  │ Schedule: 0 7 * * *    Command: /briefing          │   │
-│  │                                    [View] [Delete]  │   │
-│  └─────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │ morning-briefing                         [workflow] │    │
+│  │ Daily summary of emails and news                    │    │
+│  │ Schedule: 0 7 * * *    Command: /briefing           │    │
+│  │                                    [View] [Delete]  │    │
+│  └─────────────────────────────────────────────────────┘    │
 │                                                             │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │ urgent-alert                            [reactive]  │   │
-│  │ Notify immediately on urgent emails                 │   │
-│  │ Event: email.new    Keywords: urgent, asap         │   │
-│  │                                    [View] [Delete]  │   │
-│  └─────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │ urgent-alert                            [reactive]  │    │
+│  │ Notify immediately on urgent emails                 │    │
+│  │ Event: email.new    Keywords: urgent, asap          │    │
+│  │                                    [View] [Delete]  │    │
+│  └─────────────────────────────────────────────────────┘    │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -336,26 +336,26 @@ MCP lets Crayfish connect to external tools without code changes.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                           MCP                                │
-│              Connect to External Tool Servers                │
+│                           MCP                               │
+│              Connect to External Tool Servers               │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
-│  Crayfish ◀──────▶ MCP Server ◀──────▶ External Service    │
+│  Crayfish ◀──────▶ MCP Server ◀──────▶ External Service     │
 │                                                             │
 │  Examples:                                                  │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │ GitHub MCP      │ Create issues, PRs, read repos    │   │
-│  │ Notion MCP      │ Search/create pages               │   │
-│  │ Filesystem MCP  │ Read/write local files            │   │
-│  │ Database MCP    │ Query databases                   │   │
-│  │ Calendar MCP    │ Manage calendar events            │   │
-│  └─────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │ GitHub MCP      │ Create issues, PRs, read repos    │    │
+│  │ Notion MCP      │ Search/create pages               │    │
+│  │ Filesystem MCP  │ Read/write local files            │    │
+│  │ Database MCP    │ Query databases                   │    │
+│  │ Calendar MCP    │ Manage calendar events            │    │
+│  └─────────────────────────────────────────────────────┘    │
 │                                                             │
 │  Transport:                                                 │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │ stdio   │ Launch subprocess, communicate via stdin  │   │
-│  │ HTTP    │ Connect to remote HTTP endpoint           │   │
-│  └─────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │ stdio   │ Launch subprocess, communicate via stdin  │    │
+│  │ HTTP    │ Connect to remote HTTP endpoint           │    │
+│  └─────────────────────────────────────────────────────┘    │
 │                                                             │
 │  Tool naming: "server.tool_name"                            │
 │  Example: "github.create_issue", "notion.search_pages"      │
@@ -371,7 +371,7 @@ What happens when you send "What's in my inbox?" via Telegram:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────┐
-│                           MESSAGE FLOW                                    │
+│                           MESSAGE FLOW                                   │
 ├──────────────────────────────────────────────────────────────────────────┤
 │                                                                          │
 │  📱 You (Telegram)                                                       │
@@ -379,14 +379,14 @@ What happens when you send "What's in my inbox?" via Telegram:
 │      │ "What's in my inbox?"                                             │
 │      ▼                                                                   │
 │  ┌────────────────┐                                                      │
-│  │ Telegram Bot   │ ◀── Telegram servers push update                    │
+│  │ Telegram Bot   │ ◀── Telegram servers push update                     │
 │  │ Adapter        │                                                      │
 │  └───────┬────────┘                                                      │
 │          │                                                               │
 │          │ Publish: message.inbound                                      │
 │          ▼                                                               │
 │  ┌────────────────┐                                                      │
-│  │  CrayfishBus   │ ◀── Event stored in SQLite                          │
+│  │  CrayfishBus   │ ◀── Event stored in SQLite                           │
 │  │  (Event Log)   │                                                      │
 │  └───────┬────────┘                                                      │
 │          │                                                               │
@@ -395,20 +395,20 @@ What happens when you send "What's in my inbox?" via Telegram:
 │  ┌────────────────┐                                                      │
 │  │    Runtime     │                                                      │
 │  │                │                                                      │
-│  │  1. Session?   │──▶ Look up Telegram user ID → Found: Operator       │
+│  │  1. Session?   │──▶ Look up Telegram user ID → Found: Operator        │
 │  │                │                                                      │
-│  │  2. Context    │──▶ Load last 10 messages + memory                   │
+│  │  2. Context    │──▶ Load last 10 messages + memory                    │
 │  │                │                                                      │
-│  │  3. LLM Call   │──▶ Send to Claude API                               │
+│  │  3. LLM Call   │──▶ Send to Claude API                                │
 │  │                │                                                      │
-│  │  4. Response:  │◀── Claude says: "Use email_search tool"             │
+│  │  4. Response:  │◀── Claude says: "Use email_search tool"              │
 │  │     Tool Call  │                                                      │
 │  │                │                                                      │
-│  │  5. Execute    │──▶ email_search({ limit: 10 })                      │
-│  │     Tool       │◀── Returns: [email1, email2, ...]                   │
+│  │  5. Execute    │──▶ email_search({ limit: 10 })                       │
+│  │     Tool       │◀── Returns: [email1, email2, ...]                    │
 │  │                │                                                      │
-│  │  6. LLM Call   │──▶ Send tool result to Claude                       │
-│  │     #2         │◀── Claude: "You have 3 unread emails..."            │
+│  │  6. LLM Call   │──▶ Send tool result to Claude                        │
+│  │     #2         │◀── Claude: "You have 3 unread emails..."             │
 │  │                │                                                      │
 │  │  7. Publish    │                                                      │
 │  │     Response   │                                                      │
@@ -423,12 +423,12 @@ What happens when you send "What's in my inbox?" via Telegram:
 │          │ Gateway routes to Telegram adapter                            │
 │          ▼                                                               │
 │  ┌────────────────┐                                                      │
-│  │ Telegram Bot   │──▶ Send message via Telegram API                    │
+│  │ Telegram Bot   │──▶ Send message via Telegram API                     │
 │  │ Adapter        │                                                      │
 │  └────────────────┘                                                      │
 │          │                                                               │
 │          ▼                                                               │
-│  📱 You see: "You have 3 unread emails: ..."                            │
+│  📱 You see: "You have 3 unread emails: ..."                             │
 │                                                                          │
 └──────────────────────────────────────────────────────────────────────────┘
 ```
@@ -441,7 +441,7 @@ Crayfish is designed to run on minimal hardware:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                   PERFORMANCE TARGETS                        │
+│                   PERFORMANCE TARGETS                       │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
 │  Memory:        < 128 MB RSS                                │
@@ -451,13 +451,13 @@ Crayfish is designed to run on minimal hardware:
 │  Database:      Compacted at 500 MB                         │
 │                                                             │
 │  Target Hardware:                                           │
-│  ┌─────────────────────────────────────────────────────┐   │
-│  │ Raspberry Pi 2/3/4/5                                │   │
-│  │ 512 MB - 8 GB RAM                                   │   │
-│  │ Any SD card (8 GB+)                                 │   │
-│  │ WiFi or Ethernet                                    │   │
-│  │ ~$35-75 total cost                                  │   │
-│  └─────────────────────────────────────────────────────┘   │
+│  ┌─────────────────────────────────────────────────────┐    │
+│  │ Raspberry Pi 2/3/4/5                                │    │
+│  │ 512 MB - 8 GB RAM                                   │    │
+│  │ Any SD card (8 GB+)                                 │    │
+│  │ WiFi or Ethernet                                    │    │
+│  │ ~$35-75 total cost                                  │    │
+│  └─────────────────────────────────────────────────────┘    │
 │                                                             │
 └─────────────────────────────────────────────────────────────┘
 ```
