@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/KekwanuLabs/crayfish/internal/channels"
-	"github.com/KekwanuLabs/crayfish/internal/provider"
 	"github.com/KekwanuLabs/crayfish/internal/security"
 )
 
@@ -79,19 +78,6 @@ func (r *Registry) Execute(ctx context.Context, sess *security.Session, name str
 
 	r.logger.Info("executing tool", "name", name, "session", sess.ID, "trust", sess.Trust)
 	return tool.Execute(ctx, sess, input)
-}
-
-// ToolDefs returns all registered tools as ToolDef structs for passing to an LLM provider.
-func (r *Registry) ToolDefs() []provider.ToolDef {
-	var defs []provider.ToolDef
-	for _, t := range r.tools {
-		defs = append(defs, provider.ToolDef{
-			Name:        t.Name,
-			Description: t.Description,
-			InputSchema: t.InputSchema,
-		})
-	}
-	return defs
 }
 
 // RegisterBuiltins adds all v1.0 built-in tools to the registry.

@@ -33,21 +33,22 @@ Three-layer design, all wired together in `internal/app/app.go`:
 
 **Runtime** (`internal/runtime/`) — The agent brain. Consumes events from the bus, assembles context (session → memory → history), calls the LLM, executes tools in a loop (max 10 iterations per message), and returns responses. Memory extraction and retrieval happen here.
 
-**Storage** (`internal/storage/`) — Single SQLite file (WAL mode, pure Go driver, no CGo). Tables: events, sessions, memory_fts (FTS5), memory_metadata, messages, skills.
+**Storage** (`internal/storage/`) — Single SQLite file (WAL mode, pure Go driver, no CGo). Core tables: events, sessions, messages, config, message_cache, memory_fts (FTS5), memory_metadata, session_snapshots, identities. Supporting tables: pairing_otps, pairing_attempts, offline_queue, conversation_summaries, todos, emails, emails_fts, gmail_sync_state, email_attachments.
 
 ### Key subsystems
 
 - **Bus** (`internal/bus/`) — SQLite-backed append-only event log. Event types: `message.inbound`, `message.outbound`, `tool.request`, `tool.result`, `system.*`. Enables crash recovery via replay.
 - **Provider** (`internal/provider/`) — LLM provider factory. Auto-detects provider from model name. Supports Anthropic, OpenAI, Groq, DeepSeek, Together, OpenRouter, Ollama, vLLM, LM Studio. Non-Anthropic providers use an OpenAI-compatible API path.
+- **Identity** (`internal/identity/`) — Manages SOUL.md (agent personality/values) and USER.md (human profile). Files live at `~/.config/crayfish/`. Max 4KB per file, cached in memory (~2000 chars). Thread-safe. First-conversation interview (injected into system prompt when USER.md is empty) naturally learns about the user, then saves via `identity_update` tool.
 - **Security** (`internal/security/`) — Four trust tiers: Unknown → Group → Trusted → Operator. OTP-based device pairing. Tool access is gated by tier.
-- **Tools** (`internal/tools/`) — Tool registry with built-in tools (memory, email, web search, MCP). Each tool declares its minimum trust tier.
+- **Tools** (`internal/tools/`) — Tool registry with built-in tools (memory, email, web search, identity, MCP). Each tool declares its minimum trust tier.
 - **Skills** (`internal/skills/`) — YAML-defined workflows (prompt, workflow, reactive types). Triggers: commands, cron schedules, events, keywords. No shell execution — steps invoke registered tools only.
 - **Channels** (`internal/channels/`) — Input/output adapters. Telegram (HTTP long-polling) and CLI implementations.
 - **Setup** (`internal/setup/`) — Web-based first-time configuration wizard with hardware detection and model recommendations.
 
 ### Startup flow
 
-`cmd/crayfish/main.go` → loads config → if no API key, launches setup wizard → `app.New()` → `app.Start()` wires: storage → bus → sessions → LLM provider → tools → skills → channels → gateway → runtime → heartbeat/updater.
+`cmd/crayfish/main.go` → loads config → if no API key, launches setup wizard → `app.New()` → `app.Start()` wires: storage → bus → sessions → LLM provider → tools → skills → channels → identity → gateway → runtime → heartbeat/updater.
 
 ## Configuration
 
