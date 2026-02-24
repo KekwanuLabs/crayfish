@@ -177,6 +177,28 @@ func (a *App) Start(ctx context.Context) error {
 		var notifyFunc heartbeat.NotifyFunc
 		if tgAdapter, ok := adapterMap["telegram"].(*telegram.Adapter); ok {
 			notifyFunc = func(ctx context.Context, message string) error {
+				// Persist to conversation history so user follow-ups have context
+				chatID := tgAdapter.GetOperatorChatID()
+				if chatID != 0 {
+					sessionID := fmt.Sprintf("telegram:%d", chatID)
+					_, err := db.Inner().ExecContext(ctx,
+						"INSERT INTO messages (session_id, role, content, created_at) VALUES (?, ?, ?, datetime('now'))",
+						sessionID, "assistant", message)
+					if err != nil {
+						a.Logger.Warn("failed to persist heartbeat notification",
+							"error", err, "session_id", sessionID)
+					}
+
+					a.bus.Publish(ctx, bus.Event{
+						Type:      bus.TypeMessageOutbound,
+						Channel:   "telegram",
+						SessionID: sessionID,
+						Payload: bus.MustJSON(bus.OutboundMessage{
+							To:   fmt.Sprintf("%d", chatID),
+							Text: message,
+						}),
+					})
+				}
 				return tgAdapter.SendToOperator(ctx, message)
 			}
 		}

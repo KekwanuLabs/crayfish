@@ -396,7 +396,14 @@ func (i *Installer) compileFromSource(ctx context.Context) error {
 		os.MkdirAll(buildDir, 0755)
 
 		// Configure
-		configCmd := exec.CommandContext(ctx, "cmake", "..", "-DCMAKE_BUILD_TYPE=Release")
+		cmakeArgs := []string{"..", "-DCMAKE_BUILD_TYPE=Release"}
+		if runtime.GOARCH == "arm" {
+			cmakeArgs = append(cmakeArgs,
+				"-DCMAKE_EXE_LINKER_FLAGS=-latomic",
+				"-DCMAKE_SHARED_LINKER_FLAGS=-latomic",
+			)
+		}
+		configCmd := exec.CommandContext(ctx, "cmake", cmakeArgs...)
 		configCmd.Dir = buildDir
 		configCmd.Stdout = os.Stdout
 		configCmd.Stderr = os.Stderr
@@ -429,16 +436,20 @@ func (i *Installer) compileFromSource(ctx context.Context) error {
 			i.logger.Info("building whisper main example directly")
 
 			// Simple gcc/g++ compilation
-			cmd = exec.CommandContext(ctx, "g++",
+			gppArgs := []string{
 				"-O3", "-std=c++11", "-pthread",
-				"-I"+whisperDir,
-				"-I"+filepath.Join(whisperDir, "examples"),
+				"-I" + whisperDir,
+				"-I" + filepath.Join(whisperDir, "examples"),
 				filepath.Join(whisperDir, "ggml", "src", "ggml.c"),
 				filepath.Join(whisperDir, "src", "whisper.cpp"),
 				mainC,
 				"-o", filepath.Join(whisperDir, "main"),
 				"-lm",
-			)
+			}
+			if runtime.GOARCH == "arm" {
+				gppArgs = append(gppArgs, "-latomic")
+			}
+			cmd = exec.CommandContext(ctx, "g++", gppArgs...)
 			cmd.Dir = whisperDir
 		} else {
 			return fmt.Errorf("cmake not installed and legacy build not available; install cmake with: sudo apt-get install cmake")
