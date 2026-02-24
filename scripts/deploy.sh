@@ -148,7 +148,7 @@ build_binary() {
     esac
 
     local version commit build_time ldflags
-    version=$(grep -m1 'VERSION' Makefile | head -1 | awk -F':=' '{print $2}' | tr -d ' ' 2>/dev/null || echo "dev")
+    version=$(git describe --tags --abbrev=0 2>/dev/null || echo "0.4.0-dev")
     commit=$(git rev-parse --short HEAD 2>/dev/null || echo "dev")
     build_time=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
     ldflags="-s -w -X main.version=${version} -X main.commit=${commit} -X main.buildTime=${build_time}"

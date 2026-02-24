@@ -71,15 +71,19 @@ func (api *DashboardAPI) handleOverview(w http.ResponseWriter, r *http.Request) 
 
 	lastEventID, _ := api.bus.LastID(ctx)
 
-	api.writeJSON(w, map[string]any{
-		"messages":      messageCount,
-		"sessions":      sessionCount,
-		"memories":      memoryCount,
-		"events":        lastEventID,
-		"adapters":      api.adapters(),
+	resp := map[string]any{
+		"messages":       messageCount,
+		"sessions":       sessionCount,
+		"memories":       memoryCount,
+		"events":         lastEventID,
+		"adapters":       api.adapters(),
 		"uptime_seconds": int(api.appRef.Uptime().Seconds()),
-		"version":       api.appRef.AppVersion(),
-	})
+		"version":        api.appRef.AppVersion(),
+	}
+	if voice := api.appRef.VoiceInstallProgress(); voice != nil {
+		resp["voice"] = voice
+	}
+	api.writeJSON(w, resp)
 }
 
 // GET/PUT /api/dashboard/config

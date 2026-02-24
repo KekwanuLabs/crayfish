@@ -122,11 +122,24 @@ const dashboardPageHTML = `<!DOCTYPE html>
     padding: 1.25rem;
     border: 1px solid rgba(71, 85, 105, 0.5);
     text-align: center;
-    transition: border-color 0.2s, transform 0.2s;
+    cursor: pointer;
+    transition: border-color 0.2s, transform 0.15s;
   }
-  .stat-card:hover { border-color: rgba(249, 115, 22, 0.4); transform: translateY(-2px); }
+  .stat-card:hover { border-color: rgba(249, 115, 22, 0.5); transform: translateY(-2px); }
   .stat-value { font-size: 2rem; font-weight: 700; color: #f8fafc; }
   .stat-label { font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 0.25rem; }
+
+  /* Voice install progress */
+  .voice-status {
+    background: rgba(249, 115, 22, 0.1);
+    border: 1px solid rgba(249, 115, 22, 0.3);
+    border-radius: 10px;
+    padding: 0.875rem 1.25rem;
+    margin-bottom: 1.25rem;
+  }
+  .voice-status-text { font-size: 0.8125rem; color: #fb923c; margin-bottom: 0.5rem; }
+  .voice-progress-bar { height: 6px; background: rgba(71, 85, 105, 0.5); border-radius: 3px; overflow: hidden; }
+  .voice-progress-fill { height: 100%; background: linear-gradient(90deg, #f97316, #fb923c); border-radius: 3px; transition: width 0.5s ease; }
 
   /* Status badge */
   .status-bar { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
@@ -313,7 +326,7 @@ const dashboardPageHTML = `<!DOCTYPE html>
 <body>
 <div class="container">
   <div class="dash-header">
-    <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#ff6b35"/><stop offset="100%" style="stop-color:#f7931e"/></linearGradient></defs><ellipse cx="50" cy="50" rx="20" ry="14" fill="url(#cg)"/><ellipse cx="35" cy="48" rx="12" ry="8" fill="url(#cg)"/><circle cx="28" cy="45" r="3" fill="#1a1a2e"/></svg>
+    <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="cg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#ff6b35"/><stop offset="100%" style="stop-color:#f7931e"/></linearGradient></defs><ellipse cx="50" cy="52" rx="18" ry="12" fill="url(#cg)"/><path d="M32 52 Q28 42 20 35 Q18 33 20 31 L26 28 Q28 27 29 29 L35 40 Q37 44 35 48Z" fill="url(#cg)"/><path d="M68 52 Q72 42 80 35 Q82 33 80 31 L74 28 Q72 27 71 29 L65 40 Q63 44 65 48Z" fill="url(#cg)"/><ellipse cx="50" cy="66" rx="14" ry="6" fill="url(#cg)"/><ellipse cx="50" cy="76" rx="10" ry="5" fill="url(#cg)"/><ellipse cx="50" cy="84" rx="7" ry="4" fill="url(#cg)"/><circle cx="44" cy="48" r="2.5" fill="#1a1a2e"/><circle cx="56" cy="48" r="2.5" fill="#1a1a2e"/><line x1="38" y1="30" x2="34" y2="20" stroke="url(#cg)" stroke-width="2" stroke-linecap="round"/><line x1="62" y1="30" x2="66" y2="20" stroke="url(#cg)" stroke-width="2" stroke-linecap="round"/></svg>
     <h1>Crayfish Dashboard</h1>
   </div>
 
@@ -334,10 +347,14 @@ const dashboardPageHTML = `<!DOCTYPE html>
       <span class="status-info" id="ov-uptime"></span>
     </div>
     <div class="stats-grid" id="ov-stats">
-      <div class="stat-card"><div class="stat-value" id="ov-messages">-</div><div class="stat-label">Messages</div></div>
-      <div class="stat-card"><div class="stat-value" id="ov-sessions">-</div><div class="stat-label">Sessions</div></div>
-      <div class="stat-card"><div class="stat-value" id="ov-memories">-</div><div class="stat-label">Memories</div></div>
-      <div class="stat-card"><div class="stat-value" id="ov-events">-</div><div class="stat-label">Events</div></div>
+      <div class="stat-card" onclick="switchTab('events')"><div class="stat-value" id="ov-messages">-</div><div class="stat-label">Messages</div></div>
+      <div class="stat-card" onclick="switchTab('sessions')"><div class="stat-value" id="ov-sessions">-</div><div class="stat-label">Sessions</div></div>
+      <div class="stat-card" onclick="switchTab('memory')"><div class="stat-value" id="ov-memories">-</div><div class="stat-label">Memories</div></div>
+      <div class="stat-card" onclick="switchTab('events')"><div class="stat-value" id="ov-events">-</div><div class="stat-label">Events</div></div>
+    </div>
+    <div class="voice-status" id="ov-voice" style="display:none">
+      <div class="voice-status-text" id="ov-voice-msg"></div>
+      <div class="voice-progress-bar"><div class="voice-progress-fill" id="ov-voice-bar"></div></div>
     </div>
     <div class="card">
       <h3>Active Channels</h3>
@@ -481,7 +498,7 @@ const dashboardPageHTML = `<!DOCTYPE html>
   <div class="footer-inner">
     <div class="footer-top">
       <div class="footer-brand">
-        <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="fg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#ff6b35"/><stop offset="100%" style="stop-color:#f7931e"/></linearGradient></defs><ellipse cx="50" cy="50" rx="20" ry="14" fill="url(#fg)"/><ellipse cx="35" cy="48" rx="12" ry="8" fill="url(#fg)"/><circle cx="28" cy="45" r="3" fill="#1a1a2e"/></svg>
+        <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="fg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#ff6b35"/><stop offset="100%" style="stop-color:#f7931e"/></linearGradient></defs><ellipse cx="50" cy="52" rx="18" ry="12" fill="url(#fg)"/><path d="M32 52 Q28 42 20 35 Q18 33 20 31 L26 28 Q28 27 29 29 L35 40 Q37 44 35 48Z" fill="url(#fg)"/><path d="M68 52 Q72 42 80 35 Q82 33 80 31 L74 28 Q72 27 71 29 L65 40 Q63 44 65 48Z" fill="url(#fg)"/><ellipse cx="50" cy="66" rx="14" ry="6" fill="url(#fg)"/><ellipse cx="50" cy="76" rx="10" ry="5" fill="url(#fg)"/><ellipse cx="50" cy="84" rx="7" ry="4" fill="url(#fg)"/><circle cx="44" cy="48" r="2.5" fill="#1a1a2e"/><circle cx="56" cy="48" r="2.5" fill="#1a1a2e"/></svg>
         Crayfish v{{.Version}}
       </div>
       <div class="footer-tagline">Accessible AI for everyone</div>
@@ -526,6 +543,13 @@ async function loadOverview() {
   setText('ov-events', fmtNum(d.events));
   S.uptimeSec = d.uptime_seconds || 0;
   setText('ov-uptime', 'Uptime: ' + fmtUptime(S.uptimeSec));
+  if (d.voice && d.voice.status !== 'complete' && d.voice.status !== 'not_started') {
+    document.getElementById('ov-voice').style.display = '';
+    setText('ov-voice-msg', d.voice.message);
+    document.getElementById('ov-voice-bar').style.width = (d.voice.progress * 100) + '%';
+  } else {
+    document.getElementById('ov-voice').style.display = 'none';
+  }
   const al = document.getElementById('ov-adapters');
   if (d.adapters && d.adapters.length) {
     al.innerHTML = d.adapters.map(a => '<span class="adapter-chip"><span class="adapter-dot"></span>'+esc(a)+'</span>').join('');

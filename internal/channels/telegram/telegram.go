@@ -530,11 +530,6 @@ func (a *Adapter) handleUpdate(ctx context.Context, update Update) {
 		return
 	}
 
-	if strings.HasPrefix(text, "/pair") {
-		a.handlePairCommand(ctx, chatID, sessionID)
-		return
-	}
-
 	// Show typing indicator while AI is thinking
 	if err := a.sendChatAction(ctx, chatID, "typing"); err != nil {
 		a.logger.Debug("Failed to send typing indicator", "error", err, "chat_id", chatID)
@@ -562,7 +557,7 @@ func (a *Adapter) handleUpdate(ctx context.Context, update Update) {
 
 // handleStartCommand sends a welcome message when user sends /start.
 func (a *Adapter) handleStartCommand(ctx context.Context, chatID int64, sessionID string) {
-	welcomeMsg := "Welcome to Crayfish! I'm here to help. Type /pair to begin pairing."
+	welcomeMsg := "Welcome to Crayfish! I'm here to help. Just send me a message to get started."
 
 	outbound := channels.OutboundMessage{
 		To:   strconv.FormatInt(chatID, 10),
@@ -572,39 +567,6 @@ func (a *Adapter) handleStartCommand(ctx context.Context, chatID int64, sessionI
 	// Send welcome message
 	if err := a.Send(ctx, outbound); err != nil {
 		a.logger.Error("Failed to send welcome message", "error", err, "chat_id", chatID)
-	}
-}
-
-// handlePairCommand publishes a pairing.request event to the bus.
-func (a *Adapter) handlePairCommand(ctx context.Context, chatID int64, sessionID string) {
-	// Publish pairing.request event
-	pairingPayload := map[string]string{
-		"action": "initiate",
-	}
-
-	event := bus.Event{
-		Type:      "pairing.request",
-		Channel:   adapterName,
-		SessionID: sessionID,
-		Payload:   bus.MustJSON(pairingPayload),
-	}
-
-	if _, err := a.eventBus.Publish(ctx, event); err != nil {
-		a.logger.Error("Failed to publish pairing request", "error", err, "chat_id", chatID)
-		return
-	}
-
-	a.logger.Info("Pairing request published", "chat_id", chatID, "session_id", sessionID)
-
-	// Send confirmation message
-	confirmMsg := "Pairing initiated. Please check your device to complete the pairing process."
-	outbound := channels.OutboundMessage{
-		To:   strconv.FormatInt(chatID, 10),
-		Text: confirmMsg,
-	}
-
-	if err := a.Send(ctx, outbound); err != nil {
-		a.logger.Error("Failed to send pairing confirmation", "error", err, "chat_id", chatID)
 	}
 }
 
