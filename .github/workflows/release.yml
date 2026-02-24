@@ -314,6 +314,7 @@ jobs:
         run: |
           gh release delete latest --yes 2>/dev/null || true
           git push origin :refs/tags/latest 2>/dev/null || true
+          git tag -d latest 2>/dev/null || true
 
           WHISPER_VERSION=$(grep -v '^#' WHISPER_VERSION | tr -d '[:space:]')
 
