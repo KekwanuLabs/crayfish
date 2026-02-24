@@ -2,6 +2,7 @@ package calendar
 
 import (
 	"bytes"
+	"context"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -17,15 +18,20 @@ const (
 	httpTimeout      = 30 * time.Second
 )
 
+// TokenProvider returns an OAuth 2.0 Bearer token for authenticated requests.
+// The context allows the provider to perform token refresh if needed.
+type TokenProvider func(ctx context.Context) (string, error)
+
 // Client connects to Google Calendar via CalDAV.
 type Client struct {
-	email       string
-	appPassword string
-	httpClient  *http.Client
-	logger      *slog.Logger
+	email         string
+	appPassword   string
+	tokenProvider TokenProvider
+	httpClient    *http.Client
+	logger        *slog.Logger
 }
 
-// NewClient creates a new CalDAV client for Google Calendar.
+// NewClient creates a new CalDAV client using App Password (Basic Auth).
 func NewClient(email, appPassword string, logger *slog.Logger) *Client {
 	return &Client{
 		email:       email,
@@ -35,24 +41,44 @@ func NewClient(email, appPassword string, logger *slog.Logger) *Client {
 	}
 }
 
+// NewOAuthClient creates a new CalDAV client using OAuth 2.0 Bearer tokens.
+func NewOAuthClient(email string, tp TokenProvider, logger *slog.Logger) *Client {
+	return &Client{
+		email:         email,
+		tokenProvider: tp,
+		httpClient:    &http.Client{Timeout: httpTimeout},
+		logger:        logger,
+	}
+}
+
 // calendarURL returns the CalDAV URL for the user's primary calendar.
 func (c *Client) calendarURL() string {
 	return fmt.Sprintf("%s/%s/events/", googleCalDAVBase, c.email)
 }
 
 // doRequest performs an authenticated CalDAV request.
-func (c *Client) doRequest(method, url string, body []byte, contentType string) ([]byte, error) {
+// Uses OAuth Bearer token if a TokenProvider is set, otherwise falls back to Basic Auth.
+func (c *Client) doRequest(ctx context.Context, method, url string, body []byte, contentType string) ([]byte, error) {
 	var bodyReader io.Reader
 	if body != nil {
 		bodyReader = bytes.NewReader(body)
 	}
 
-	req, err := http.NewRequest(method, url, bodyReader)
+	req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
 	if err != nil {
 		return nil, fmt.Errorf("create request: %w", err)
 	}
 
-	req.SetBasicAuth(c.email, c.appPassword)
+	if c.tokenProvider != nil {
+		token, err := c.tokenProvider(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("get oauth token: %w", err)
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+	} else {
+		req.SetBasicAuth(c.email, c.appPassword)
+	}
+
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
 	}
@@ -69,6 +95,14 @@ func (c *Client) doRequest(method, url string, body []byte, contentType string) 
 	}
 
 	if resp.StatusCode >= 400 {
+		bodyPreview := string(respBody)
+		if len(bodyPreview) > 200 {
+			bodyPreview = bodyPreview[:200]
+		}
+		c.logger.Warn("CalDAV request failed",
+			"method", method, "url", url,
+			"status", resp.StatusCode,
+			"body_preview", bodyPreview)
 		return nil, fmt.Errorf("caldav error %d: %s", resp.StatusCode, string(respBody))
 	}
 
@@ -77,6 +111,9 @@ func (c *Client) doRequest(method, url string, body []byte, contentType string) 
 
 // GetEvents fetches events in the given time range.
 func (c *Client) GetEvents(start, end time.Time) ([]Event, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), httpTimeout)
+	defer cancel()
+
 	// CalDAV REPORT request to query events
 	reportXML := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
 <c:calendar-query xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav">
@@ -95,7 +132,7 @@ func (c *Client) GetEvents(start, end time.Time) ([]Event, error) {
 		start.UTC().Format("20060102T150405Z"),
 		end.UTC().Format("20060102T150405Z"))
 
-	respBody, err := c.doRequest("REPORT", c.calendarURL(), []byte(reportXML), "application/xml")
+	respBody, err := c.doRequest(ctx, "REPORT", c.calendarURL(), []byte(reportXML), "application/xml")
 	if err != nil {
 		return nil, fmt.Errorf("caldav report: %w", err)
 	}
@@ -121,6 +158,9 @@ func (c *Client) GetUpcoming(days int) ([]Event, error) {
 
 // CreateEvent creates a new calendar event.
 func (c *Client) CreateEvent(event *Event) error {
+	ctx, cancel := context.WithTimeout(context.Background(), httpTimeout)
+	defer cancel()
+
 	uid := fmt.Sprintf("%d@crayfish", time.Now().UnixNano())
 	if event.ID == "" {
 		event.ID = uid
@@ -154,7 +194,7 @@ func (c *Client) CreateEvent(event *Event) error {
 	ical.WriteString("END:VCALENDAR\r\n")
 
 	eventURL := c.calendarURL() + event.ID + ".ics"
-	_, err := c.doRequest("PUT", eventURL, []byte(ical.String()), "text/calendar")
+	_, err := c.doRequest(ctx, "PUT", eventURL, []byte(ical.String()), "text/calendar")
 	if err != nil {
 		return fmt.Errorf("create event: %w", err)
 	}
@@ -165,8 +205,11 @@ func (c *Client) CreateEvent(event *Event) error {
 
 // DeleteEvent removes an event by ID.
 func (c *Client) DeleteEvent(eventID string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), httpTimeout)
+	defer cancel()
+
 	eventURL := c.calendarURL() + eventID + ".ics"
-	_, err := c.doRequest("DELETE", eventURL, nil, "")
+	_, err := c.doRequest(ctx, "DELETE", eventURL, nil, "")
 	return err
 }
 
