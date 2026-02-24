@@ -248,7 +248,12 @@ jobs:
             echo "Building whisper.cpp version: ${WHISPER_VERSION}"
             git clone --depth 1 --branch "${WHISPER_VERSION}" https://github.com/ggml-org/whisper.cpp.git
             cd whisper.cpp
-            cmake -B build -DCMAKE_BUILD_TYPE=Release
+            CMAKE_ARGS="-DCMAKE_BUILD_TYPE=Release"
+            # armv7 needs -latomic for 64-bit atomics
+            if [ "$(uname -m)" = "armv7l" ]; then
+              CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_EXE_LINKER_FLAGS=-latomic -DCMAKE_SHARED_LINKER_FLAGS=-latomic"
+            fi
+            cmake -B build $CMAKE_ARGS
             cmake --build build -j$(nproc)
             mkdir -p /work/dist
             cp build/bin/whisper-cli /work/dist/whisper 2>/dev/null || cp build/bin/main /work/dist/whisper
@@ -266,8 +271,8 @@ jobs:
 
   # Create GitHub release
   release:
-    needs: [prepare, build]
-    if: always() && needs.build.result == 'success'
+    needs: [prepare, build, build-whisper]
+    if: always() && needs.build.result == 'success' && (needs.build-whisper.result == 'success' || needs.build-whisper.result == 'skipped')
     runs-on: ubuntu-latest
     permissions:
       contents: write
