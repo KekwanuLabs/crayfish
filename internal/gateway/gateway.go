@@ -274,7 +274,7 @@ func (g *Gateway) httpHandler() http.Handler {
 		skillsAPI := NewSkillsAPI(g.skillRegistry, g.config.SkillsDir)
 		skillsAPI.RegisterRoutes(mux, g.requireAuth)
 
-		skillsUI := NewSkillsUI(g.skillRegistry)
+		skillsUI := NewSkillsUI(g.skillRegistry, g.config.APIKey)
 		skillsUI.RegisterRoutes(mux)
 
 		g.logger.Info("skills API and UI registered", "skills_dir", g.config.SkillsDir)
@@ -282,7 +282,7 @@ func (g *Gateway) httpHandler() http.Handler {
 
 	// Dashboard: replaces the old minimal "/" page.
 	if g.appRef != nil {
-		dashUI := NewDashboardUI(g.appRef.AppVersion())
+		dashUI := NewDashboardUI(g.appRef.AppVersion(), g.config.APIKey)
 		dashUI.RegisterRoutes(mux)
 
 		dashAPI := NewDashboardAPI(g.db, g.bus, g.appRef, g.adapterNames, g.logger)
