@@ -391,7 +391,9 @@ func (i *Installer) compileFromSource(ctx context.Context) error {
 		// Use cmake build (preferred)
 		i.logger.Info("compiling whisper.cpp with cmake", "cores", i.device.CPUCores)
 		buildDir := filepath.Join(whisperDir, "build")
-		os.MkdirAll(buildDir, 0755)
+		if err := os.MkdirAll(buildDir, 0755); err != nil {
+			return fmt.Errorf("create build dir: %w", err)
+		}
 
 		// Configure
 		cmakeArgs := []string{"..", "-DCMAKE_BUILD_TYPE=Release"}
@@ -457,15 +459,11 @@ func (i *Installer) compileFromSource(ctx context.Context) error {
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
-	if err := cmd.Run(); err != nil {
-		// Provide helpful error message
-		if !hasCmake {
-			return fmt.Errorf("build failed (cmake not installed): %w\nInstall cmake: sudo apt-get install cmake", err)
-		}
-		return fmt.Errorf("build: %w", err)
-	}
+	buildErr := cmd.Run()
 
-	// Find and copy binary to our bin directory
+	// Find and copy binary to our bin directory.
+	// Don't fail on buildErr yet — test targets (test-vad, test-vad-full) may fail
+	// to link on 32-bit ARM (-latomic not propagated) while the main binary builds fine.
 	var srcBin string
 	possiblePaths := []string{
 		filepath.Join(whisperDir, "build", "bin", "whisper-cli"),
@@ -480,7 +478,17 @@ func (i *Installer) compileFromSource(ctx context.Context) error {
 		}
 	}
 	if srcBin == "" {
+		// Binary wasn't built either — return the original build error.
+		if buildErr != nil {
+			if !hasCmake {
+				return fmt.Errorf("build failed (cmake not installed): %w\nInstall cmake: sudo apt-get install cmake", buildErr)
+			}
+			return fmt.Errorf("build: %w", buildErr)
+		}
 		return fmt.Errorf("whisper binary not found after build")
+	}
+	if buildErr != nil {
+		i.logger.Warn("build had errors but target binary exists, continuing", "error", buildErr)
 	}
 
 	dstBin := i.BinaryPath()
