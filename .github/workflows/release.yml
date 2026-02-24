@@ -250,7 +250,7 @@ jobs:
             echo "Building whisper.cpp version: ${WHISPER_VERSION}"
             git clone --depth 1 --branch "${WHISPER_VERSION}" https://github.com/ggml-org/whisper.cpp.git
             cd whisper.cpp
-            CMAKE_ARGS="-DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF"
+            CMAKE_ARGS="-DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DGGML_NATIVE=OFF"
             # armv7 needs -latomic for 64-bit atomics
             if [ "$(uname -m)" = "armv7l" ]; then
               CMAKE_ARGS="$CMAKE_ARGS -DCMAKE_EXE_LINKER_FLAGS=-latomic -DCMAKE_SHARED_LINKER_FLAGS=-latomic"
