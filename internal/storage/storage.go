@@ -16,8 +16,11 @@ import (
 )
 
 // DB wraps a sql.DB with Crayfish-specific operations and lifecycle management.
+// It maintains separate writer (single-connection) and reader (multi-connection)
+// pools to eliminate SQLITE_BUSY errors while keeping reads concurrent.
 type DB struct {
-	inner  *sql.DB
+	writer *sql.DB
+	reader *sql.DB
 	path   string
 	mu     sync.RWMutex
 	logger *slog.Logger
@@ -32,30 +35,48 @@ func Open(ctx context.Context, dbPath string, logger *slog.Logger) (*DB, error) 
 	}
 
 	dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=15000&_synchronous=NORMAL&_foreign_keys=ON", dbPath)
-	inner, err := sql.Open("sqlite", dsn)
+
+	// Writer pool: single connection serializes all writes via Go's pool queue,
+	// eliminating SQLITE_BUSY errors for concurrent write attempts.
+	writer, err := sql.Open("sqlite", dsn)
 	if err != nil {
-		return nil, fmt.Errorf("storage.Open: open db: %w", err)
+		return nil, fmt.Errorf("storage.Open: open writer: %w", err)
+	}
+	writer.SetMaxOpenConns(1)
+	writer.SetMaxIdleConns(1)
+	writer.SetConnMaxLifetime(0)
+
+	if err := writer.PingContext(ctx); err != nil {
+		writer.Close()
+		return nil, fmt.Errorf("storage.Open: ping writer: %w", err)
 	}
 
-	// Allow 2 connections — WAL mode supports concurrent reads alongside a single writer.
-	// A single connection causes deadlocks when multiple goroutines hold transactions.
-	inner.SetMaxOpenConns(2)
-	inner.SetMaxIdleConns(2)
-	inner.SetConnMaxLifetime(0) // Keep alive forever.
+	// Reader pool: multiple connections for concurrent reads via WAL mode.
+	reader, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		writer.Close()
+		return nil, fmt.Errorf("storage.Open: open reader: %w", err)
+	}
+	reader.SetMaxOpenConns(4)
+	reader.SetMaxIdleConns(4)
+	reader.SetConnMaxLifetime(0)
 
-	if err := inner.PingContext(ctx); err != nil {
-		inner.Close()
-		return nil, fmt.Errorf("storage.Open: ping: %w", err)
+	if err := reader.PingContext(ctx); err != nil {
+		writer.Close()
+		reader.Close()
+		return nil, fmt.Errorf("storage.Open: ping reader: %w", err)
 	}
 
 	db := &DB{
-		inner:  inner,
+		writer: writer,
+		reader: reader,
 		path:   dbPath,
 		logger: logger,
 	}
 
 	if err := db.migrate(ctx); err != nil {
-		inner.Close()
+		writer.Close()
+		reader.Close()
 		return nil, fmt.Errorf("storage.Open: migrate: %w", err)
 	}
 
@@ -63,20 +84,36 @@ func Open(ctx context.Context, dbPath string, logger *slog.Logger) (*DB, error) 
 	return db, nil
 }
 
-// Close shuts down the database connection.
+// Close shuts down both database connection pools.
 func (db *DB) Close() error {
-	return db.inner.Close()
+	wErr := db.writer.Close()
+	rErr := db.reader.Close()
+	if wErr != nil {
+		return wErr
+	}
+	return rErr
 }
 
-// Inner returns the underlying sql.DB for direct access when needed.
+// Inner returns the writer pool for backward compatibility.
+// All existing callers serialize writes automatically through the single-connection pool.
 func (db *DB) Inner() *sql.DB {
-	return db.inner
+	return db.writer
+}
+
+// Writer returns the single-connection write pool.
+func (db *DB) Writer() *sql.DB {
+	return db.writer
+}
+
+// Reader returns the multi-connection read pool for concurrent read-only queries.
+func (db *DB) Reader() *sql.DB {
+	return db.reader
 }
 
 // migrate runs all schema migrations in order. Uses a simple version table.
 func (db *DB) migrate(ctx context.Context) error {
 	// Create the migrations tracking table first.
-	if _, err := db.inner.ExecContext(ctx, `
+	if _, err := db.writer.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS _migrations (
 			version INTEGER PRIMARY KEY,
 			applied_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -86,7 +123,7 @@ func (db *DB) migrate(ctx context.Context) error {
 	}
 
 	var currentVersion int
-	row := db.inner.QueryRowContext(ctx, "SELECT COALESCE(MAX(version), 0) FROM _migrations")
+	row := db.writer.QueryRowContext(ctx, "SELECT COALESCE(MAX(version), 0) FROM _migrations")
 	if err := row.Scan(&currentVersion); err != nil {
 		return fmt.Errorf("read migration version: %w", err)
 	}
@@ -97,7 +134,7 @@ func (db *DB) migrate(ctx context.Context) error {
 			continue
 		}
 		db.logger.Info("applying migration", "version", ver, "name", m.name)
-		tx, err := db.inner.BeginTx(ctx, nil)
+		tx, err := db.writer.BeginTx(ctx, nil)
 		if err != nil {
 			return fmt.Errorf("begin migration %d: %w", ver, err)
 		}
@@ -132,12 +169,12 @@ func (db *DB) Compact(ctx context.Context, maxSizeMB int64) error {
 
 	if sizeMB > maxSizeMB {
 		db.logger.Warn("database exceeds size limit, running VACUUM", "size_mb", sizeMB)
-		if _, err := db.inner.ExecContext(ctx, "VACUUM"); err != nil {
+		if _, err := db.writer.ExecContext(ctx, "VACUUM"); err != nil {
 			return fmt.Errorf("vacuum: %w", err)
 		}
 	}
 
-	if _, err := db.inner.ExecContext(ctx, "ANALYZE"); err != nil {
+	if _, err := db.writer.ExecContext(ctx, "ANALYZE"); err != nil {
 		return fmt.Errorf("analyze: %w", err)
 	}
 
