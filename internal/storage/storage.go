@@ -31,7 +31,7 @@ func Open(ctx context.Context, dbPath string, logger *slog.Logger) (*DB, error) 
 		return nil, fmt.Errorf("storage.Open: create dir: %w", err)
 	}
 
-	dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=5000&_synchronous=NORMAL&_foreign_keys=ON", dbPath)
+	dsn := fmt.Sprintf("file:%s?_journal_mode=WAL&_busy_timeout=15000&_synchronous=NORMAL&_foreign_keys=ON", dbPath)
 	inner, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, fmt.Errorf("storage.Open: open db: %w", err)

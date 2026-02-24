@@ -208,9 +208,13 @@ func (p *Poller) syncEmails(ctx context.Context) {
 		tx, err := p.db.BeginTx(ctx, nil)
 		if err != nil {
 			p.logger.Error("Gmail batch tx failed", "error", err)
+			// Wait briefly before retrying — SQLITE_BUSY on BeginTx means
+			// another writer holds the lock.
+			time.Sleep(2 * time.Second)
 			continue
 		}
 
+		batchOK := true
 		for _, email := range batch {
 			if err := storeEmail(ctx, tx, &email); err != nil {
 				p.logger.Warn("Failed to store email",
@@ -222,7 +226,14 @@ func (p *Poller) syncEmails(ctx context.Context) {
 
 		if err := tx.Commit(); err != nil {
 			p.logger.Error("Gmail batch commit failed", "error", err)
-			tx.Rollback()
+			_ = tx.Rollback()
+			batchOK = false
+		}
+
+		// If this batch failed, wait before starting the next one to avoid
+		// hammering a busy database.
+		if !batchOK {
+			time.Sleep(2 * time.Second)
 		}
 	}
 
