@@ -148,6 +148,9 @@ During work hours, Crayfish checks your email and calendar and nudges you:
 > - 📧 2 urgent emails need your attention
 > - 📅 Team standup starts in 15 minutes"
 
+### Learns About You
+On first conversation, Crayfish naturally asks about you — your name, what you do, how you like to communicate. It saves this as a local profile so every interaction is personal, not generic. You can also shape its personality over time — "be more casual" or "keep responses short." All stored locally, never sent to a cloud.
+
 ### Voice Messages
 Send a voice note on Telegram. Crayfish transcribes it and responds. No typing required.
 
@@ -253,6 +256,7 @@ internal/               # Core packages
   gmail/                # Email integration
   calendar/             # Google Calendar
   heartbeat/            # Proactive check-ins
+  identity/             # Agent personality + user knowledge (SOUL.md, USER.md)
   provider/             # LLM providers (Anthropic, OpenAI, etc.)
   runtime/              # Agent brain, tool execution, memory
   security/             # Trust tiers, pairing, guardrails

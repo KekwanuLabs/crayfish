@@ -51,13 +51,16 @@
 
 | Tool | Minimum Tier | Reason |
 |------|--------------|--------|
-| `memory_recall` | GROUP | Read-only |
+| `memory_list` | TRUSTED | Read-only memory access |
+| `memory_search` | OPERATOR | Full-text search across memories |
+| `memory_save` | OPERATOR | Write action |
 | `web_search` | TRUSTED | External network |
 | `email_search` | TRUSTED | Sensitive data |
 | `email_read` | TRUSTED | Sensitive data |
 | `email_send` | OPERATOR | Write action |
+| `identity_read` | OPERATOR | Agent/human profile access |
+| `identity_update` | OPERATOR | Modify agent/human profiles |
 | `mcp_*` | OPERATOR | External systems |
-| `pair_generate` | OPERATOR | Access control |
 
 ### Skill Security
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -18,8 +19,8 @@ import (
 	"github.com/KekwanuLabs/crayfish/internal/gateway"
 	"github.com/KekwanuLabs/crayfish/internal/gmail"
 	"github.com/KekwanuLabs/crayfish/internal/heartbeat"
+	"github.com/KekwanuLabs/crayfish/internal/identity"
 	"github.com/KekwanuLabs/crayfish/internal/provider"
-	"github.com/KekwanuLabs/crayfish/internal/voice"
 	"github.com/KekwanuLabs/crayfish/internal/queue"
 	"github.com/KekwanuLabs/crayfish/internal/runtime"
 	"github.com/KekwanuLabs/crayfish/internal/security"
@@ -27,6 +28,7 @@ import (
 	"github.com/KekwanuLabs/crayfish/internal/storage"
 	"github.com/KekwanuLabs/crayfish/internal/tools"
 	"github.com/KekwanuLabs/crayfish/internal/updater"
+	"github.com/KekwanuLabs/crayfish/internal/voice"
 )
 
 // App is the top-level Crayfish application. It owns all components and their lifecycle.
@@ -51,6 +53,9 @@ type App struct {
 	skillScheduler *skills.Scheduler
 	autoUpdater    *updater.Updater
 	voiceInstaller *voice.Installer
+
+	// Identity system
+	identityStore *identity.Store
 
 	// Runtime reference for hot-reload
 	rt *runtime.Runtime
@@ -264,13 +269,18 @@ func (a *App) Start(ctx context.Context) error {
 		}
 	}
 
-	// 14. Memory components
+	// 14. Identity system (SOUL.md + USER.md)
+	configDir := filepath.Dir(a.Config.ConfigPath)
+	a.identityStore = identity.NewStore(configDir, a.Logger.With("component", "identity"))
+	tools.RegisterIdentityTools(toolReg, a.identityStore)
+
+	// 15. Memory components
 	memExtractor := runtime.NewMemoryExtractor(db.Inner(), llm,
 		a.Logger.With("component", "memory_extractor"))
 	memRetriever := runtime.NewMemoryRetriever(db.Inner(),
 		a.Logger.With("component", "memory_retriever"))
 
-	// 15. Session continuity (snapshot manager)
+	// 16. Session continuity (snapshot manager)
 	var snapshotMgr *runtime.SnapshotManager
 	if a.Config.ContinuityEnabled {
 		snapshotMgr = runtime.NewSnapshotManager(db.Inner(), llm,
@@ -291,7 +301,7 @@ func (a *App) Start(ctx context.Context) error {
 			"snapshots_per_session", snapshotsPerSession)
 	}
 
-	// 16. Agent runtime
+	// 17. Agent runtime
 	rtCfg := runtime.DefaultConfig()
 	if a.Config.Name != "" {
 		rtCfg.Name = a.Config.Name
@@ -311,11 +321,11 @@ func (a *App) Start(ctx context.Context) error {
 
 	rt := runtime.New(rtCfg, a.bus, db.Inner(), llm, a.sessions, toolReg,
 		a.offlineQueue, a.pairing, memExtractor, memRetriever,
-		snapshotMgr, a.Config.SessionResumeMinutes,
+		snapshotMgr, a.identityStore, a.Config.SessionResumeMinutes,
 		a.Logger.With("component", "runtime"))
 	a.rt = rt
 
-	// 15. Gateway
+	// 18. Gateway
 	skillsDir := "skills" // Default to local directory for user-created skills
 	if _, err := os.Stat("/var/lib/crayfish"); err == nil {
 		skillsDir = "/var/lib/crayfish/skills"

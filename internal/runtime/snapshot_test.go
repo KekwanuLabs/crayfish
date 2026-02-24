@@ -914,7 +914,7 @@ func TestAssembleContextMessageOrder(t *testing.T) {
 
 func TestBuildSystemPromptContainsContinuity(t *testing.T) {
 	cfg := DefaultConfig()
-	prompt := cfg.BuildSystemPrompt()
+	prompt := cfg.BuildSystemPrompt("", "")
 
 	if !strings.Contains(prompt, "Session Continuity") {
 		t.Error("system prompt should contain Session Continuity section")
@@ -924,6 +924,213 @@ func TestBuildSystemPromptContainsContinuity(t *testing.T) {
 	}
 	if !strings.Contains(prompt, "[Session State]") {
 		t.Error("system prompt should reference [Session State] format")
+	}
+}
+
+func TestBuildSystemPromptWithIdentity(t *testing.T) {
+	cfg := DefaultConfig()
+
+	soul := "I am warm, curious, and love helping with creative projects."
+	user := "Name: Alice\nJob: Software engineer\nTimezone: PST"
+
+	prompt := cfg.BuildSystemPrompt(soul, user)
+
+	if !strings.Contains(prompt, "## Who I Am") {
+		t.Error("prompt should contain '## Who I Am' section")
+	}
+	if !strings.Contains(prompt, soul) {
+		t.Error("prompt should contain soul content")
+	}
+	if !strings.Contains(prompt, "## About My Human") {
+		t.Error("prompt should contain '## About My Human' section")
+	}
+	if !strings.Contains(prompt, user) {
+		t.Error("prompt should contain user content")
+	}
+}
+
+func TestBuildSystemPromptWithSoulOnly(t *testing.T) {
+	cfg := DefaultConfig()
+	prompt := cfg.BuildSystemPrompt("I am playful.", "")
+
+	if !strings.Contains(prompt, "## Who I Am") {
+		t.Error("prompt should contain soul section")
+	}
+	if strings.Contains(prompt, "## About My Human") {
+		t.Error("prompt should NOT contain user section when user is empty")
+	}
+}
+
+func TestBuildSystemPromptWithUserOnly(t *testing.T) {
+	cfg := DefaultConfig()
+	prompt := cfg.BuildSystemPrompt("", "Name: Bob")
+
+	if strings.Contains(prompt, "## Who I Am") {
+		t.Error("prompt should NOT contain soul section when soul is empty")
+	}
+	if !strings.Contains(prompt, "## About My Human") {
+		t.Error("prompt should contain user section")
+	}
+}
+
+func TestBuildSystemPromptCustomWithIdentity(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.SystemPrompt = "You are {{name}}, a custom assistant."
+	cfg.Name = "TestBot"
+
+	prompt := cfg.BuildSystemPrompt("I am curious.", "Name: Alice")
+
+	if !strings.Contains(prompt, "You are TestBot, a custom assistant.") {
+		t.Error("custom prompt should have name injected")
+	}
+	if !strings.Contains(prompt, "## Who I Am") {
+		t.Error("identity should be appended even with custom system prompt")
+	}
+	if !strings.Contains(prompt, "## About My Human") {
+		t.Error("user content should be appended even with custom system prompt")
+	}
+}
+
+func TestBuildSystemPromptEmptyIdentity(t *testing.T) {
+	cfg := DefaultConfig()
+
+	// No identity — prompt should NOT contain identity sections.
+	prompt := cfg.BuildSystemPrompt("", "")
+
+	if strings.Contains(prompt, "## Who I Am") {
+		t.Error("prompt should NOT contain soul section when both are empty")
+	}
+	if strings.Contains(prompt, "## About My Human") {
+		t.Error("prompt should NOT contain user section when both are empty")
+	}
+}
+
+// mockIdentityReader is a test double for IdentityReader.
+type mockIdentityReader struct {
+	soul    string
+	user    string
+	hasUser bool
+}
+
+func (m *mockIdentityReader) Soul() string  { return m.soul }
+func (m *mockIdentityReader) User() string  { return m.user }
+func (m *mockIdentityReader) HasUser() bool { return m.hasUser }
+
+func TestAssembleContextInjectsInterviewWhenNoUser(t *testing.T) {
+	db := setupSnapshotDB(t)
+	sess := &security.Session{ID: "sess_1", Trust: security.TierOperator}
+	logger := testLogger()
+
+	// Identity store with no user info.
+	identity := &mockIdentityReader{soul: "", user: "", hasUser: false}
+
+	rt := &Runtime{
+		config:   DefaultConfig(),
+		db:       db,
+		identity: identity,
+		logger:   logger,
+	}
+
+	messages, err := rt.assembleContext(context.Background(), sess, "hello")
+	if err != nil {
+		t.Fatalf("assembleContext error: %v", err)
+	}
+
+	// The system prompt should contain the interview prompt.
+	systemMsg := messages[0]
+	if systemMsg.Role != provider.RoleSystem {
+		t.Fatalf("first message role = %q, want system", systemMsg.Role)
+	}
+	if !strings.Contains(systemMsg.Content, "Getting to Know Your Human") {
+		t.Error("system prompt should contain interview prompt when HasUser() is false")
+	}
+	if !strings.Contains(systemMsg.Content, "identity_update") {
+		t.Error("system prompt should reference identity_update tool")
+	}
+}
+
+func TestAssembleContextNoInterviewWhenUserExists(t *testing.T) {
+	db := setupSnapshotDB(t)
+	sess := &security.Session{ID: "sess_1", Trust: security.TierOperator}
+	logger := testLogger()
+
+	// Identity store WITH user info.
+	identity := &mockIdentityReader{
+		soul:    "I am warm and helpful.",
+		user:    "Name: Alice\nJob: Engineer",
+		hasUser: true,
+	}
+
+	rt := &Runtime{
+		config:   DefaultConfig(),
+		db:       db,
+		identity: identity,
+		logger:   logger,
+	}
+
+	messages, err := rt.assembleContext(context.Background(), sess, "hello")
+	if err != nil {
+		t.Fatalf("assembleContext error: %v", err)
+	}
+
+	systemMsg := messages[0]
+	if strings.Contains(systemMsg.Content, "Getting to Know Your Human") {
+		t.Error("system prompt should NOT contain interview prompt when HasUser() is true")
+	}
+	// But identity content should be injected.
+	if !strings.Contains(systemMsg.Content, "## Who I Am") {
+		t.Error("system prompt should contain soul identity section")
+	}
+	if !strings.Contains(systemMsg.Content, "## About My Human") {
+		t.Error("system prompt should contain user identity section")
+	}
+	if !strings.Contains(systemMsg.Content, "Name: Alice") {
+		t.Error("system prompt should contain user content")
+	}
+}
+
+func TestAssembleContextNoIdentityStore(t *testing.T) {
+	db := setupSnapshotDB(t)
+	sess := &security.Session{ID: "sess_1", Trust: security.TierOperator}
+	logger := testLogger()
+
+	// No identity store at all (nil).
+	rt := &Runtime{
+		config:   DefaultConfig(),
+		db:       db,
+		identity: nil,
+		logger:   logger,
+	}
+
+	messages, err := rt.assembleContext(context.Background(), sess, "hello")
+	if err != nil {
+		t.Fatalf("assembleContext error: %v", err)
+	}
+
+	systemMsg := messages[0]
+	// Should not have identity sections or interview prompt.
+	if strings.Contains(systemMsg.Content, "## Who I Am") {
+		t.Error("should NOT contain identity when store is nil")
+	}
+	if strings.Contains(systemMsg.Content, "Getting to Know Your Human") {
+		t.Error("should NOT contain interview when store is nil")
+	}
+}
+
+func TestInterviewPromptContent(t *testing.T) {
+	// Verify the interview prompt constant has the expected key instructions.
+	if !strings.Contains(interviewPrompt, "ONE AT A TIME") {
+		t.Error("interview prompt should instruct asking questions one at a time")
+	}
+	if !strings.Contains(interviewPrompt, "identity_update") {
+		t.Error("interview prompt should reference the identity_update tool")
+	}
+	if !strings.Contains(interviewPrompt, `file="user"`) {
+		t.Error("interview prompt should tell agent to use file='user'")
+	}
+	if !strings.Contains(interviewPrompt, "USER.md") {
+		// The prompt should mention USER.md as something NOT to reveal to the user.
+		t.Error("interview prompt should mention USER.md (in the 'never mention' instruction)")
 	}
 }
 

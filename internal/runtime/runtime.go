@@ -37,6 +37,20 @@ const (
 
 	// responseCacheTTL is how long cached responses are valid.
 	responseCacheTTL = 5 * time.Minute
+
+	// interviewPrompt is injected when USER.md is empty to guide the agent
+	// through a natural first-conversation interview.
+	interviewPrompt = `## Getting to Know Your Human
+You don't know much about the person you're talking to yet. Your goal is to naturally learn about them during this conversation so you can be a better assistant.
+
+Guidelines:
+- Ask questions ONE AT A TIME — never fire off a list. Let the conversation flow naturally.
+- Topics to cover (spread across multiple messages, not all at once): their name, what they do for work, their main goals or projects, their daily schedule/timezone, how they prefer to communicate (brief vs detailed), and important people in their life.
+- Be conversational, not interrogative. Weave questions into natural responses.
+- If the user wants help with something first, help them. Then circle back to learning about them.
+- After collecting 6 or more facts about the user, compile everything into a markdown profile and call the identity_update tool with file="user" to save it.
+- Never mention "USER.md", "identity files", or "profiles" to the user. This should feel like a natural conversation, not a data collection form.
+- Start with a warm greeting and one simple question (like their name).`
 )
 
 // Config holds runtime configuration.
@@ -58,33 +72,35 @@ func DefaultConfig() Config {
 	}
 }
 
-// BuildSystemPrompt creates the system prompt incorporating the Crayfish's name and personality.
+// BuildSystemPrompt creates the system prompt incorporating the Crayfish's name, personality,
+// and optional identity content from SOUL.md and USER.md.
 // If a custom SystemPrompt is set, it's used instead of the default.
-func (c Config) BuildSystemPrompt() string {
+func (c Config) BuildSystemPrompt(soulMD, userMD string) string {
+	var base string
+
 	if c.SystemPrompt != "" {
 		// Custom prompt — still inject the name if {{name}} placeholder exists
-		return strings.ReplaceAll(c.SystemPrompt, "{{name}}", c.Name)
-	}
+		base = strings.ReplaceAll(c.SystemPrompt, "{{name}}", c.Name)
+	} else {
+		name := c.Name
+		if name == "" {
+			name = "Crayfish"
+		}
 
-	name := c.Name
-	if name == "" {
-		name = "Crayfish"
-	}
+		// Personality-specific tone guidance
+		personalityGuide := ""
+		switch c.Personality {
+		case "professional":
+			personalityGuide = "You communicate in a professional, polished manner. Use proper grammar, avoid slang, and maintain a respectful tone. Be thorough but efficient."
+		case "casual":
+			personalityGuide = "You're casual and fun to talk to. Use friendly language, occasional humor, and feel free to use expressions like 'cool', 'awesome', etc. Keep things light."
+		case "minimal":
+			personalityGuide = "You are extremely concise. Give the shortest possible answers that are still complete. No pleasantries, no filler words, just the facts. Act autonomously — when asked to do something, just do it. Don't ask for confirmation unless the action is irreversible or involves money."
+		default: // friendly
+			personalityGuide = "You are warm and approachable. You care about the person you're talking to. Use a conversational tone and show genuine interest in helping."
+		}
 
-	// Personality-specific tone guidance
-	personalityGuide := ""
-	switch c.Personality {
-	case "professional":
-		personalityGuide = "You communicate in a professional, polished manner. Use proper grammar, avoid slang, and maintain a respectful tone. Be thorough but efficient."
-	case "casual":
-		personalityGuide = "You're casual and fun to talk to. Use friendly language, occasional humor, and feel free to use expressions like 'cool', 'awesome', etc. Keep things light."
-	case "minimal":
-		personalityGuide = "You are extremely concise. Give the shortest possible answers that are still complete. No pleasantries, no filler words, just the facts. Act autonomously — when asked to do something, just do it. Don't ask for confirmation unless the action is irreversible or involves money."
-	default: // friendly
-		personalityGuide = "You are warm and approachable. You care about the person you're talking to. Use a conversational tone and show genuine interest in helping."
-	}
-
-	return fmt.Sprintf(`You are %s — a personal AI assistant. Built for everyone, not just the privileged few.
+		base = fmt.Sprintf(`You are %s — a personal AI assistant. Built for everyone, not just the privileged few.
 
 Your name is %s. When people address you, they call you %s. This is your identity.
 
@@ -100,6 +116,25 @@ You are resourceful, practical, and accessible — like crayfish itself. Found e
 
 ## Session Continuity
 You have a checkpoint tool. When session state is recovered, it will appear as [Session State] in your context. Use it to continue seamlessly — never say "I don't remember" without checking the session state first. If you notice gaps, briefly acknowledge them. The user should never need to re-explain context.`, name, name, name, personalityGuide, name)
+	}
+
+	// Append identity content if available.
+	if soulMD != "" {
+		base += "\n\n## Who I Am\n" + soulMD
+	}
+	if userMD != "" {
+		base += "\n\n## About My Human\n" + userMD
+	}
+
+	return base
+}
+
+// IdentityReader provides read access to identity files for context assembly.
+// Implemented by identity.Store to avoid import cycles.
+type IdentityReader interface {
+	Soul() string
+	User() string
+	HasUser() bool
 }
 
 // Runtime is the agent processing loop.
@@ -113,6 +148,7 @@ type Runtime struct {
 	tools           *tools.Registry
 	summarizer      *Summarizer
 	snapshotMgr     *SnapshotManager
+	identity        IdentityReader
 	memoryExtractor *MemoryExtractor
 	memoryRetriever *MemoryRetriever
 	queue           *queue.OfflineQueue
@@ -134,7 +170,7 @@ type Response struct {
 }
 
 // New creates a new agent runtime.
-func New(cfg Config, b bus.Bus, db *sql.DB, prov provider.Provider, sessions *security.SessionStore, toolReg *tools.Registry, q *queue.OfflineQueue, pairing *security.PairingService, memExtractor *MemoryExtractor, memRetriever *MemoryRetriever, snapshotMgr *SnapshotManager, sessionResumeMinutes int, logger *slog.Logger) *Runtime {
+func New(cfg Config, b bus.Bus, db *sql.DB, prov provider.Provider, sessions *security.SessionStore, toolReg *tools.Registry, q *queue.OfflineQueue, pairing *security.PairingService, memExtractor *MemoryExtractor, memRetriever *MemoryRetriever, snapshotMgr *SnapshotManager, identityStore IdentityReader, sessionResumeMinutes int, logger *slog.Logger) *Runtime {
 	summarizer := NewSummarizer(db, prov, logger.With("component", "summarizer"))
 	if snapshotMgr != nil {
 		summarizer.SetSnapshotManager(snapshotMgr)
@@ -153,6 +189,7 @@ func New(cfg Config, b bus.Bus, db *sql.DB, prov provider.Provider, sessions *se
 		tools:                  toolReg,
 		summarizer:             summarizer,
 		snapshotMgr:            snapshotMgr,
+		identity:               identityStore,
 		memoryExtractor:        memExtractor,
 		memoryRetriever:        memRetriever,
 		queue:                  q,
@@ -415,9 +452,21 @@ func (r *Runtime) executeTool(ctx context.Context, sess *security.Session, tc pr
 func (r *Runtime) assembleContext(ctx context.Context, sess *security.Session, currentMessage string) ([]provider.Message, error) {
 	var messages []provider.Message
 
+	// Read identity content for system prompt.
+	var soulMD, userMD string
+	if r.identity != nil {
+		soulMD = r.identity.Soul()
+		userMD = r.identity.User()
+	}
+
 	r.configMu.RLock()
-	systemPrompt := r.config.BuildSystemPrompt()
+	systemPrompt := r.config.BuildSystemPrompt(soulMD, userMD)
 	r.configMu.RUnlock()
+
+	// Inject interview prompt when we don't know the user yet.
+	if r.identity != nil && !r.identity.HasUser() {
+		systemPrompt += "\n\n" + interviewPrompt
+	}
 
 	messages = append(messages, provider.Message{
 		Role:    provider.RoleSystem,
