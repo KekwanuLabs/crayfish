@@ -147,13 +147,23 @@ fi
 
 info "Binary verified"
 
-# Install binary.
-if [ -w "$(dirname $CRAYFISH_BIN)" ]; then
-    mv /tmp/crayfish "${CRAYFISH_BIN}"
-else
+# On Linux, install to data dir (writable under ProtectSystem=strict)
+# and symlink from /usr/local/bin for CLI access.
+if [ "$OS" = "linux" ]; then
+    CRAYFISH_BIN="/var/lib/crayfish/bin/crayfish"
+    sudo mkdir -p "$(dirname ${CRAYFISH_BIN})"
     sudo mv /tmp/crayfish "${CRAYFISH_BIN}"
+    sudo chmod +x "${CRAYFISH_BIN}"
+    sudo ln -sf "${CRAYFISH_BIN}" /usr/local/bin/crayfish
+    info "Installed to ${CRAYFISH_BIN} (symlinked from /usr/local/bin/crayfish)"
+else
+    if [ -w "$(dirname $CRAYFISH_BIN)" ]; then
+        mv /tmp/crayfish "${CRAYFISH_BIN}"
+    else
+        sudo mv /tmp/crayfish "${CRAYFISH_BIN}"
+    fi
+    info "Installed to ${CRAYFISH_BIN}"
 fi
-info "Installed to ${CRAYFISH_BIN}"
 
 # ==================================================================
 # Platform-specific service setup
@@ -172,7 +182,7 @@ if [ "$OS" = "linux" ]; then
     fi
 
     # Directories.
-    sudo mkdir -p "${CRAYFISH_HOME}" "${CRAYFISH_CONFIG_DIR}" "${CRAYFISH_HOME}/skills"
+    sudo mkdir -p "${CRAYFISH_HOME}" "${CRAYFISH_HOME}/bin" "${CRAYFISH_CONFIG_DIR}" "${CRAYFISH_HOME}/skills"
     sudo chown -R "${CRAYFISH_USER}:${CRAYFISH_USER}" "${CRAYFISH_HOME}"
     sudo chown -R "${CRAYFISH_USER}:${CRAYFISH_USER}" "${CRAYFISH_CONFIG_DIR}"
 

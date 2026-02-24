@@ -60,7 +60,7 @@ func New(cfg Config, notify NotifyFunc, logger *slog.Logger) *Updater {
 		cfg.BinaryPath, err = os.Executable()
 		if err != nil {
 			logger.Warn("could not determine binary path, using default", "error", err)
-			cfg.BinaryPath = "/usr/local/bin/crayfish"
+			cfg.BinaryPath = "/var/lib/crayfish/bin/crayfish"
 		}
 	}
 	if cfg.BackupDir == "" {
@@ -83,6 +83,14 @@ func New(cfg Config, notify NotifyFunc, logger *slog.Logger) *Updater {
 func (u *Updater) Start(ctx context.Context) {
 	if !u.config.Enabled {
 		u.logger.Info("auto-update disabled")
+		return
+	}
+
+	// Check if binary path is writable. If not, disable auto-update
+	// (e.g. ProtectSystem=strict makes /usr/local/bin read-only).
+	if !isWritable(u.config.BinaryPath) {
+		u.logger.Warn("binary path not writable, disabling auto-update",
+			"path", u.config.BinaryPath)
 		return
 	}
 
@@ -153,12 +161,13 @@ func (u *Updater) checkAndUpdate(ctx context.Context) {
 	}
 
 	latestVersion := strings.TrimPrefix(release.TagName, "v")
-	if !isNewer(latestVersion, u.config.CurrentVersion) {
-		u.logger.Debug("already up to date", "current", u.config.CurrentVersion, "latest", latestVersion)
+	currentVersion := strings.TrimPrefix(u.config.CurrentVersion, "v")
+	if !isNewer(latestVersion, currentVersion) {
+		u.logger.Debug("already up to date", "current", currentVersion, "latest", latestVersion)
 		return
 	}
 
-	u.logger.Info("update available", "current", u.config.CurrentVersion, "latest", latestVersion)
+	u.logger.Info("update available", "current", currentVersion, "latest", latestVersion)
 
 	// Find the right asset for our platform.
 	assetURL := u.findAsset(release)
@@ -189,14 +198,21 @@ func (u *Updater) downloadAndApply(ctx context.Context, url, version string) err
 	ctx, cancel := context.WithTimeout(ctx, downloadTimeout)
 	defer cancel()
 
-	// Download to temp file.
-	tmpPath := filepath.Join(os.TempDir(), "crayfish-update")
+	// Stage in BackupDir (same filesystem as binary — ensures atomic rename;
+	// also avoids PrivateTmp cross-device rename failures).
+	if err := os.MkdirAll(u.config.BackupDir, 0755); err != nil {
+		return fmt.Errorf("create backup dir: %w", err)
+	}
+	tmpPath := filepath.Join(u.config.BackupDir, "crayfish-update")
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
 
-	resp, err := u.client.Do(req)
+	// Use a dedicated client for downloads — u.client has a 30s timeout
+	// suited for API calls, not multi-MB binary downloads on slow Pi networks.
+	dlClient := &http.Client{Timeout: downloadTimeout}
+	resp, err := dlClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("download: %w", err)
 	}
@@ -371,6 +387,26 @@ func parseVersionPart(s string) int {
 		}
 	}
 	return n
+}
+
+// isWritable checks if a file path can be written to.
+// For existing files, it checks write permission. For new paths, it checks the parent dir.
+func isWritable(path string) bool {
+	// If the file exists, try opening it for writing.
+	if f, err := os.OpenFile(path, os.O_WRONLY, 0); err == nil {
+		f.Close()
+		return true
+	}
+	// File doesn't exist or can't be opened — check parent directory.
+	dir := filepath.Dir(path)
+	tmp := filepath.Join(dir, ".crayfish-write-test")
+	f, err := os.Create(tmp)
+	if err != nil {
+		return false
+	}
+	f.Close()
+	os.Remove(tmp)
+	return true
 }
 
 // copyFile copies src to dst.

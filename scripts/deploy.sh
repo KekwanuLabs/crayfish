@@ -180,7 +180,8 @@ set -e
 CRAYFISH_DATA="$HOME/.crayfish"
 CRAYFISH_CONFIG_DIR="$HOME/.config/crayfish"
 
-# Create data and config directories.
+# Create data, bin, and config directories.
+mkdir -p "$CRAYFISH_DATA/bin"
 mkdir -p "$CRAYFISH_DATA/skills"
 mkdir -p "$CRAYFISH_CONFIG_DIR"
 
@@ -262,11 +263,12 @@ User=${PI_USER}
 Group=${PI_USER}
 
 # Create directories before starting (handles fresh installs and resets)
+ExecStartPre=/bin/mkdir -p ${crayfish_data}/bin
 ExecStartPre=/bin/mkdir -p ${crayfish_data}/skills
 ExecStartPre=/bin/mkdir -p ${crayfish_config}
 ExecStartPre=/bin/sh -c 'test -f ${crayfish_config}/env || echo "# Crayfish secrets" > ${crayfish_config}/env'
 
-ExecStart=/usr/local/bin/crayfish
+ExecStart=${crayfish_data}/bin/crayfish
 WorkingDirectory=${crayfish_data}
 Restart=always
 RestartSec=5
@@ -338,8 +340,15 @@ push_and_restart() {
 set -e
 sudo systemctl stop crayfish 2>/dev/null || true
 sleep 1
-sudo mv /tmp/crayfish-new /usr/local/bin/crayfish
-sudo chmod +x /usr/local/bin/crayfish
+
+# Move binary into data dir (writable under ProtectSystem=strict)
+mkdir -p "$HOME/.crayfish/bin"
+mv /tmp/crayfish-new "$HOME/.crayfish/bin/crayfish"
+chmod +x "$HOME/.crayfish/bin/crayfish"
+
+# Clean up old location if it exists
+sudo rm -f /usr/local/bin/crayfish 2>/dev/null || true
+
 sudo systemctl enable --now crayfish
 echo "[deploy] Service restarted"
 RESTART_SCRIPT
