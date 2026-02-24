@@ -238,11 +238,13 @@ install_service() {
     remote_gid=$(echo "$remote_info" | awk '{print $3}')
     ram_mb=$(echo "$remote_info" | awk '{print $4}')
 
-    local memory_max="128M" memory_high="100M"
+    # Memory limits: crayfish ~30MB base + whisper tiny model ~100MB at inference time.
+    # Set high enough for whisper to load, low enough to protect the system.
+    local memory_max="256M" memory_high="200M"
     if [ "$ram_mb" -le 512 ] 2>/dev/null; then
-        memory_max="96M"; memory_high="80M"
+        memory_max="128M"; memory_high="100M"
     elif [ "$ram_mb" -ge 4096 ] 2>/dev/null; then
-        memory_max="192M"; memory_high="160M"
+        memory_max="512M"; memory_high="400M"
     fi
 
     info "Remote: home=${remote_home}, RAM=${ram_mb}MB, limits=${memory_max}/${memory_high}"

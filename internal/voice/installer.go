@@ -659,7 +659,10 @@ func (i *Installer) downloadModel(ctx context.Context, model string) error {
 	return nil
 }
 
-// verify tests that whisper works correctly.
+// verify checks that the whisper binary and model are ready to use.
+// We intentionally avoid running full inference here — loading the model
+// requires 100MB+ of RAM which can trigger OOM on constrained devices
+// (e.g. Pi 2 with 921MB RAM and systemd cgroup limits).
 func (i *Installer) verify(ctx context.Context) error {
 	// Find the binary
 	binPath := i.BinaryPath()
@@ -674,7 +677,12 @@ func (i *Installer) verify(ctx context.Context) error {
 		}
 	}
 
-	// Find the model
+	// Validate binary can execute (catches SIGILL from wrong architecture).
+	if !i.isValidWhisperBinary(binPath) {
+		return fmt.Errorf("whisper binary failed --help validation")
+	}
+
+	// Find and validate the model file.
 	model := i.device.RecommendedWhisperModel()
 	modelPath := i.ModelPath(model)
 	if _, err := os.Stat(modelPath); err != nil {
@@ -684,63 +692,17 @@ func (i *Installer) verify(ctx context.Context) error {
 		}
 	}
 
-	// Create a simple test audio file (1 second of silence as WAV)
-	testAudio := filepath.Join(i.config.DataDir, "test.wav")
-	if err := createSilentWAV(testAudio, 16000, 1); err != nil {
-		return fmt.Errorf("create test audio: %w", err)
-	}
-	defer os.Remove(testAudio)
-
-	// Run whisper on the test file
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, binPath, "-m", modelPath, "-f", testAudio, "-nt", "-np")
-	output, err := cmd.CombinedOutput()
+	// Sanity check model size (tiny ~75MB, base ~142MB — anything under 1MB is corrupt).
+	info, err := os.Stat(modelPath)
 	if err != nil {
-		return fmt.Errorf("whisper test failed: %w (output: %s)", err, string(output))
+		return fmt.Errorf("cannot stat model: %w", err)
+	}
+	if info.Size() < 1*1024*1024 {
+		return fmt.Errorf("model file too small (%d bytes), likely corrupt", info.Size())
 	}
 
-	i.logger.Debug("whisper verification passed", "output", strings.TrimSpace(string(output)))
+	i.logger.Debug("whisper verification passed", "binary", binPath, "model", modelPath)
 	return nil
-}
-
-// createSilentWAV creates a WAV file with silence for testing.
-func createSilentWAV(path string, sampleRate, seconds int) error {
-	f, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	// WAV header for 16-bit mono PCM
-	numSamples := sampleRate * seconds
-	dataSize := numSamples * 2 // 16-bit = 2 bytes per sample
-	fileSize := 44 + dataSize
-
-	header := make([]byte, 44)
-	copy(header[0:4], "RIFF")
-	putLE32(header[4:8], uint32(fileSize-8))
-	copy(header[8:12], "WAVE")
-	copy(header[12:16], "fmt ")
-	putLE32(header[16:20], 16)        // Subchunk1Size
-	putLE16(header[20:22], 1)         // AudioFormat (PCM)
-	putLE16(header[22:24], 1)         // NumChannels
-	putLE32(header[24:28], uint32(sampleRate))
-	putLE32(header[28:32], uint32(sampleRate*2)) // ByteRate
-	putLE16(header[32:34], 2)                    // BlockAlign
-	putLE16(header[34:36], 16)                   // BitsPerSample
-	copy(header[36:40], "data")
-	putLE32(header[40:44], uint32(dataSize))
-
-	if _, err := f.Write(header); err != nil {
-		return err
-	}
-
-	// Write silence (zeros)
-	silence := make([]byte, dataSize)
-	_, err = f.Write(silence)
-	return err
 }
 
 func copyFile(src, dst string) error {
