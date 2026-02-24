@@ -24,32 +24,56 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
-      is_release: ${{ steps.version.outputs.is_release }}
+      bump: ${{ steps.version.outputs.bump }}
       rebuild_whisper: ${{ steps.whisper.outputs.rebuild }}
       whisper_version: ${{ steps.whisper.outputs.whisper_version }}
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 2  # Need previous commit to detect changes
+          fetch-depth: 0  # Full history for tag lookup and commit analysis
 
       - name: Determine version
         id: version
         run: |
-          COMMIT_MSG=$(git log -1 --pretty=%B)
-          VERSION=$(echo "$COMMIT_MSG" | grep -oE 'v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 || echo "")
+          # Find the latest semver tag (exclude 'latest' and pre-release tags)
+          LATEST_TAG=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          if [ -z "$LATEST_TAG" ]; then
+            LATEST_TAG="v0.0.0"
+          fi
+          echo "Latest tag: ${LATEST_TAG}"
 
-          if [ -n "$VERSION" ]; then
-            VERSION="v${VERSION#v}"
-            echo "is_release=true" >> $GITHUB_OUTPUT
-          else
-            SHORT_SHA=$(git rev-parse --short HEAD)
-            DATE=$(date +'%Y%m%d')
-            VERSION="v0.4.0-dev.${DATE}.${SHORT_SHA}"
-            echo "is_release=false" >> $GITHUB_OUTPUT
+          # Get commit subjects since last tag for conventional commit analysis
+          SUBJECTS=$(git log "${LATEST_TAG}..HEAD" --pretty="%s" --no-merges)
+          echo "Commits since ${LATEST_TAG}:"
+          echo "$SUBJECTS"
+
+          # Determine bump type from conventional commits:
+          #   major: breaking change  (feat!:, fix!:, or any type with !)
+          #   minor: new feature      (feat:)
+          #   patch: everything else  (fix:, docs:, refactor:, chore:, ci:, or no prefix)
+          BUMP="patch"
+          if echo "$SUBJECTS" | grep -qE '^[a-z]+(\(.+\))?!:'; then
+            BUMP="major"
+          elif echo "$SUBJECTS" | grep -qE '^feat(\(.+\))?:'; then
+            BUMP="minor"
           fi
 
+          # Parse current version components
+          MAJOR=$(echo "${LATEST_TAG#v}" | cut -d. -f1)
+          MINOR=$(echo "${LATEST_TAG#v}" | cut -d. -f2)
+          PATCH=$(echo "${LATEST_TAG#v}" | cut -d. -f3)
+
+          # Apply bump
+          case "$BUMP" in
+            major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+            patch) PATCH=$((PATCH + 1)) ;;
+          esac
+
+          VERSION="v${MAJOR}.${MINOR}.${PATCH}"
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
-          echo "Version: ${VERSION}"
+          echo "bump=${BUMP}" >> $GITHUB_OUTPUT
+          echo "Version: ${VERSION} (${BUMP} bump from ${LATEST_TAG})"
 
       - name: Check if whisper rebuild needed
         id: whisper
@@ -249,6 +273,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for changelog generation
 
       - name: Download Crayfish artifacts
         uses: actions/download-artifact@v4
@@ -322,13 +348,23 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
-          COMMIT_MSG=$(git log -1 --pretty=%B)
+
+          # Find previous tag for changelog
+          PREV_TAG=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          if [ -z "$PREV_TAG" ]; then
+            PREV_TAG=$(git rev-list --max-parents=0 HEAD)
+          fi
+
+          # Build changelog from commits since last tag
+          CHANGELOG=$(git log "${PREV_TAG}..HEAD" --pretty="- %s" --no-merges)
 
           gh release create "${VERSION}" \
             --title "Crayfish ${VERSION}" \
             --notes "## Crayfish ${VERSION}
 
-          ${COMMIT_MSG}
+          ### Changes
+
+          ${CHANGELOG}
 
           See [installation instructions](https://github.com/KekwanuLabs/crayfish#installation)." \
             release/*
