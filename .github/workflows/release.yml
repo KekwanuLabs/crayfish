@@ -318,14 +318,17 @@ jobs:
             release/*
 
       - name: Create versioned release
-        if: needs.prepare.outputs.is_release == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+
           gh release create "${VERSION}" \
             --title "Crayfish ${VERSION}" \
             --notes "## Crayfish ${VERSION}
+
+          ${COMMIT_MSG}
 
           See [installation instructions](https://github.com/KekwanuLabs/crayfish#installation)." \
             release/*
