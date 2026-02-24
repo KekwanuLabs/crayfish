@@ -464,21 +464,28 @@ func (i *Installer) compileFromSource(ctx context.Context) error {
 	// Find and copy binary to our bin directory.
 	// Don't fail on buildErr yet — test targets (test-vad, test-vad-full) may fail
 	// to link on 32-bit ARM (-latomic not propagated) while the main binary builds fine.
+	//
+	// NOTE: build/bin/main is the deprecation-warning example, NOT the whisper binary.
+	// Only whisper-cli and build/bin/whisper-cli are the real whisper binaries.
 	var srcBin string
 	possiblePaths := []string{
 		filepath.Join(whisperDir, "build", "bin", "whisper-cli"),
-		filepath.Join(whisperDir, "build", "bin", "main"),
 		filepath.Join(whisperDir, "build", "main"),
 		filepath.Join(whisperDir, "main"),
 	}
 	for _, p := range possiblePaths {
 		if _, err := os.Stat(p); err == nil {
-			srcBin = p
-			break
+			// Validate this is actually whisper by checking it responds to --help
+			// with whisper-related output (not a deprecation warning stub).
+			out, runErr := exec.CommandContext(ctx, p, "--help").CombinedOutput()
+			if runErr == nil && (strings.Contains(string(out), "whisper") || strings.Contains(string(out), "model")) {
+				srcBin = p
+				break
+			}
+			i.logger.Debug("candidate binary is not whisper", "path", p)
 		}
 	}
 	if srcBin == "" {
-		// Binary wasn't built either — return the original build error.
 		if buildErr != nil {
 			if !hasCmake {
 				return fmt.Errorf("build failed (cmake not installed): %w\nInstall cmake: sudo apt-get install cmake", buildErr)
@@ -488,7 +495,7 @@ func (i *Installer) compileFromSource(ctx context.Context) error {
 		return fmt.Errorf("whisper binary not found after build")
 	}
 	if buildErr != nil {
-		i.logger.Warn("build had errors but target binary exists, continuing", "error", buildErr)
+		i.logger.Warn("build had errors but whisper binary exists, continuing", "error", buildErr)
 	}
 
 	dstBin := i.BinaryPath()
