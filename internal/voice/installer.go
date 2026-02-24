@@ -150,15 +150,16 @@ func (i *Installer) ModelPath(model string) string {
 
 // IsInstalled checks if whisper is already installed and working.
 func (i *Installer) IsInstalled() bool {
-	// Check if binary exists
-	binPath := i.BinaryPath()
-	if _, err := os.Stat(binPath); err != nil {
-		// Also check system PATH
-		if _, err := exec.LookPath("whisper"); err != nil {
-			if _, err := exec.LookPath("whisper-cpp"); err != nil {
-				return false
-			}
-		}
+	binPath := i.findBinary()
+	if binPath == "" {
+		return false
+	}
+
+	// Validate the binary actually works (not a stale/corrupt copy).
+	if !i.isValidWhisperBinary(binPath) {
+		i.logger.Warn("whisper binary exists but failed validation, will reinstall", "path", binPath)
+		os.Remove(binPath)
+		return false
 	}
 
 	// Check if a model exists
@@ -169,13 +170,40 @@ func (i *Installer) IsInstalled() bool {
 
 	modelPath := i.ModelPath(model)
 	if _, err := os.Stat(modelPath); err != nil {
-		// Check default locations
 		if findWhisperModel() == "" {
 			return false
 		}
 	}
 
 	return true
+}
+
+// findBinary locates a whisper binary on disk or in PATH.
+func (i *Installer) findBinary() string {
+	binPath := i.BinaryPath()
+	if _, err := os.Stat(binPath); err == nil {
+		return binPath
+	}
+	if path, err := exec.LookPath("whisper"); err == nil {
+		return path
+	}
+	if path, err := exec.LookPath("whisper-cpp"); err == nil {
+		return path
+	}
+	return ""
+}
+
+// isValidWhisperBinary runs --help and checks the output contains whisper-related text.
+// Uses a short independent timeout so it works even if the parent context is being cancelled.
+func (i *Installer) isValidWhisperBinary(binPath string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, binPath, "--help").CombinedOutput()
+	if err != nil {
+		return false
+	}
+	lower := strings.ToLower(string(out))
+	return strings.Contains(lower, "whisper") || strings.Contains(lower, "model")
 }
 
 // Install performs the full whisper installation.
@@ -344,6 +372,8 @@ func (i *Installer) extractTarGz(r io.Reader, destDir string) error {
 }
 
 // compileFromSource clones and builds whisper.cpp.
+// Safe to call after an interrupted build — cmake incremental builds resume
+// from where they left off, and a corrupt clone is detected and re-cloned.
 func (i *Installer) compileFromSource(ctx context.Context) error {
 	srcDir := filepath.Join(i.config.DataDir, "src")
 	if err := os.MkdirAll(srcDir, 0755); err != nil {
@@ -352,16 +382,9 @@ func (i *Installer) compileFromSource(ctx context.Context) error {
 
 	whisperDir := filepath.Join(srcDir, "whisper.cpp")
 
-	// Clone or update repo
-	if _, err := os.Stat(filepath.Join(whisperDir, "Makefile")); err != nil {
-		i.logger.Info("cloning whisper.cpp repository")
-		cmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1",
-			"https://github.com/ggml-org/whisper.cpp.git", whisperDir)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("git clone: %w", err)
-		}
+	// Clone or verify existing repo.
+	if err := i.ensureRepo(ctx, whisperDir); err != nil {
+		return err
 	}
 
 	// Check if cmake is available (whisper.cpp now uses cmake by default)
@@ -389,13 +412,12 @@ func (i *Installer) compileFromSource(ctx context.Context) error {
 
 	if hasCmake {
 		// Use cmake build (preferred)
-		i.logger.Info("compiling whisper.cpp with cmake", "cores", i.device.CPUCores)
 		buildDir := filepath.Join(whisperDir, "build")
 		if err := os.MkdirAll(buildDir, 0755); err != nil {
 			return fmt.Errorf("create build dir: %w", err)
 		}
 
-		// Configure
+		// Configure — cmake caches its config, so re-running is fast if already done.
 		cmakeArgs := []string{"..", "-DCMAKE_BUILD_TYPE=Release"}
 		if runtime.GOARCH == "arm" {
 			cmakeArgs = append(cmakeArgs,
@@ -408,34 +430,43 @@ func (i *Installer) compileFromSource(ctx context.Context) error {
 		configCmd.Stdout = os.Stdout
 		configCmd.Stderr = os.Stderr
 		if err := configCmd.Run(); err != nil {
-			return fmt.Errorf("cmake configure: %w", err)
+			// If configure fails (e.g. corrupt cache from interrupted run), wipe and retry.
+			i.logger.Warn("cmake configure failed, cleaning build dir and retrying", "error", err)
+			os.RemoveAll(buildDir)
+			if err := os.MkdirAll(buildDir, 0755); err != nil {
+				return fmt.Errorf("recreate build dir: %w", err)
+			}
+			configCmd = exec.CommandContext(ctx, "cmake", cmakeArgs...)
+			configCmd.Dir = buildDir
+			configCmd.Stdout = os.Stdout
+			configCmd.Stderr = os.Stderr
+			if err := configCmd.Run(); err != nil {
+				return fmt.Errorf("cmake configure (retry): %w", err)
+			}
 		}
 
-		// Build
+		// Build — cmake incremental builds automatically resume from partial .o files.
 		cores := i.device.CPUCores
 		if cores > 2 {
 			cores = 2 // Don't overwhelm small devices
 		}
+		i.logger.Info("compiling whisper.cpp", "cores", cores)
 		cmd = exec.CommandContext(ctx, "cmake", "--build", ".", "-j", fmt.Sprintf("%d", cores))
 		cmd.Dir = buildDir
 	} else {
 		// Try legacy make with NO_CMAKE flag for older/simpler builds
 		i.logger.Info("compiling whisper.cpp with legacy make (no cmake)", "cores", i.device.CPUCores)
 
-		// Check if there's a simple Makefile option
-		// Some systems may need to use the examples directly
 		cores := i.device.CPUCores
 		if cores > 2 {
 			cores = 2
 		}
 
 		// Try building just the main binary directly with gcc
-		// This is a fallback for systems without cmake
 		mainC := filepath.Join(whisperDir, "examples", "main", "main.cpp")
 		if _, err := os.Stat(mainC); err == nil {
 			i.logger.Info("building whisper main example directly")
 
-			// Simple gcc/g++ compilation
 			gppArgs := []string{
 				"-O3", "-std=c++11", "-pthread",
 				"-I" + whisperDir,
@@ -466,25 +497,8 @@ func (i *Installer) compileFromSource(ctx context.Context) error {
 	// to link on 32-bit ARM (-latomic not propagated) while the main binary builds fine.
 	//
 	// NOTE: build/bin/main is the deprecation-warning example, NOT the whisper binary.
-	// Only whisper-cli and build/bin/whisper-cli are the real whisper binaries.
-	var srcBin string
-	possiblePaths := []string{
-		filepath.Join(whisperDir, "build", "bin", "whisper-cli"),
-		filepath.Join(whisperDir, "build", "main"),
-		filepath.Join(whisperDir, "main"),
-	}
-	for _, p := range possiblePaths {
-		if _, err := os.Stat(p); err == nil {
-			// Validate this is actually whisper by checking it responds to --help
-			// with whisper-related output (not a deprecation warning stub).
-			out, runErr := exec.CommandContext(ctx, p, "--help").CombinedOutput()
-			if runErr == nil && (strings.Contains(string(out), "whisper") || strings.Contains(string(out), "model")) {
-				srcBin = p
-				break
-			}
-			i.logger.Debug("candidate binary is not whisper", "path", p)
-		}
-	}
+	// Only whisper-cli is the real whisper binary from cmake builds.
+	srcBin := i.findBuiltWhisper(whisperDir)
 	if srcBin == "" {
 		if buildErr != nil {
 			if !hasCmake {
@@ -509,6 +523,59 @@ func (i *Installer) compileFromSource(ctx context.Context) error {
 
 	i.logger.Info("whisper binary installed", "path", dstBin)
 	return nil
+}
+
+// ensureRepo clones whisper.cpp or validates an existing clone.
+// If the existing clone is corrupt (e.g. interrupted), it is removed and re-cloned.
+func (i *Installer) ensureRepo(ctx context.Context, whisperDir string) error {
+	// Check if repo already exists and is valid.
+	gitDir := filepath.Join(whisperDir, ".git")
+	if _, err := os.Stat(gitDir); err == nil {
+		// Repo exists — quick sanity check: can git read HEAD?
+		checkCmd := exec.CommandContext(ctx, "git", "rev-parse", "HEAD")
+		checkCmd.Dir = whisperDir
+		if err := checkCmd.Run(); err == nil {
+			return nil // Repo is valid.
+		}
+		// Corrupt repo — remove and re-clone.
+		i.logger.Warn("whisper.cpp repo is corrupt, removing and re-cloning")
+		os.RemoveAll(whisperDir)
+	} else if _, err := os.Stat(whisperDir); err == nil {
+		// Directory exists but no .git — partial clone. Remove.
+		i.logger.Warn("whisper.cpp directory exists without .git, removing")
+		os.RemoveAll(whisperDir)
+	}
+
+	i.logger.Info("cloning whisper.cpp repository")
+	cmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1",
+		"https://github.com/ggml-org/whisper.cpp.git", whisperDir)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		// Clean up partial clone.
+		os.RemoveAll(whisperDir)
+		return fmt.Errorf("git clone: %w", err)
+	}
+	return nil
+}
+
+// findBuiltWhisper searches for the compiled whisper binary and validates it.
+// Uses its own context so validation works even when the parent ctx is being cancelled.
+func (i *Installer) findBuiltWhisper(whisperDir string) string {
+	possiblePaths := []string{
+		filepath.Join(whisperDir, "build", "bin", "whisper-cli"),
+		filepath.Join(whisperDir, "build", "main"),
+		filepath.Join(whisperDir, "main"),
+	}
+	for _, p := range possiblePaths {
+		if _, err := os.Stat(p); err == nil {
+			if i.isValidWhisperBinary(p) {
+				return p
+			}
+			i.logger.Debug("candidate binary is not whisper", "path", p)
+		}
+	}
+	return ""
 }
 
 // downloadModel downloads a whisper model from Hugging Face.
@@ -689,4 +756,3 @@ func copyFile(src, dst string) error {
 	_, err = io.Copy(out, in)
 	return err
 }
-
