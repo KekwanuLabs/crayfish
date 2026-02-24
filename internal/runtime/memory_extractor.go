@@ -173,9 +173,16 @@ func (m *MemoryExtractor) extractFacts(ctx context.Context, userMsg, assistantMs
 		return nil, fmt.Errorf("empty response from LLM")
 	}
 
+	// Strip markdown fences if present (LLMs sometimes wrap JSON despite instructions)
+	content := strings.TrimSpace(resp.Content)
+	content = strings.TrimPrefix(content, "```json")
+	content = strings.TrimPrefix(content, "```")
+	content = strings.TrimSuffix(content, "```")
+	content = strings.TrimSpace(content)
+
 	// Parse JSON response
 	var extractionResp ExtractionResponse
-	if err := json.Unmarshal([]byte(resp.Content), &extractionResp); err != nil {
+	if err := json.Unmarshal([]byte(content), &extractionResp); err != nil {
 		m.logger.Warn("failed to parse extraction response as JSON",
 			"error", err, "response", resp.Content)
 		return nil, fmt.Errorf("parse JSON: %w", err)
