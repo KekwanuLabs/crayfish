@@ -3,7 +3,6 @@ package queue
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -44,14 +43,6 @@ type QueueItem struct {
 	SessionID string `json:"session_id"`
 	Payload   []byte `json:"payload"`
 	Priority  int    `json:"priority"`
-}
-
-// QueueStats represents statistics about the queue
-type QueueStats struct {
-	Pending        int64 `json:"pending"`
-	Processing     int64 `json:"processing"`
-	Failed         int64 `json:"failed"`
-	TotalProcessed int64 `json:"total_processed"`
 }
 
 // queueRecord represents an internal database record
@@ -107,18 +98,6 @@ func (q *OfflineQueue) RegisterProcessor(fn ProcessFunc) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.processFn = fn
-}
-
-// SetWorkerConfig configures the worker interval and concurrency
-func (q *OfflineQueue) SetWorkerConfig(interval time.Duration, maxConcurrency int) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	if interval > 0 {
-		q.workerInterval = interval
-	}
-	if maxConcurrency > 0 {
-		q.maxConcurrency = maxConcurrency
-	}
 }
 
 // Enqueue adds a message to the offline queue
@@ -428,169 +407,3 @@ func (q *OfflineQueue) markFailed(ctx context.Context, id int64, errMsg string) 
 	return nil
 }
 
-// Stats returns queue statistics
-func (q *OfflineQueue) Stats(ctx context.Context) (QueueStats, error) {
-	query := `
-	SELECT
-		COUNT(CASE WHEN status = ? THEN 1 END) as pending,
-		COUNT(CASE WHEN status = ? THEN 1 END) as processing,
-		COUNT(CASE WHEN status = ? THEN 1 END) as failed,
-		COUNT(CASE WHEN status = ? THEN 1 END) as total_processed
-	FROM offline_queue
-	`
-
-	var stats QueueStats
-	err := q.db.QueryRowContext(ctx, query, StatusPending, StatusProcessing, StatusFailed, StatusSuccess).
-		Scan(&stats.Pending, &stats.Processing, &stats.Failed, &stats.TotalProcessed)
-
-	if err != nil {
-		q.logger.Error("failed to fetch stats", "error", err)
-		return QueueStats{}, fmt.Errorf("fetch stats: %w", err)
-	}
-
-	return stats, nil
-}
-
-// GetPendingItems returns a list of pending items (for debugging/monitoring)
-func (q *OfflineQueue) GetPendingItems(ctx context.Context, limit int) ([]QueueItem, error) {
-	if limit <= 0 {
-		limit = 100
-	}
-
-	query := `
-	SELECT id, event_type, channel, session_id, payload, priority
-	FROM offline_queue
-	WHERE status = ?
-	ORDER BY priority DESC, created_at ASC
-	LIMIT ?
-	`
-
-	rows, err := q.db.QueryContext(ctx, query, StatusPending, limit)
-	if err != nil {
-		return nil, fmt.Errorf("query pending items: %w", err)
-	}
-	defer rows.Close()
-
-	var items []QueueItem
-	for rows.Next() {
-		var item QueueItem
-		var payloadStr string
-
-		err := rows.Scan(
-			&item.ID,
-			&item.EventType,
-			&item.Channel,
-			&item.SessionID,
-			&payloadStr,
-			&item.Priority,
-		)
-
-		if err != nil {
-			q.logger.Error("failed to scan pending item", "error", err)
-			continue
-		}
-
-		item.Payload = []byte(payloadStr)
-		items = append(items, item)
-	}
-
-	return items, rows.Err()
-}
-
-// GetFailedItems returns a list of failed items (dead letter)
-func (q *OfflineQueue) GetFailedItems(ctx context.Context, limit int) ([]map[string]interface{}, error) {
-	if limit <= 0 {
-		limit = 100
-	}
-
-	query := `
-	SELECT id, event_type, channel, session_id, payload, priority, retries, error_message, created_at, updated_at
-	FROM offline_queue
-	WHERE status = ?
-	ORDER BY updated_at DESC
-	LIMIT ?
-	`
-
-	rows, err := q.db.QueryContext(ctx, query, StatusFailed, limit)
-	if err != nil {
-		return nil, fmt.Errorf("query failed items: %w", err)
-	}
-	defer rows.Close()
-
-	var items []map[string]interface{}
-	for rows.Next() {
-		var id int64
-		var eventType, channel, sessionID, payloadStr, errorMsg string
-		var priority, retries int
-		var createdAtStr, updatedAtStr string
-
-		err := rows.Scan(
-			&id,
-			&eventType,
-			&channel,
-			&sessionID,
-			&payloadStr,
-			&priority,
-			&retries,
-			&errorMsg,
-			&createdAtStr,
-			&updatedAtStr,
-		)
-
-		if err != nil {
-			q.logger.Error("failed to scan failed item", "error", err)
-			continue
-		}
-
-		// Parse timestamps
-		createdAt, _ := time.Parse("2006-01-02 15:04:05", createdAtStr)
-		updatedAt, _ := time.Parse("2006-01-02 15:04:05", updatedAtStr)
-
-		// Parse payload JSON
-		var payload interface{}
-		_ = json.Unmarshal([]byte(payloadStr), &payload)
-
-		item := map[string]interface{}{
-			"id":            id,
-			"event_type":    eventType,
-			"channel":       channel,
-			"session_id":    sessionID,
-			"payload":       payload,
-			"priority":      priority,
-			"retries":       retries,
-			"error_message": errorMsg,
-			"created_at":    createdAt,
-			"updated_at":    updatedAt,
-		}
-
-		items = append(items, item)
-	}
-
-	return items, rows.Err()
-}
-
-// Purge removes old items from the queue (for maintenance)
-func (q *OfflineQueue) Purge(ctx context.Context, olderThanDays int) (int64, error) {
-	if olderThanDays <= 0 {
-		olderThanDays = 30
-	}
-
-	query := `
-	DELETE FROM offline_queue
-	WHERE (status = ? OR status = ?)
-	AND created_at < datetime('now', '-' || ? || ' days')
-	`
-
-	result, err := q.db.ExecContext(ctx, query, StatusSuccess, StatusFailed, olderThanDays)
-	if err != nil {
-		return 0, fmt.Errorf("purge: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("rows affected: %w", err)
-	}
-
-	q.logger.Info("purged old queue items", "count", rowsAffected, "older_than_days", olderThanDays)
-	return rowsAffected, nil
-}

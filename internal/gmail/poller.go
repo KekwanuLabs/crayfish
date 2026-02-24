@@ -125,9 +125,12 @@ func (p *Poller) syncEmails(ctx context.Context) {
 
 	// Check if sync already in progress.
 	var inProgress int
-	p.db.QueryRowContext(ctx,
+	if err := p.db.QueryRowContext(ctx,
 		"SELECT sync_in_progress FROM gmail_sync_state WHERE id = 1",
-	).Scan(&inProgress)
+	).Scan(&inProgress); err != nil {
+		p.logger.Error("failed to check sync status", "error", err)
+		return
+	}
 
 	if inProgress == 1 {
 		p.logger.Debug("Gmail sync already in progress, skipping")
@@ -135,10 +138,16 @@ func (p *Poller) syncEmails(ctx context.Context) {
 	}
 
 	// Mark sync in progress.
-	p.db.ExecContext(ctx,
-		"UPDATE gmail_sync_state SET sync_in_progress = 1 WHERE id = 1")
-	defer p.db.ExecContext(context.Background(),
-		"UPDATE gmail_sync_state SET sync_in_progress = 0, last_sync_at = datetime('now') WHERE id = 1")
+	if _, err := p.db.ExecContext(ctx,
+		"UPDATE gmail_sync_state SET sync_in_progress = 1 WHERE id = 1"); err != nil {
+		p.logger.Warn("failed to mark sync in progress", "error", err)
+	}
+	defer func() {
+		if _, err := p.db.ExecContext(context.Background(),
+			"UPDATE gmail_sync_state SET sync_in_progress = 0, last_sync_at = datetime('now') WHERE id = 1"); err != nil {
+			p.logger.Warn("failed to clear sync in progress", "error", err)
+		}
+	}()
 
 	// Connect to IMAP (lazy, reconnect on failure).
 	p.mu.Lock()
@@ -147,9 +156,11 @@ func (p *Poller) syncEmails(ctx context.Context) {
 		if err != nil {
 			p.mu.Unlock()
 			p.logger.Error("Gmail IMAP connect failed", "error", err)
-			p.db.ExecContext(context.Background(),
+			if _, dbErr := p.db.ExecContext(context.Background(),
 				"UPDATE gmail_sync_state SET error_message = ? WHERE id = 1",
-				err.Error())
+				err.Error()); dbErr != nil {
+				p.logger.Warn("failed to update sync error state", "error", dbErr)
+			}
 			return
 		}
 		p.imap = conn
@@ -168,16 +179,20 @@ func (p *Poller) syncEmails(ctx context.Context) {
 			p.imap = nil
 		}
 		p.mu.Unlock()
-		p.db.ExecContext(context.Background(),
+		if _, dbErr := p.db.ExecContext(context.Background(),
 			"UPDATE gmail_sync_state SET error_message = ? WHERE id = 1",
-			err.Error())
+			err.Error()); dbErr != nil {
+			p.logger.Warn("failed to update sync error state", "error", dbErr)
+		}
 		return
 	}
 
 	if len(emails) == 0 {
 		p.logger.Debug("No new unread emails")
-		p.db.ExecContext(ctx,
-			"UPDATE gmail_sync_state SET error_message = NULL WHERE id = 1")
+		if _, dbErr := p.db.ExecContext(ctx,
+			"UPDATE gmail_sync_state SET error_message = NULL WHERE id = 1"); dbErr != nil {
+			p.logger.Warn("failed to clear sync error state", "error", dbErr)
+		}
 		return
 	}
 
@@ -212,8 +227,10 @@ func (p *Poller) syncEmails(ctx context.Context) {
 	}
 
 	p.logger.Info("Gmail sync completed", "fetched", len(emails), "stored", stored)
-	p.db.ExecContext(ctx,
-		"UPDATE gmail_sync_state SET error_message = NULL WHERE id = 1")
+	if _, dbErr := p.db.ExecContext(ctx,
+		"UPDATE gmail_sync_state SET error_message = NULL WHERE id = 1"); dbErr != nil {
+		p.logger.Warn("failed to clear sync error state", "error", dbErr)
+	}
 }
 
 // storeEmail inserts or updates an email in SQLite.
@@ -345,7 +362,9 @@ func (p *Poller) UpdateLabel(ctx context.Context, emailID, label string, add boo
 	}
 
 	var labels []string
-	json.Unmarshal([]byte(labelsJSON), &labels)
+	if err := json.Unmarshal([]byte(labelsJSON), &labels); err != nil {
+		return fmt.Errorf("unmarshal labels: %w", err)
+	}
 
 	if add {
 		// Don't duplicate.
@@ -365,7 +384,10 @@ func (p *Poller) UpdateLabel(ctx context.Context, emailID, label string, add boo
 		labels = filtered
 	}
 
-	newJSON, _ := json.Marshal(labels)
+	newJSON, err := json.Marshal(labels)
+	if err != nil {
+		return fmt.Errorf("marshal labels: %w", err)
+	}
 	_, err = p.db.ExecContext(ctx, "UPDATE emails SET labels = ? WHERE id = ?",
 		string(newJSON), emailID)
 	return err

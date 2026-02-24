@@ -65,9 +65,15 @@ func (api *DashboardAPI) handleOverview(w http.ResponseWriter, r *http.Request) 
 	ctx := r.Context()
 
 	var messageCount, sessionCount, memoryCount int64
-	db.QueryRowContext(ctx, "SELECT COUNT(*) FROM messages").Scan(&messageCount)
-	db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sessions").Scan(&sessionCount)
-	db.QueryRowContext(ctx, "SELECT COUNT(*) FROM memory_fts").Scan(&memoryCount)
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM messages").Scan(&messageCount); err != nil {
+		api.logger.Warn("failed to count messages", "error", err)
+	}
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM sessions").Scan(&sessionCount); err != nil {
+		api.logger.Warn("failed to count sessions", "error", err)
+	}
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM memory_fts").Scan(&memoryCount); err != nil {
+		api.logger.Warn("failed to count memories", "error", err)
+	}
 
 	lastEventID, _ := api.bus.LastID(ctx)
 
@@ -229,32 +235,28 @@ func (api *DashboardAPI) handleMemory(w http.ResponseWriter, r *http.Request) {
 		Scan(...any) error
 		Close() error
 	}
-	var err error
 
 	if q != "" {
-		rows2, err2 := db.QueryContext(r.Context(),
+		rows2, err := db.QueryContext(r.Context(),
 			`SELECT f.rowid, f.key, f.content, f.session_id, f.created_at, COALESCE(m.category, 'general')
 			FROM memory_fts f LEFT JOIN memory_metadata m ON f.rowid = m.id
 			WHERE memory_fts MATCH ? LIMIT 50`, q)
-		if err2 != nil {
-			api.writeError(w, "search failed: "+err2.Error(), http.StatusInternalServerError)
+		if err != nil {
+			api.writeError(w, "search failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 		rows = rows2
-		err = err2
 	} else {
-		rows2, err2 := db.QueryContext(r.Context(),
+		rows2, err := db.QueryContext(r.Context(),
 			`SELECT f.rowid, f.key, f.content, f.session_id, f.created_at, COALESCE(m.category, 'general')
 			FROM memory_fts f LEFT JOIN memory_metadata m ON f.rowid = m.id
 			ORDER BY f.rowid DESC LIMIT 50`)
-		if err2 != nil {
-			api.writeError(w, "query failed: "+err2.Error(), http.StatusInternalServerError)
+		if err != nil {
+			api.writeError(w, "query failed: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
 		rows = rows2
-		err = err2
 	}
-	_ = err
 	defer rows.Close()
 
 	for rows.Next() {
@@ -296,7 +298,9 @@ func (api *DashboardAPI) handleMemoryDelete(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	// Also delete metadata if it exists.
-	db.ExecContext(r.Context(), "DELETE FROM memory_metadata WHERE id = ?", id)
+	if _, err := db.ExecContext(r.Context(), "DELETE FROM memory_metadata WHERE id = ?", id); err != nil {
+		api.logger.Warn("failed to delete memory metadata", "id", id, "error", err)
+	}
 
 	api.writeJSON(w, map[string]string{"status": "deleted"})
 }

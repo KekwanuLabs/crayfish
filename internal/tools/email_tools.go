@@ -39,7 +39,9 @@ func RegisterEmailTools(reg *Registry, poller *gmail.Poller) {
 				UnreadOnly *bool `json:"unread_only"`
 				Limit      int   `json:"limit"`
 			}
-			json.Unmarshal(input, &params)
+			if err := json.Unmarshal(input, &params); err != nil {
+				return "", fmt.Errorf("email_check: parse input: %w", err)
+			}
 
 			unreadOnly := true
 			if params.UnreadOnly != nil {
@@ -160,7 +162,9 @@ func RegisterEmailTools(reg *Registry, poller *gmail.Poller) {
 				Before string `json:"before"`
 				Limit  int    `json:"limit"`
 			}
-			json.Unmarshal(input, &params)
+			if err := json.Unmarshal(input, &params); err != nil {
+				return "", fmt.Errorf("email_search: parse input: %w", err)
+			}
 
 			limit := 20
 			if params.Limit > 0 && params.Limit <= 50 {
@@ -456,7 +460,9 @@ func RegisterEmailTools(reg *Registry, poller *gmail.Poller) {
 			var params struct {
 				Days int `json:"days"`
 			}
-			json.Unmarshal(input, &params)
+			if err := json.Unmarshal(input, &params); err != nil {
+				return "", fmt.Errorf("email_summarize: unmarshal params: %w", err)
+			}
 
 			days := 1
 			if params.Days > 0 && params.Days <= 30 {
