@@ -62,7 +62,7 @@ func (api *DashboardAPI) handleOverview(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	db := api.db.Inner()
+	db := api.db.Reader()
 	ctx := r.Context()
 
 	var messageCount, sessionCount, memoryCount int64
@@ -125,7 +125,7 @@ func (api *DashboardAPI) handleSessions(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	db := api.db.Inner()
+	db := api.db.Reader()
 	rows, err := db.QueryContext(r.Context(),
 		"SELECT id, channel, user_id, trust_tier, created_at, last_active FROM sessions ORDER BY last_active DESC LIMIT 50")
 	if err != nil {
@@ -174,7 +174,7 @@ func (api *DashboardAPI) handleSessionMessages(w http.ResponseWriter, r *http.Re
 	}
 	sessionID := parts[0]
 
-	db := api.db.Inner()
+	db := api.db.Reader()
 	rows, err := db.QueryContext(r.Context(),
 		"SELECT role, content, created_at FROM messages WHERE session_id = ? ORDER BY id DESC LIMIT 100",
 		sessionID)
@@ -218,7 +218,7 @@ func (api *DashboardAPI) handleMemory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	db := api.db.Inner()
+	db := api.db.Reader()
 	q := r.URL.Query().Get("q")
 
 	type memoryEntry struct {
@@ -320,7 +320,7 @@ func (api *DashboardAPI) handleEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	db := api.db.Inner()
+	db := api.db.Reader()
 	eventType := r.URL.Query().Get("type")
 
 	type event struct {
@@ -380,7 +380,7 @@ func (api *DashboardAPI) handleSnapshots(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	db := api.db.Inner()
+	db := api.db.Reader()
 	rows, err := db.QueryContext(r.Context(),
 		`SELECT id, session_id, trigger, active_task, is_current, created_at
 		FROM session_snapshots ORDER BY id DESC LIMIT 50`)
