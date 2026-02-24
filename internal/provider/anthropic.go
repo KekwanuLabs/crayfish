@@ -200,41 +200,34 @@ func (p *AnthropicProvider) Complete(ctx context.Context, req CompletionRequest)
 	p.logger.Debug("sending request to Anthropic",
 		"model", model, "messages", len(msgs), "tools", len(req.Tools), "body_bytes", len(body))
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", anthropicAPIURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("anthropic.Complete: new request: %w", err)
-	}
-
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("X-API-Key", p.apiKey)
-	httpReq.Header.Set("Anthropic-Version", anthropicAPIVersion)
-
-	resp, err := p.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("anthropic.Complete: http do: %w", err)
-	}
-	defer resp.Body.Close()
-
-	var reader io.Reader = resp.Body
-	if resp.Header.Get("Content-Encoding") == "gzip" {
-		gz, err := gzip.NewReader(resp.Body)
-		if err != nil {
-			return nil, fmt.Errorf("anthropic.Complete: gzip reader: %w", err)
+	var respBody []byte
+	var statusCode int
+	for attempt := 0; attempt <= maxLLMRetries; attempt++ {
+		if attempt > 0 {
+			delay := retryDelay(attempt-1, nil)
+			p.logger.Warn("retrying Anthropic request", "attempt", attempt, "delay", delay, "last_status", statusCode)
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(delay):
+			}
 		}
-		defer gz.Close()
-		reader = gz
+		var err error
+		respBody, statusCode, err = p.doRequest(ctx, body)
+		if err != nil {
+			return nil, fmt.Errorf("anthropic.Complete: %w", err)
+		}
+		if isRetryableStatus(statusCode) && attempt < maxLLMRetries {
+			continue
+		}
+		break
 	}
 
-	respBody, err := io.ReadAll(io.LimitReader(reader, 1<<20)) // 1MB limit
-	if err != nil {
-		return nil, fmt.Errorf("anthropic.Complete: read body: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
+	if statusCode != http.StatusOK {
 		var apiErr anthropicError
 		json.Unmarshal(respBody, &apiErr)
 		return nil, fmt.Errorf("anthropic.Complete: API error %d: %s — %s",
-			resp.StatusCode, apiErr.Error.Type, apiErr.Error.Message)
+			statusCode, apiErr.Error.Type, apiErr.Error.Message)
 	}
 
 	var apiResp anthropicResponse
@@ -262,4 +255,39 @@ func (p *AnthropicProvider) Complete(ctx context.Context, req CompletionRequest)
 	}
 
 	return result, nil
+}
+
+// doRequest performs a single HTTP request to the Anthropic API.
+func (p *AnthropicProvider) doRequest(ctx context.Context, body []byte) ([]byte, int, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", anthropicAPIURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, 0, fmt.Errorf("new request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("X-API-Key", p.apiKey)
+	httpReq.Header.Set("Anthropic-Version", anthropicAPIVersion)
+
+	resp, err := p.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, 0, fmt.Errorf("http do: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var reader io.Reader = resp.Body
+	if resp.Header.Get("Content-Encoding") == "gzip" {
+		gz, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			return nil, 0, fmt.Errorf("gzip reader: %w", err)
+		}
+		defer gz.Close()
+		reader = gz
+	}
+
+	respBody, err := io.ReadAll(io.LimitReader(reader, 1<<20)) // 1MB limit
+	if err != nil {
+		return nil, 0, fmt.Errorf("read body: %w", err)
+	}
+
+	return respBody, resp.StatusCode, nil
 }

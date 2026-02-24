@@ -59,6 +59,9 @@ type Config struct {
 	SessionResumeMinutes int  `yaml:"session_resume_minutes"` // Idle gap threshold for snapshot injection (default: 30)
 	SnapshotsPerSession  int  `yaml:"snapshots_per_session"`  // Max snapshots retained per session (default: 3)
 
+	// Dashboard
+	DashboardAPIKey string `yaml:"dashboard_api_key"`
+
 	// Updates
 	AutoUpdate    bool   `yaml:"auto_update"`
 	UpdateChannel string `yaml:"update_channel"` // "stable" or "beta"
@@ -173,6 +176,7 @@ func LoadConfig(logger *slog.Logger) Config {
 	envInt("CRAYFISH_SNAPSHOTS_PER_SESSION", &cfg.SnapshotsPerSession)
 	envBool("CRAYFISH_AUTO_UPDATE", &cfg.AutoUpdate)
 	envStr("CRAYFISH_UPDATE_CHANNEL", &cfg.UpdateChannel)
+	envStr("CRAYFISH_DASHBOARD_API_KEY", &cfg.DashboardAPIKey)
 
 	// API key: check Crayfish key first, fall back to provider-specific.
 	if v := os.Getenv("CRAYFISH_API_KEY"); v != "" {

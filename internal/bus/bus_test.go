@@ -166,6 +166,49 @@ func TestLastID(t *testing.T) {
 	}
 }
 
+func TestDoubleCloseNoPanic(t *testing.T) {
+	db := setupTestDB(t)
+	b := NewSQLiteBus(db, testLogger())
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	// Subscribe creates a goroutine that closes the channel on context cancel.
+	_, err := b.Subscribe(ctx, []string{TypeMessageInbound})
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+
+	// Cancel context triggers removeSubscriber (closes channel).
+	cancel()
+	time.Sleep(50 * time.Millisecond) // Let goroutine run.
+
+	// Close the bus — should NOT panic even though the channel was already closed.
+	if err := b.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+}
+
+func TestCloseIdempotent(t *testing.T) {
+	db := setupTestDB(t)
+	b := NewSQLiteBus(db, testLogger())
+
+	ctx := context.Background()
+	_, err := b.Subscribe(ctx, nil)
+	if err != nil {
+		t.Fatalf("subscribe: %v", err)
+	}
+
+	// First close.
+	if err := b.Close(); err != nil {
+		t.Fatalf("Close 1: %v", err)
+	}
+
+	// Second close should not panic.
+	if err := b.Close(); err != nil {
+		t.Fatalf("Close 2: %v", err)
+	}
+}
+
 func TestMustJSON(t *testing.T) {
 	data := MustJSON(map[string]string{"key": "value"})
 	var m map[string]string

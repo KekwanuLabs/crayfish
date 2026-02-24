@@ -2,7 +2,9 @@ package app
 
 import (
 	"context"
+	crypto_rand "crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"os"
@@ -353,10 +355,22 @@ func (a *App) Start(ctx context.Context) error {
 		skillsDir = "/var/lib/crayfish/skills"
 	}
 
+	// Generate dashboard API key on first run.
+	if a.Config.DashboardAPIKey == "" {
+		key := make([]byte, 32)
+		crypto_rand.Read(key)
+		a.Config.DashboardAPIKey = hex.EncodeToString(key)
+		if err := a.Config.SaveConfig(); err != nil {
+			a.Logger.Warn("failed to save generated dashboard API key", "error", err)
+		}
+		a.Logger.Info("generated dashboard API key", "key", a.Config.DashboardAPIKey)
+	}
+
 	a.gateway = gateway.New(gateway.Config{
 		ListenAddr: a.Config.ListenAddr,
 		DBMaxMB:    500,
 		SkillsDir:  skillsDir,
+		APIKey:     a.Config.DashboardAPIKey,
 	}, db, a.Logger.With("component", "gateway"))
 
 	// Wire skill registry and app accessor to gateway for API, web UI, and dashboard.
@@ -426,12 +440,14 @@ func (a *App) Stop() error {
 		a.autoUpdater.Stop()
 	}
 
-	if a.db != nil {
-		a.db.Close()
-	}
-
+	// Cancel context first — signals goroutines to stop before we close the DB.
 	if a.cancel != nil {
 		a.cancel()
+	}
+	time.Sleep(500 * time.Millisecond)
+
+	if a.db != nil {
+		a.db.Close()
 	}
 
 	return nil
