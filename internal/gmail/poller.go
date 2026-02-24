@@ -259,6 +259,13 @@ func (p *Poller) GetEmailByID(ctx context.Context, emailID string) (*Email, erro
 	return &e, nil
 }
 
+// GetUnreadCount returns the total number of unread emails in the local store.
+func (p *Poller) GetUnreadCount(ctx context.Context) (int, error) {
+	var count int
+	err := p.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM emails WHERE is_read = 0").Scan(&count)
+	return count, err
+}
+
 // ListEmails queries stored emails with optional filters.
 func (p *Poller) ListEmails(ctx context.Context, unreadOnly bool, limit int) ([]EmailSummary, error) {
 	query := `SELECT id, from_addr, subject, body_preview, is_read, has_attachments, received_at

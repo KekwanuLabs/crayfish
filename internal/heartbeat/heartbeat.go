@@ -197,11 +197,19 @@ func (s *Service) check(ctx context.Context) (*Update, error) {
 
 	// Check emails
 	if s.gmail != nil {
-		emails, err := s.gmail.ListEmails(ctx, true, 20) // unread only
+		emails, err := s.gmail.ListEmails(ctx, true, 20) // unread only, for urgent scan
 		if err != nil {
 			s.logger.Warn("heartbeat: email check failed", "error", err)
+			messages = append(messages, "⚠️ Email check failed — I couldn't reach your inbox. You may want to check your Gmail credentials.")
 		} else {
-			update.UnreadCount = len(emails)
+			// Get accurate unread count from the database instead of using len(emails)
+			unreadCount, countErr := s.gmail.GetUnreadCount(ctx)
+			if countErr != nil {
+				s.logger.Warn("heartbeat: unread count failed", "error", countErr)
+				update.UnreadCount = len(emails) // fallback to len(emails)
+			} else {
+				update.UnreadCount = unreadCount
+			}
 
 			// Find urgent emails (simple heuristic: subject contains urgent keywords)
 			urgentKeywords := []string{"urgent", "asap", "important", "action required", "deadline", "reminder"}
@@ -234,6 +242,7 @@ func (s *Service) check(ctx context.Context) (*Update, error) {
 		events, err := s.calendar.GetEvents(now, now.Add(2*time.Hour))
 		if err != nil {
 			s.logger.Warn("heartbeat: calendar check failed", "error", err)
+			messages = append(messages, "⚠️ Calendar check failed — I couldn't reach your calendar. You may want to check your credentials.")
 		} else {
 			for _, e := range events {
 				if e.Start.After(now) { // Only upcoming events
