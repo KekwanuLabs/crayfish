@@ -74,10 +74,12 @@ type Service struct {
 	notify   NotifyFunc
 	logger   *slog.Logger
 
-	mu       sync.Mutex
-	stopCh   chan struct{}
-	wg       sync.WaitGroup
-	lastRun  time.Time
+	mu                sync.Mutex
+	stopCh            chan struct{}
+	wg                sync.WaitGroup
+	lastRun           time.Time
+	calendarDisabled  bool
+	calendarFailCount int
 }
 
 // NewService creates a new heartbeat service.
@@ -236,13 +238,17 @@ func (s *Service) check(ctx context.Context) (*Update, error) {
 	}
 
 	// Check calendar
-	if s.calendar != nil {
+	if s.calendar != nil && !s.calendarDisabled {
 		now := time.Now()
 		// Look for events in the next 2 hours
 		events, err := s.calendar.GetEvents(now, now.Add(2*time.Hour))
 		if err != nil {
-			s.logger.Warn("heartbeat: calendar check failed", "error", err)
-			messages = append(messages, "⚠️ Calendar check failed — I couldn't reach your calendar. You may want to check your credentials.")
+			s.calendarFailCount++
+			s.logger.Warn("heartbeat: calendar check failed", "error", err, "attempt", s.calendarFailCount)
+			if s.calendarFailCount >= 3 {
+				s.calendarDisabled = true
+				messages = append(messages, "⚠️ Calendar check failed — I couldn't reach your calendar. You may want to check your credentials.")
+			}
 		} else {
 			for _, e := range events {
 				if e.Start.After(now) { // Only upcoming events
