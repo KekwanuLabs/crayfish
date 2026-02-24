@@ -8,14 +8,16 @@ import (
 // DashboardUI serves the admin dashboard web interface.
 type DashboardUI struct {
 	version string
+	apiKey  string
 	tmpl    *template.Template
 }
 
 // NewDashboardUI creates the dashboard web UI handler.
-func NewDashboardUI(version string) *DashboardUI {
+func NewDashboardUI(version, apiKey string) *DashboardUI {
 	tmpl := template.Must(template.New("dashboard").Parse(dashboardPageHTML))
 	return &DashboardUI{
 		version: version,
+		apiKey:  apiKey,
 		tmpl:    tmpl,
 	}
 }
@@ -33,6 +35,7 @@ func (ui *DashboardUI) handlePage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	ui.tmpl.Execute(w, map[string]interface{}{
 		"Version": ui.version,
+		"APIKey":  ui.apiKey,
 	})
 }
 
@@ -724,7 +727,11 @@ function toggleAutoRefresh() {
 }
 
 /* === Utilities === */
+const _apiKey = '{{.APIKey}}';
 async function fetchJSON(url, opts) {
+  if (!opts) opts = {};
+  if (!opts.headers) opts.headers = {};
+  if (_apiKey) opts.headers['Authorization'] = 'Bearer ' + _apiKey;
   const r = await fetch(url, opts);
   if (!r.ok) { const t = await r.text(); throw new Error(t); }
   return r.json();

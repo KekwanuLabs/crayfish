@@ -10,14 +10,16 @@ import (
 // SkillsUI serves the skills management web interface.
 type SkillsUI struct {
 	registry *skills.Registry
+	apiKey   string
 	tmpl     *template.Template
 }
 
 // NewSkillsUI creates the skills web UI handler.
-func NewSkillsUI(registry *skills.Registry) *SkillsUI {
+func NewSkillsUI(registry *skills.Registry, apiKey string) *SkillsUI {
 	tmpl := template.Must(template.New("skills").Parse(skillsPageHTML))
 	return &SkillsUI{
 		registry: registry,
+		apiKey:   apiKey,
 		tmpl:     tmpl,
 	}
 }
@@ -31,6 +33,7 @@ func (ui *SkillsUI) handlePage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	ui.tmpl.Execute(w, map[string]interface{}{
 		"SkillCount": ui.registry.Count(),
+		"APIKey":     ui.apiKey,
 	})
 }
 
@@ -429,11 +432,17 @@ For workflow skills, step results are available as variables."></textarea>
 </div>
 
 <script>
+const _apiKey = '{{.APIKey}}';
+function authHeaders(extra) {
+  const h = Object.assign({}, extra || {});
+  if (_apiKey) h['Authorization'] = 'Bearer ' + _apiKey;
+  return h;
+}
 let skills = [];
 
 async function loadSkills() {
   try {
-    const resp = await fetch('/api/skills');
+    const resp = await fetch('/api/skills', {headers: authHeaders()});
     const data = await resp.json();
     skills = data.skills || [];
     renderSkills();
@@ -482,7 +491,7 @@ function closeModal() {
 
 async function viewSkill(name) {
   try {
-    const resp = await fetch('/api/skills/' + name);
+    const resp = await fetch('/api/skills/' + name, {headers: authHeaders()});
     const skill = await resp.json();
 
     document.getElementById('modal-title').textContent = 'Edit Skill: ' + name;
@@ -535,7 +544,7 @@ async function saveSkill() {
   try {
     const resp = await fetch('/api/skills', {
       method: 'POST',
-      headers: {'Content-Type': 'application/json'},
+      headers: authHeaders({'Content-Type': 'application/json'}),
       body: JSON.stringify(skill),
     });
 
@@ -556,7 +565,7 @@ async function deleteSkill(name) {
   if (!confirm('Delete skill "' + name + '"?')) return;
 
   try {
-    const resp = await fetch('/api/skills/' + name, {method: 'DELETE'});
+    const resp = await fetch('/api/skills/' + name, {method: 'DELETE', headers: authHeaders()});
     if (!resp.ok) throw new Error(await resp.text());
 
     showStatus('Skill "' + name + '" deleted', 'success');
