@@ -100,12 +100,13 @@ The gateway is the front door. It runs 24/7, uses minimal resources, and handles
 │                                                             │
 │  HTTP Server (:8119)                                        │
 │  ├── /              → Admin dashboard (tabbed SPA)          │
-│  ├── /health         → Is Crayfish alive?                   │
-│  ├── /status         → What adapters are running?           │
+│  ├── /health         → Is Crayfish alive? (unauthenticated) │
+│  ├── /status         → What adapters are running? (unauth)  │
 │  ├── /skills         → Web UI for managing skills           │
-│  ├── /api/skills/*   → REST API for skills                  │
-│  └── /api/dashboard/*→ Dashboard API (config, sessions,     │
-│                         memory, events, snapshots)          │
+│  ├── /api/skills/*   → REST API for skills (Bearer auth)    │
+│  └── /api/dashboard/*→ Dashboard API (Bearer auth)          │
+│                        (config, sessions, memory, events,   │
+│                        snapshots)                            │
 │                                                             │
 │  Channel Adapters                                           │
 │  ├── Telegram        → Your phone/desktop Telegram          │
@@ -629,7 +630,7 @@ crayfish/
 │   ├── heartbeat/            # Proactive check-ins
 │   ├── identity/             # Identity files (SOUL.md + USER.md)
 │   ├── mcp/                  # MCP client
-│   ├── provider/             # LLM providers (Anthropic, OpenAI, etc.)
+│   ├── provider/             # LLM providers (Anthropic, OpenAI, etc.) + retry logic
 │   ├── runtime/              # Agent brain, tool loop, memory, snapshots
 │   ├── security/             # Sessions, pairing, trust, guardrails
 │   ├── setup/                # First-time web wizard

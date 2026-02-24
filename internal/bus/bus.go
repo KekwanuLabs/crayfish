@@ -56,6 +56,7 @@ type Bus interface {
 type subscriber struct {
 	ch    chan Event
 	types map[string]bool // empty map = all types
+	once  sync.Once       // guards channel close to prevent double-close panic
 }
 
 // SQLiteBus implements Bus on top of the events table in SQLite.
@@ -63,7 +64,7 @@ type SQLiteBus struct {
 	db          *sql.DB
 	logger      *slog.Logger
 	mu          sync.RWMutex
-	subscribers []subscriber
+	subscribers []*subscriber
 	closed      bool
 }
 
@@ -113,7 +114,7 @@ func (b *SQLiteBus) Subscribe(ctx context.Context, types []string) (<-chan Event
 	}
 
 	ch := make(chan Event, 64) // Buffered to avoid blocking the publisher.
-	b.subscribers = append(b.subscribers, subscriber{ch: ch, types: typeMap})
+	b.subscribers = append(b.subscribers, &subscriber{ch: ch, types: typeMap})
 
 	// Close the channel when the context is cancelled.
 	go func() {
@@ -165,7 +166,7 @@ func (b *SQLiteBus) Close() error {
 
 	b.closed = true
 	for _, s := range b.subscribers {
-		close(s.ch)
+		s.once.Do(func() { close(s.ch) })
 	}
 	b.subscribers = nil
 	return nil
@@ -195,7 +196,7 @@ func (b *SQLiteBus) removeSubscriber(ch chan Event) {
 
 	for i, s := range b.subscribers {
 		if s.ch == ch {
-			close(s.ch)
+			s.once.Do(func() { close(s.ch) })
 			b.subscribers = append(b.subscribers[:i], b.subscribers[i+1:]...)
 			return
 		}

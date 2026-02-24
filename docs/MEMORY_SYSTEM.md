@@ -113,18 +113,18 @@ Recent Decisions:
 ## Integration Points
 
 ### Runtime Integration
-- `runtime.go` line 71: Add MemoryExtractor and MemoryRetriever to Runtime struct
-- `runtime.go` line 87: Updated constructor signature
-- `runtime.go` line 285: Trigger extraction after response
-- `runtime.go` line 318: Inject memories during context assembly
+- `runtime.go`: MemoryExtractor and MemoryRetriever fields in Runtime struct
+- `runtime.go`: `New()` constructor accepts memory components
+- `runtime.go`: `handleInbound()` triggers extraction after response
+- `runtime.go`: `assembleContext()` injects memories during context assembly
 
 ### App Initialization
-- `app.go` line 193: Initialize memory components
-- `app.go` line 211: Pass to Runtime constructor
+- `app.go`: `Start()` initializes memory components
+- `app.go`: Passes to Runtime constructor
 
 ### Tool System
-- `tools.go` line 24: Updated Tool.Execute to accept session parameter
-- All tool Execute functions updated to accept `*security.Session`
+- `tools.go`: Tool.Execute accepts `*security.Session` parameter
+- All tool Execute functions accept `*security.Session`
 
 ## Usage Examples
 

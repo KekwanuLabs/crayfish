@@ -8,7 +8,7 @@
 
 | Threat | Mitigation | Status |
 |--------|------------|--------|
-| **Unauthorized access** | Pairing flow, trust tiers, session tokens | ✅ Implemented |
+| **Unauthorized access** | Pairing flow, trust tiers, session tokens, dashboard API auth | ✅ Implemented |
 | **Prompt injection** | Input guardrails, pattern detection | ✅ Implemented |
 | **System prompt extraction** | Refusal guardrails, output sanitization | ✅ Implemented |
 | **Credential leakage** | Output redaction, no logging of secrets | ✅ Implemented |
@@ -93,6 +93,31 @@ steps:
 - External URLs in prompts
 - References to unknown tools
 - Excessive length (>10KB)
+
+---
+
+## Dashboard API Authentication
+
+The dashboard API (`/api/dashboard/*` and `/api/skills`) is protected by Bearer token authentication. A 256-bit API key is auto-generated on first run and saved to `crayfish.yaml`.
+
+| Endpoint | Auth Required |
+|----------|---------------|
+| `/health` | No |
+| `/status` | No |
+| `/` (dashboard HTML) | No |
+| `/skills` (skills HTML) | No |
+| `/api/dashboard/*` | Yes (Bearer token) |
+| `/api/skills`, `/api/skills/*` | Yes (Bearer token) |
+
+**Configuration:**
+- `dashboard_api_key` in `crayfish.yaml`
+- `CRAYFISH_DASHBOARD_API_KEY` environment variable
+- If no key is configured, all requests pass through (backward compatibility)
+
+**Usage:**
+```bash
+curl -H "Authorization: Bearer <your-key>" http://localhost:8119/api/dashboard/overview
+```
 
 ---
 

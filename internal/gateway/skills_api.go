@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/KekwanuLabs/crayfish/internal/security"
 	"github.com/KekwanuLabs/crayfish/internal/skills"
 )
 
@@ -23,9 +24,10 @@ func NewSkillsAPI(registry *skills.Registry, skillsDir string) *SkillsAPI {
 }
 
 // RegisterRoutes adds skills endpoints to the HTTP mux.
-func (api *SkillsAPI) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("/api/skills", api.handleSkills)
-	mux.HandleFunc("/api/skills/", api.handleSkill)
+// The wrap function applies authentication middleware to each handler.
+func (api *SkillsAPI) RegisterRoutes(mux *http.ServeMux, wrap func(http.HandlerFunc) http.HandlerFunc) {
+	mux.HandleFunc("/api/skills", wrap(api.handleSkills))
+	mux.HandleFunc("/api/skills/", wrap(api.handleSkill))
 }
 
 // handleSkills handles GET (list) and POST (create) for /api/skills
@@ -132,6 +134,17 @@ func (api *SkillsAPI) createSkill(w http.ResponseWriter, r *http.Request) {
 		skill.Version = 1
 	}
 	skill.Source = "web"
+
+	// Validate skill safety before registering.
+	var toolSteps []struct{ Tool string }
+	for _, s := range skill.Steps {
+		toolSteps = append(toolSteps, struct{ Tool string }{Tool: s.Tool})
+	}
+	validation := security.ValidateSkill(skill.Name, skill.Prompt, toolSteps)
+	if !validation.Safe {
+		http.Error(w, "Skill rejected: "+strings.Join(validation.Errors, "; "), http.StatusBadRequest)
+		return
+	}
 
 	// Register in memory.
 	if err := api.registry.Register(&skill); err != nil {

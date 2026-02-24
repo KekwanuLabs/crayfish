@@ -275,11 +275,31 @@ func (r *Runtime) handleInbound(ctx context.Context, event bus.Event) error {
 		return fmt.Errorf("resolve session: %w", err)
 	}
 
-	// Auto-promote CLI and Telegram to operator.
-	// CLI is local access; Telegram requires the secret bot token, so both are trusted.
-	if (event.Channel == "cli" || event.Channel == "telegram") && sess.Trust < security.TierOperator {
+	// CLI: always auto-promote (local access is inherently trusted).
+	if event.Channel == "cli" && sess.Trust < security.TierOperator {
 		r.sessions.SetTrust(ctx, sess.ID, security.TierOperator)
 		sess.Trust = security.TierOperator
+	}
+
+	// Telegram: only auto-promote the first user (the owner setting up the bot).
+	// Subsequent users stay at TierUnknown and must pair via OTP.
+	if event.Channel == "telegram" && sess.Trust < security.TierOperator {
+		var ownerID string
+		r.db.QueryRowContext(ctx, "SELECT value FROM config WHERE key = 'telegram_operator_id'").Scan(&ownerID)
+		if ownerID == "" {
+			// First user — claim operator.
+			r.sessions.SetTrust(ctx, sess.ID, security.TierOperator)
+			sess.Trust = security.TierOperator
+			r.db.ExecContext(ctx,
+				"INSERT OR REPLACE INTO config (key, value, updated_at) VALUES ('telegram_operator_id', ?, datetime('now'))",
+				sess.ID)
+			r.logger.Info("first Telegram user promoted to operator", "session_id", sess.ID)
+		} else if ownerID == sess.ID {
+			// Returning owner — re-promote.
+			r.sessions.SetTrust(ctx, sess.ID, security.TierOperator)
+			sess.Trust = security.TierOperator
+		}
+		// Otherwise: stays at TierUnknown, must use /pair command.
 	}
 
 	// Handle pairing commands.
@@ -290,7 +310,7 @@ func (r *Runtime) handleInbound(ctx context.Context, event bus.Event) error {
 	}
 
 	// Check response cache.
-	if cached := r.checkCache(ctx, msg.Text); cached != "" {
+	if cached := r.checkCache(ctx, sess.ID, msg.Text); cached != "" {
 		r.logger.Info("cache hit", "session_id", sess.ID)
 		r.sendResponse(event.SessionID, event.Channel, msg.From, cached)
 		return nil
@@ -392,7 +412,7 @@ func (r *Runtime) handleInbound(ctx context.Context, event bus.Event) error {
 
 	// Persist, cache, publish, route.
 	r.persistMessage(ctx, sess.ID, provider.RoleAssistant, finalContent)
-	r.cacheResponse(ctx, msg.Text, finalContent)
+	r.cacheResponse(ctx, sess.ID, msg.Text, finalContent)
 
 	r.bus.Publish(ctx, bus.Event{
 		Type:      bus.TypeMessageOutbound,
@@ -658,22 +678,22 @@ func (r *Runtime) handlePairingCommand(ctx context.Context, event bus.Event, ses
 
 // --- Response cache ---
 
-func hashPrompt(text string) string {
-	h := sha256.Sum256([]byte(text))
+func hashPrompt(sessionID, text string) string {
+	h := sha256.Sum256([]byte(sessionID + ":" + text))
 	return hex.EncodeToString(h[:])
 }
 
-func (r *Runtime) checkCache(ctx context.Context, prompt string) string {
+func (r *Runtime) checkCache(ctx context.Context, sessionID, prompt string) string {
 	var response string
 	r.db.QueryRowContext(ctx,
 		"SELECT response FROM message_cache WHERE hash = ? AND expires_at > datetime('now')",
-		hashPrompt(prompt)).Scan(&response)
+		hashPrompt(sessionID, prompt)).Scan(&response)
 	return response
 }
 
-func (r *Runtime) cacheResponse(ctx context.Context, prompt, response string) {
+func (r *Runtime) cacheResponse(ctx context.Context, sessionID, prompt, response string) {
 	expires := time.Now().Add(responseCacheTTL).UTC().Format("2006-01-02 15:04:05")
 	r.db.ExecContext(ctx,
 		"INSERT OR REPLACE INTO message_cache (hash, response, created_at, expires_at) VALUES (?, ?, datetime('now'), ?)",
-		hashPrompt(prompt), response, expires)
+		hashPrompt(sessionID, prompt), response, expires)
 }

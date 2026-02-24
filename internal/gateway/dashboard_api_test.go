@@ -500,7 +500,7 @@ func TestHandleSnapshotsEmpty(t *testing.T) {
 func TestDashboardAPIRoutes(t *testing.T) {
 	api, _ := testAPI(t)
 	mux := http.NewServeMux()
-	api.RegisterRoutes(mux)
+	api.RegisterRoutes(mux, func(next http.HandlerFunc) http.HandlerFunc { return next })
 
 	// Verify all routes are registered by making requests.
 	routes := []struct {

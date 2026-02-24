@@ -194,25 +194,27 @@ func (p *OpenAICompatProvider) Complete(ctx context.Context, req CompletionReque
 	p.logger.Debug("sending request",
 		"provider", p.provName, "model", model, "messages", len(msgs), "body_bytes", len(body))
 
-	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.endpoint, bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("%s.Complete: new request: %w", p.provName, err)
-	}
-
-	httpReq.Header.Set("Content-Type", "application/json")
-	if p.apiKey != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
-	}
-
-	resp, err := p.httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("%s.Complete: http do: %w", p.provName, err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return nil, fmt.Errorf("%s.Complete: read body: %w", p.provName, err)
+	var respBody []byte
+	var statusCode int
+	for attempt := 0; attempt <= maxLLMRetries; attempt++ {
+		if attempt > 0 {
+			delay := retryDelay(attempt-1, nil)
+			p.logger.Warn("retrying request", "provider", p.provName, "attempt", attempt, "delay", delay, "last_status", statusCode)
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(delay):
+			}
+		}
+		var err error
+		respBody, statusCode, err = p.doRequest(ctx, body)
+		if err != nil {
+			return nil, fmt.Errorf("%s.Complete: %w", p.provName, err)
+		}
+		if isRetryableStatus(statusCode) && attempt < maxLLMRetries {
+			continue
+		}
+		break
 	}
 
 	var oaiResp oaiResponse
@@ -225,8 +227,8 @@ func (p *OpenAICompatProvider) Complete(ctx context.Context, req CompletionReque
 			p.provName, oaiResp.Error.Type, oaiResp.Error.Message)
 	}
 
-	if resp.StatusCode != http.StatusOK || len(oaiResp.Choices) == 0 {
-		return nil, fmt.Errorf("%s.Complete: HTTP %d, %d choices", p.provName, resp.StatusCode, len(oaiResp.Choices))
+	if statusCode != http.StatusOK || len(oaiResp.Choices) == 0 {
+		return nil, fmt.Errorf("%s.Complete: HTTP %d, %d choices", p.provName, statusCode, len(oaiResp.Choices))
 	}
 
 	choice := oaiResp.Choices[0]
@@ -245,4 +247,30 @@ func (p *OpenAICompatProvider) Complete(ctx context.Context, req CompletionReque
 	}
 
 	return result, nil
+}
+
+// doRequest performs a single HTTP request to the OpenAI-compatible API.
+func (p *OpenAICompatProvider) doRequest(ctx context.Context, body []byte) ([]byte, int, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", p.endpoint, bytes.NewReader(body))
+	if err != nil {
+		return nil, 0, fmt.Errorf("new request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	if p.apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+p.apiKey)
+	}
+
+	resp, err := p.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, 0, fmt.Errorf("http do: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		return nil, 0, fmt.Errorf("read body: %w", err)
+	}
+
+	return respBody, resp.StatusCode, nil
 }

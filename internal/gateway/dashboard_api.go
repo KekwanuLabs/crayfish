@@ -32,15 +32,16 @@ func NewDashboardAPI(db *storage.DB, b bus.Bus, appRef AppAccessor, adaptersFn f
 }
 
 // RegisterRoutes adds dashboard API endpoints to the HTTP mux.
-func (api *DashboardAPI) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("/api/dashboard/overview", api.handleOverview)
-	mux.HandleFunc("/api/dashboard/config", api.handleConfig)
-	mux.HandleFunc("/api/dashboard/sessions", api.handleSessions)
-	mux.HandleFunc("/api/dashboard/sessions/", api.handleSessionMessages)
-	mux.HandleFunc("/api/dashboard/memory", api.handleMemory)
-	mux.HandleFunc("/api/dashboard/memory/", api.handleMemoryDelete)
-	mux.HandleFunc("/api/dashboard/events", api.handleEvents)
-	mux.HandleFunc("/api/dashboard/snapshots", api.handleSnapshots)
+// The wrap function applies authentication middleware to each handler.
+func (api *DashboardAPI) RegisterRoutes(mux *http.ServeMux, wrap func(http.HandlerFunc) http.HandlerFunc) {
+	mux.HandleFunc("/api/dashboard/overview", wrap(api.handleOverview))
+	mux.HandleFunc("/api/dashboard/config", wrap(api.handleConfig))
+	mux.HandleFunc("/api/dashboard/sessions", wrap(api.handleSessions))
+	mux.HandleFunc("/api/dashboard/sessions/", wrap(api.handleSessionMessages))
+	mux.HandleFunc("/api/dashboard/memory", wrap(api.handleMemory))
+	mux.HandleFunc("/api/dashboard/memory/", wrap(api.handleMemoryDelete))
+	mux.HandleFunc("/api/dashboard/events", wrap(api.handleEvents))
+	mux.HandleFunc("/api/dashboard/snapshots", wrap(api.handleSnapshots))
 }
 
 func (api *DashboardAPI) writeJSON(w http.ResponseWriter, v any) {

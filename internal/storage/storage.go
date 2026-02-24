@@ -37,9 +37,10 @@ func Open(ctx context.Context, dbPath string, logger *slog.Logger) (*DB, error) 
 		return nil, fmt.Errorf("storage.Open: open db: %w", err)
 	}
 
-	// Limit connections — SQLite is single-writer anyway.
-	inner.SetMaxOpenConns(1)
-	inner.SetMaxIdleConns(1)
+	// Allow 2 connections — WAL mode supports concurrent reads alongside a single writer.
+	// A single connection causes deadlocks when multiple goroutines hold transactions.
+	inner.SetMaxOpenConns(2)
+	inner.SetMaxIdleConns(2)
 	inner.SetConnMaxLifetime(0) // Keep alive forever.
 
 	if err := inner.PingContext(ctx); err != nil {

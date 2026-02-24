@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -32,6 +33,7 @@ type Config struct {
 	ListenAddr string `json:"listen_addr" yaml:"listen_addr"`
 	DBMaxMB    int64  `json:"db_max_mb" yaml:"db_max_mb"`
 	SkillsDir  string `json:"skills_dir" yaml:"skills_dir"` // Directory for user skills
+	APIKey     string `json:"-" yaml:"-"`                    // Dashboard API key for authentication
 }
 
 // DefaultConfig returns sensible gateway defaults.
@@ -214,6 +216,26 @@ func (g *Gateway) adapterNames() []string {
 	return names
 }
 
+// requireAuth wraps an HTTP handler with Bearer token authentication.
+// If no API key is configured, requests pass through (backward compat).
+func (g *Gateway) requireAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if g.config.APIKey == "" {
+			next(w, r)
+			return
+		}
+		auth := r.Header.Get("Authorization")
+		const prefix = "Bearer "
+		if !strings.HasPrefix(auth, prefix) || auth[len(prefix):] != g.config.APIKey {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{"error": "unauthorized"})
+			return
+		}
+		next(w, r)
+	}
+}
+
 // httpHandler returns the HTTP handler for health and status endpoints.
 func (g *Gateway) httpHandler() http.Handler {
 	mux := http.NewServeMux()
@@ -250,7 +272,7 @@ func (g *Gateway) httpHandler() http.Handler {
 	// Register skills API and UI if registry is available.
 	if g.skillRegistry != nil {
 		skillsAPI := NewSkillsAPI(g.skillRegistry, g.config.SkillsDir)
-		skillsAPI.RegisterRoutes(mux)
+		skillsAPI.RegisterRoutes(mux, g.requireAuth)
 
 		skillsUI := NewSkillsUI(g.skillRegistry)
 		skillsUI.RegisterRoutes(mux)
@@ -264,7 +286,7 @@ func (g *Gateway) httpHandler() http.Handler {
 		dashUI.RegisterRoutes(mux)
 
 		dashAPI := NewDashboardAPI(g.db, g.bus, g.appRef, g.adapterNames, g.logger)
-		dashAPI.RegisterRoutes(mux)
+		dashAPI.RegisterRoutes(mux, g.requireAuth)
 
 		g.logger.Info("dashboard registered")
 	} else {
