@@ -418,7 +418,7 @@ func (i *Installer) compileFromSource(ctx context.Context) error {
 		}
 
 		// Configure — cmake caches its config, so re-running is fast if already done.
-		cmakeArgs := []string{"..", "-DCMAKE_BUILD_TYPE=Release"}
+		cmakeArgs := []string{"..", "-DCMAKE_BUILD_TYPE=Release", "-DBUILD_SHARED_LIBS=OFF"}
 		if runtime.GOARCH == "arm" {
 			cmakeArgs = append(cmakeArgs,
 				"-DCMAKE_EXE_LINKER_FLAGS=-latomic",
