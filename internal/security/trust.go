@@ -106,13 +106,17 @@ func (s *SessionStore) Resolve(ctx context.Context, channel, userID string) (*Se
 		return nil, fmt.Errorf("security.Resolve: query: %w", err)
 	}
 
-	json.Unmarshal([]byte(allowedToolsJSON), &sess.AllowedTools)
+	if err := json.Unmarshal([]byte(allowedToolsJSON), &sess.AllowedTools); err != nil {
+		s.logger.Warn("failed to unmarshal session allowed_tools", "session_id", sessionID, "error", err)
+	}
 	sess.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdStr)
 	sess.LastActive, _ = time.Parse("2006-01-02 15:04:05", activeStr)
 
 	// Update last active timestamp.
-	s.db.ExecContext(ctx,
-		"UPDATE sessions SET last_active = datetime('now') WHERE id = ?", sessionID)
+	if _, err := s.db.ExecContext(ctx,
+		"UPDATE sessions SET last_active = datetime('now') WHERE id = ?", sessionID); err != nil {
+		s.logger.Warn("failed to update session last_active", "session_id", sessionID, "error", err)
+	}
 
 	return &sess, nil
 }

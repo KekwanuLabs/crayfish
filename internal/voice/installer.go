@@ -4,8 +4,6 @@ import (
 	"archive/tar"
 	"compress/gzip"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"log/slog"
@@ -677,22 +675,3 @@ func copyFile(src, dst string) error {
 	return err
 }
 
-// verifyChecksum verifies a file's SHA256 checksum.
-func verifyChecksum(path, expected string) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return err
-	}
-
-	actual := hex.EncodeToString(h.Sum(nil))
-	if actual != expected {
-		return fmt.Errorf("checksum mismatch: expected %s, got %s", expected, actual)
-	}
-	return nil
-}

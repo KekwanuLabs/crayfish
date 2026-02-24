@@ -192,7 +192,10 @@ func (c *Client) call(ctx context.Context, method string, params interface{}) (j
 		Params:  params,
 	}
 
-	reqBytes, _ := json.Marshal(req)
+	reqBytes, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
 	respBytes, err := c.transport.Send(ctx, reqBytes)
 	if err != nil {
 		return nil, err
@@ -217,7 +220,10 @@ type HTTPTransport struct {
 }
 
 func (t *HTTPTransport) Send(ctx context.Context, msg []byte) ([]byte, error) {
-	req, _ := http.NewRequestWithContext(ctx, "POST", t.url, strings.NewReader(string(msg)))
+	req, err := http.NewRequestWithContext(ctx, "POST", t.url, strings.NewReader(string(msg)))
+	if err != nil {
+		return nil, fmt.Errorf("create HTTP request: %w", err)
+	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := t.client.Do(req)

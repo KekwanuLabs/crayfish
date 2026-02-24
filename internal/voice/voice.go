@@ -354,30 +354,6 @@ func (e *STTEngine) Transcribe(ctx context.Context, audioData []byte, format str
 	return string(text), nil
 }
 
-// TranscribeFile transcribes audio from a file.
-func (e *STTEngine) TranscribeFile(ctx context.Context, filePath string) (string, error) {
-	data, err := os.ReadFile(filePath)
-	if err != nil {
-		return "", fmt.Errorf("read file: %w", err)
-	}
-
-	// Detect format from extension
-	format := "wav"
-	if len(filePath) > 4 {
-		ext := filePath[len(filePath)-3:]
-		switch ext {
-		case "ogg", "oga":
-			format = "ogg"
-		case "mp3":
-			format = "mp3"
-		case "m4a":
-			format = "m4a"
-		}
-	}
-
-	return e.Transcribe(ctx, data, format)
-}
-
 // isWhisperInstalled checks if whisper-cpp is available.
 func isWhisperInstalled() bool {
 	// Try common command names

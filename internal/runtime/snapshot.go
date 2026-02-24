@@ -139,10 +139,22 @@ func (sm *SnapshotManager) SaveCheckpoint(ctx context.Context, sessionID string,
 }
 
 func (sm *SnapshotManager) saveSnapshot(ctx context.Context, sessionID, trigger string, snap *snapshotResponse, messageCount int) error {
-	lastExchanges, _ := json.Marshal(snap.LastExchanges)
-	pendingProposals, _ := json.Marshal(snap.PendingProposals)
-	decisionsInFlight, _ := json.Marshal(snap.DecisionsInFlight)
-	keyResources, _ := json.Marshal(snap.KeyResources)
+	lastExchanges, err := json.Marshal(snap.LastExchanges)
+	if err != nil {
+		return fmt.Errorf("marshal last_exchanges: %w", err)
+	}
+	pendingProposals, err := json.Marshal(snap.PendingProposals)
+	if err != nil {
+		return fmt.Errorf("marshal pending_proposals: %w", err)
+	}
+	decisionsInFlight, err := json.Marshal(snap.DecisionsInFlight)
+	if err != nil {
+		return fmt.Errorf("marshal decisions_in_flight: %w", err)
+	}
+	keyResources, err := json.Marshal(snap.KeyResources)
+	if err != nil {
+		return fmt.Errorf("marshal key_resources: %w", err)
+	}
 
 	tx, err := sm.db.BeginTx(ctx, nil)
 	if err != nil {
