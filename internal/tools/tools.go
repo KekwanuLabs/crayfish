@@ -197,11 +197,10 @@ func RegisterBuiltins(reg *Registry, adapters map[string]channels.ChannelAdapter
 		},
 	})
 
-	// http.fetch — fetch a URL with domain allowlist enforcement.
-	// Default allowlist is empty (blocks all), can be configured via config table.
+	// http.fetch — fetch a URL. Requires Operator trust tier.
 	reg.Register(&Tool{
 		Name:        "http_fetch",
-		Description: "Fetch content from a URL with domain allowlist enforcement. Specify 'url' and optionally 'method' (default: GET).",
+		Description: "Fetch content from a URL. Specify 'url' and optionally 'method' (default: GET).",
 		MinTier:     security.TierOperator,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
@@ -235,9 +234,9 @@ func RegisterBuiltins(reg *Registry, adapters map[string]channels.ChannelAdapter
 				return "", fmt.Errorf("http.fetch: invalid url: %w", err)
 			}
 
-			// Check domain allowlist.
-			if !isAllowedDomain(db, u.Host) {
-				return "", fmt.Errorf("http.fetch: domain %q is not allowlisted", u.Host)
+			// Reject non-HTTP(S) schemes.
+			if u.Scheme != "http" && u.Scheme != "https" {
+				return "", fmt.Errorf("http.fetch: only http/https URLs are supported")
 			}
 
 			// Create request with timeout.
@@ -901,35 +900,6 @@ func RegisterBuiltins(reg *Registry, adapters map[string]channels.ChannelAdapter
 	})
 }
 
-// isAllowedDomain checks if a domain is in the allowlist.
-// If allowlist is empty, all domains are blocked by default.
-// Allowlist is loaded from config table under key "http.allowlist" (comma-separated domains).
-func isAllowedDomain(db *sql.DB, domain string) bool {
-	var allowlistStr string
-	err := db.QueryRow("SELECT value FROM config WHERE key = ?", "http.allowlist").Scan(&allowlistStr)
-	if err != nil {
-		if err == sql.ErrNoRows {
-			// No allowlist configured - block all by default.
-			return false
-		}
-		// Query error - deny for safety.
-		return false
-	}
-
-	if allowlistStr == "" {
-		return false
-	}
-
-	// Parse comma-separated allowlist.
-	allowlist := strings.Split(allowlistStr, ",")
-	for _, allowed := range allowlist {
-		allowed = strings.TrimSpace(allowed)
-		if allowed == domain {
-			return true
-		}
-	}
-	return false
-}
 
 // initializeTables creates the todos table if it doesn't exist.
 func initializeTables(db *sql.DB, logger *slog.Logger) {

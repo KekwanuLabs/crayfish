@@ -24,6 +24,7 @@ type AppAccessor interface {
 	UpdateConfig(updates map[string]any) (restartNeeded bool, err error)
 	Uptime() time.Duration
 	AppVersion() string
+	VoiceInstallProgress() map[string]any
 }
 
 // Config holds gateway configuration.

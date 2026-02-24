@@ -596,6 +596,19 @@ func (a *App) AppVersion() string {
 	return a.Version
 }
 
+// VoiceInstallProgress returns the current voice recognition installation progress, or nil if not active.
+func (a *App) VoiceInstallProgress() map[string]any {
+	if a.voiceInstaller == nil {
+		return nil
+	}
+	p := a.voiceInstaller.Progress()
+	return map[string]any{
+		"status":   p.Status.String(),
+		"progress": p.Progress,
+		"message":  p.Message,
+	}
+}
+
 // cleanExpiredOTPs periodically removes expired pairing OTPs.
 func (a *App) cleanExpiredOTPs(ctx context.Context) {
 	ticker := time.NewTicker(10 * time.Minute)
