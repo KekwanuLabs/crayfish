@@ -271,6 +271,9 @@ downloadModel:
 	// Step 3: Verify installation
 	i.setStatus(StatusVerifying, 0.9, "Verifying installation...")
 	if err := i.verify(ctx); err != nil {
+		// Remove the binary so IsInstalled() doesn't return a false positive
+		// on next restart (e.g. --help works but inference SIGILLs).
+		os.Remove(i.BinaryPath())
 		return i.fail("verification failed: %w", err)
 	}
 
