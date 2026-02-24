@@ -350,6 +350,11 @@ jobs:
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
 
+          # Clean up if a release with this version already exists (e.g. from a partial prior run)
+          gh release delete "${VERSION}" --yes 2>/dev/null || true
+          git push origin ":refs/tags/${VERSION}" 2>/dev/null || true
+          git tag -d "${VERSION}" 2>/dev/null || true
+
           # Find previous tag for changelog
           PREV_TAG=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
           if [ -z "$PREV_TAG" ]; then
