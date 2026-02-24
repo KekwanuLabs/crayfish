@@ -92,8 +92,10 @@ jobs:
             echo "Whisper rebuild: manual trigger"
           else
             # Check if whisper binaries exist in latest release
-            WHISPER_EXISTS=$(gh release view latest --json assets -q '.assets[].name' 2>/dev/null | grep -c "whisper-" || echo "0")
-            if [ "$WHISPER_EXISTS" -eq 0 ]; then
+            WHISPER_ASSETS=$(gh release view latest --json assets -q '.assets[].name' 2>/dev/null || true)
+            WHISPER_EXISTS=$(echo "$WHISPER_ASSETS" | grep -c "whisper-" || true)
+            echo "Whisper assets found: ${WHISPER_EXISTS}"
+            if [ "${WHISPER_EXISTS:-0}" -lt 1 ]; then
               echo "rebuild=true" >> $GITHUB_OUTPUT
               echo "Whisper rebuild: no existing binaries"
             else
