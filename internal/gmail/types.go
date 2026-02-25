@@ -1,6 +1,6 @@
-// Package gmail provides Gmail integration via IMAP/SMTP for Crayfish.
-// Designed for low-memory environments (Pi 1GB): streams emails, stores
-// previews in SQLite, fetches full bodies on demand.
+// Package gmail provides Gmail integration via the Gmail REST API for Crayfish.
+// Designed for low-memory environments (Pi 1GB): fetches email previews,
+// stores them in SQLite, fetches full bodies on demand.
 package gmail
 
 import "time"
@@ -45,11 +45,9 @@ type Attachment struct {
 	SizeBytes int64  `json:"size_bytes"`
 }
 
-// SyncState tracks IMAP sync progress.
+// SyncState tracks sync progress.
 type SyncState struct {
 	LastSyncAt     time.Time
-	LastUIDValid   uint32
-	LastUID        uint32
 	SyncInProgress bool
 	ErrorMessage   string
 }
@@ -57,6 +55,5 @@ type SyncState struct {
 // Config holds Gmail connection settings.
 type Config struct {
 	Email        string
-	AppPassword  string
 	PollInterval time.Duration
 }

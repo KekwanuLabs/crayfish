@@ -129,6 +129,94 @@ func (s *Scheduler) checkAndFire(ctx context.Context, now time.Time) {
 	}
 }
 
+// CronToHuman converts a cron expression to a human-readable description.
+// Handles common patterns; falls back to the raw expression for complex cases.
+func CronToHuman(expr string) string {
+	parts := strings.Fields(expr)
+	if len(parts) != 5 {
+		return expr
+	}
+
+	minute, hour, dom, month, dow := parts[0], parts[1], parts[2], parts[3], parts[4]
+
+	// Every N minutes: */N * * * *
+	if strings.HasPrefix(minute, "*/") && hour == "*" && dom == "*" && month == "*" && dow == "*" {
+		interval := minute[2:]
+		if interval == "1" {
+			return "Every minute"
+		}
+		return "Every " + interval + " minutes"
+	}
+
+	// Every N hours: 0 */N * * *
+	if minute == "0" && strings.HasPrefix(hour, "*/") && dom == "*" && month == "*" && dow == "*" {
+		interval := hour[2:]
+		if interval == "1" {
+			return "Every hour"
+		}
+		return "Every " + interval + " hours"
+	}
+
+	// Specific time patterns
+	if dom == "*" && month == "*" {
+		timeStr := formatTime(minute, hour)
+		if timeStr == "" {
+			return expr
+		}
+
+		switch dow {
+		case "*":
+			return "Every day at " + timeStr
+		case "1-5":
+			return "Weekdays at " + timeStr
+		case "0,6":
+			return "Weekends at " + timeStr
+		case "0":
+			return "Sundays at " + timeStr
+		case "1":
+			return "Mondays at " + timeStr
+		case "2":
+			return "Tuesdays at " + timeStr
+		case "3":
+			return "Wednesdays at " + timeStr
+		case "4":
+			return "Thursdays at " + timeStr
+		case "5":
+			return "Fridays at " + timeStr
+		case "6":
+			return "Saturdays at " + timeStr
+		}
+	}
+
+	return expr
+}
+
+// formatTime converts minute and hour cron fields to a readable time string.
+// Returns empty string if the fields aren't simple numeric values.
+func formatTime(minuteField, hourField string) string {
+	m, err := strconv.Atoi(minuteField)
+	if err != nil {
+		return ""
+	}
+	h, err := strconv.Atoi(hourField)
+	if err != nil {
+		return ""
+	}
+
+	period := "AM"
+	displayHour := h
+	if h == 0 {
+		displayHour = 12
+	} else if h == 12 {
+		period = "PM"
+	} else if h > 12 {
+		displayHour = h - 12
+		period = "PM"
+	}
+
+	return fmt.Sprintf("%d:%02d %s", displayHour, m, period)
+}
+
 // --- Minimal cron parser ---
 // Supports: "minute hour day-of-month month day-of-week"
 // Supports: *, specific numbers, */interval, ranges (1-5), lists (1,3,5)

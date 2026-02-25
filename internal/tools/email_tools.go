@@ -357,7 +357,7 @@ func RegisterEmailTools(reg *Registry, poller *gmail.Poller) {
 				return "", fmt.Errorf("email_send: 'body' is required")
 			}
 
-			if err := poller.SMTP().Send(params.To, params.Subject, params.Body); err != nil {
+			if err := poller.Send(ctx, params.To, params.Subject, params.Body); err != nil {
 				return "", fmt.Errorf("email_send: send failed: %w", err)
 			}
 
@@ -424,7 +424,7 @@ func RegisterEmailTools(reg *Registry, poller *gmail.Poller) {
 				return string(out), nil
 			}
 
-			// Actually send via SMTP.
+			// Actually send via Gmail API.
 			// Extract bare email from "Name <email>" format.
 			replyTo := email.From
 			if idx := strings.Index(replyTo, "<"); idx >= 0 {
@@ -434,7 +434,7 @@ func RegisterEmailTools(reg *Registry, poller *gmail.Poller) {
 				}
 			}
 
-			if err := poller.SMTP().SendReply(replyTo, subject, params.Body, email.MessageID); err != nil {
+			if err := poller.SendReply(ctx, replyTo, subject, params.Body, email.MessageID); err != nil {
 				return "", fmt.Errorf("email_reply: send failed: %w", err)
 			}
 

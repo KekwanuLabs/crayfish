@@ -31,6 +31,9 @@ type Skill struct {
 	Description string `yaml:"description" json:"description"`
 	Author      string `yaml:"author,omitempty" json:"author,omitempty"`
 
+	// Enabled controls whether this skill is active. nil = true (default enabled).
+	Enabled *bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+
 	// Type determines how the skill is executed.
 	Type SkillType `yaml:"type" json:"type"`
 

@@ -94,8 +94,6 @@ func main() {
 		cfg.Endpoint = result.Endpoint
 		cfg.Model = result.Model
 		cfg.TelegramToken = result.TelegramToken
-		cfg.GmailUser = result.GmailUser
-		cfg.GmailAppPassword = result.GmailAppPassword
 		cfg.BraveAPIKey = result.BraveAPIKey
 		cfg.AutoUpdate = result.AutoUpdate
 

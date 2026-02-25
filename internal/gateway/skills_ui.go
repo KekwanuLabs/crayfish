@@ -185,9 +185,38 @@ const skillsPageHTML = `<!DOCTYPE html>
     border-top: 1px solid rgba(71, 85, 105, 0.3);
     display: flex;
     gap: 0.5rem;
+    align-items: center;
   }
 
   .skill-actions .btn { padding: 0.375rem 0.75rem; font-size: 0.75rem; }
+
+  /* Toggle switch */
+  .toggle { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle .slider { position: absolute; cursor: pointer; inset: 0; background: #475569; border-radius: 20px; transition: 0.2s; }
+  .toggle .slider:before { content: ""; position: absolute; height: 14px; width: 14px; left: 3px; bottom: 3px; background: #e2e8f0; border-radius: 50%; transition: 0.2s; }
+  .toggle input:checked + .slider { background: #f97316; }
+  .toggle input:checked + .slider:before { transform: translateX(16px); }
+
+  /* Sub-tabs */
+  .sub-tabs { display: flex; gap: 0.375rem; margin-bottom: 1rem; }
+  .sub-tab {
+    padding: 0.375rem 0.75rem;
+    border: 1px solid rgba(71, 85, 105, 0.5);
+    border-radius: 6px;
+    background: transparent;
+    color: #94a3b8;
+    font-size: 0.8125rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .sub-tab:hover { border-color: #f97316; color: #f97316; }
+  .sub-tab.active {
+    background: linear-gradient(135deg, #f97316 0%, #fb923c 100%);
+    color: #0f172a;
+    border-color: transparent;
+    font-weight: 600;
+  }
 
   /* Modal */
   .modal-overlay {
@@ -347,13 +376,16 @@ const skillsPageHTML = `<!DOCTYPE html>
 
   <div id="status" class="status"></div>
 
+  <div class="sub-tabs">
+    <button class="sub-tab active" id="st-my" onclick="switchSubTab('my')">My Skills</button>
+    <button class="sub-tab" id="st-hub" onclick="switchSubTab('hub')">Browse Skill Hub</button>
+  </div>
+
   <div class="skills-grid" id="skills-list">
-    <div class="empty-state">
-      <svg fill="currentColor" viewBox="0 0 16 16">
-        <path d="M6 1h6v2h-6V1zm-.5 3h7a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-.5.5h-7a.5.5 0 0 1-.5-.5v-4a.5.5 0 0 1 .5-.5zM3 4a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H3z"/>
-      </svg>
-      <p>Loading skills...</p>
-    </div>
+    <div class="empty-state"><p>Loading skills...</p></div>
+  </div>
+  <div class="skills-grid" id="hub-list" style="display:none;">
+    <div class="empty-state"><p>Loading hub...</p></div>
   </div>
 </div>
 
@@ -439,6 +471,17 @@ function authHeaders(extra) {
   return h;
 }
 let skills = [];
+let subTab = 'my';
+
+function switchSubTab(t) {
+  subTab = t;
+  document.getElementById('st-my').classList.toggle('active', t==='my');
+  document.getElementById('st-hub').classList.toggle('active', t==='hub');
+  document.getElementById('skills-list').style.display = t==='my'?'':'none';
+  document.getElementById('hub-list').style.display = t==='hub'?'':'none';
+  if (t==='hub') loadHubSkills();
+  else loadSkills();
+}
 
 async function loadSkills() {
   try {
@@ -451,32 +494,85 @@ async function loadSkills() {
   }
 }
 
+function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
 function renderSkills() {
   const container = document.getElementById('skills-list');
 
   if (skills.length === 0) {
-    container.innerHTML = '<div class="empty-state"><p>No skills yet. Create your first skill!</p></div>';
+    container.innerHTML = '<div class="empty-state"><p style="font-size:1rem;color:#94a3b8;margin-bottom:0.5rem;">Skills teach your Crayfish new tricks automatically</p><p style="font-size:0.8125rem;">Create a skill or <a href="#" onclick="switchSubTab(\'hub\');return false;" style="color:#f97316;">browse the Skill Hub</a> to get started.</p></div>';
     return;
   }
 
-  container.innerHTML = skills.map(s => ` + "`" + `
+  const typeLabels = {workflow: 'Multi-step workflow', prompt: 'Context enhancer', reactive: 'Auto-trigger'};
+  container.innerHTML = skills.map(s => {
+    const typeLabel = typeLabels[s.type] || s.type;
+    const trigger = s.trigger.schedule_human || s.trigger.command || s.trigger.event || '';
+    const checked = s.enabled ? 'checked' : '';
+    return ` + "`" + `
     <div class="skill-card">
       <div class="skill-header">
-        <span class="skill-name">${s.name}</span>
-        <span class="skill-type type-${s.type}">${s.type}</span>
+        <div style="display:flex;align-items:center;gap:0.625rem;">
+          <label class="toggle"><input type="checkbox" ${checked} onchange="toggleSkill('${esc(s.name)}',this.checked)"><span class="slider"></span></label>
+          <span class="skill-name">${esc(s.name)}</span>
+        </div>
+        <span class="skill-type type-${s.type}" title="${esc(typeLabel)}">${esc(typeLabel)}</span>
       </div>
-      <div class="skill-desc">${s.description || 'No description'}</div>
+      <div class="skill-desc">${esc(s.description) || 'No description'}</div>
       <div class="skill-trigger">
-        ${s.trigger.command ? '<span class="trigger-item">Command: <code>' + s.trigger.command + '</code></span>' : ''}
-        ${s.trigger.schedule ? '<span class="trigger-item">Schedule: <code>' + s.trigger.schedule + '</code></span>' : ''}
-        ${s.trigger.event ? '<span class="trigger-item">Event: <code>' + s.trigger.event + '</code></span>' : ''}
+        ${trigger ? '<span class="trigger-item">' + esc(trigger) + '</span>' : ''}
       </div>
       <div class="skill-actions">
-        <button class="btn btn-secondary" onclick="viewSkill('${s.name}')">View</button>
-        ${s.source !== 'builtin' ? '<button class="btn btn-danger" onclick="deleteSkill(\'' + s.name + '\')">Delete</button>' : ''}
+        <button class="btn btn-secondary" onclick="viewSkill('${esc(s.name)}')">View</button>
+        ${s.source !== 'builtin' ? '<button class="btn btn-danger" onclick="deleteSkill(\'' + esc(s.name) + '\')">Delete</button>' : ''}
       </div>
     </div>
-  ` + "`" + `).join('');
+  ` + "`" + `}).join('');
+}
+
+async function toggleSkill(name, enabled) {
+  try {
+    await fetch('/api/skills/' + name + '/toggle', {method: 'PUT', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({enabled: enabled})});
+    showStatus('Skill ' + (enabled ? 'enabled' : 'disabled'), 'success');
+  } catch (e) {
+    showStatus('Toggle failed: ' + e.message, 'error');
+    loadSkills();
+  }
+}
+
+async function loadHubSkills() {
+  const container = document.getElementById('hub-list');
+  container.innerHTML = '<div class="empty-state"><p>Loading hub...</p></div>';
+  try {
+    const resp = await fetch('/api/skills/hub', {headers: authHeaders()});
+    const data = await resp.json();
+    const hubSkills = data.skills || [];
+    const installedResp = await fetch('/api/skills', {headers: authHeaders()});
+    const installedData = await installedResp.json();
+    const installedNames = new Set((installedData.skills||[]).map(s=>s.name.toLowerCase()));
+    if (!hubSkills.length) { container.innerHTML = '<div class="empty-state"><p>The Skill Hub is empty right now. Check back later.</p></div>'; return; }
+    container.innerHTML = hubSkills.map(s => {
+      const isInstalled = installedNames.has(s.name.toLowerCase());
+      const tags = (s.tags||[]).map(t=>'<span style="display:inline-block;padding:0.125rem 0.375rem;border-radius:4px;font-size:0.6875rem;background:rgba(100,116,139,0.2);color:#94a3b8;margin-right:0.25rem;">'+esc(t)+'</span>').join('');
+      return '<div class="skill-card"><div class="skill-header"><span class="skill-name">'+esc(s.name)+'</span>'
+        +(isInstalled?'<span class="skill-type type-prompt">Installed</span>':'<button class="btn btn-primary" style="padding:0.375rem 0.75rem;font-size:0.75rem;" onclick="installFromHub(\''+esc(s.name)+'\')">Install</button>')
+        +'</div><div class="skill-desc">'+esc(s.description)+'</div>'
+        +(tags?'<div style="margin-top:0.5rem;">'+tags+'</div>':'')+'</div>';
+    }).join('');
+  } catch (e) {
+    container.innerHTML = '<div class="empty-state"><p>Could not reach the Skill Hub: ' + esc(e.message) + '</p></div>';
+  }
+}
+
+async function installFromHub(name) {
+  try {
+    const resp = await fetch('/api/skills/hub/install', {method: 'POST', headers: authHeaders({'Content-Type': 'application/json'}), body: JSON.stringify({name: name})});
+    if (!resp.ok) throw new Error(await resp.text());
+    showStatus('Skill "' + name + '" installed!', 'success');
+    loadHubSkills();
+  } catch (e) {
+    showStatus('Install failed: ' + e.message, 'error');
+  }
 }
 
 function openCreateModal() {
