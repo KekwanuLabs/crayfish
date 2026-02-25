@@ -60,7 +60,8 @@ type Config struct {
 	SystemPrompt   string `json:"system_prompt" yaml:"system_prompt"` // Custom override (optional)
 	Model          string `json:"model" yaml:"model"`
 	MaxTokens      int    `json:"max_tokens" yaml:"max_tokens"`
-	GoogleConnected bool  `json:"-" yaml:"-"` // Whether Google OAuth is active (injected at startup)
+	GoogleConnected  bool `json:"-" yaml:"-"` // Whether Google OAuth is active (injected at startup)
+	WebSearchEnabled bool `json:"-" yaml:"-"` // Whether Brave Search is configured (injected at startup)
 }
 
 // DefaultConfig returns sensible defaults for the runtime.
@@ -133,6 +134,21 @@ If they ask about Google Drive, Docs, or Sheets, you can add those capabilities 
 ## Google Integration
 You can help the user connect their Google account for calendar and email features. If they ask about calendar or email, offer to set it up using the google_connect tool. Keep it simple and conversational — they just need to enter a code on their phone at google.com/device.`
 	}
+
+	// Web search context.
+	if !c.WebSearchEnabled {
+		base += `
+
+## Web Search
+Web search is not set up yet. If the user asks you to search the web or look something up online, let them know you can enable it with a free Brave Search API key. Use the brave_connect tool to walk them through it — it only takes a minute. The free tier gives 2,000 searches per month.`
+	}
+
+	// Skills context.
+	base += `
+
+## Skills
+You can teach me new tricks through Skills — automations that extend what I can do.
+Use skill_list to see installed skills, skill_hub_browse to discover new ones, and skill_install to add them. If the user wants to automate something, suggest relevant skills from the hub.`
 
 	// Append identity content if available.
 	if soulMD != "" {

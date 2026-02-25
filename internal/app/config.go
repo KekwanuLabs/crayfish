@@ -44,8 +44,8 @@ type Config struct {
 	TelegramToken string `yaml:"telegram_token"`
 
 	// Gmail
-	GmailUser        string `yaml:"gmail_user"`
-	GmailAppPassword string `yaml:"gmail_app_password"`
+	GmailUser        string `yaml:"gmail_user,omitempty"`
+	GmailAppPassword string `yaml:"gmail_app_password,omitempty"` // Deprecated: OAuth is used instead.
 	GmailPollMinutes int    `yaml:"gmail_poll_minutes"`
 
 	// Google OAuth 2.0 — tokens from Device Authorization flow.
@@ -185,7 +185,6 @@ func LoadConfig(logger *slog.Logger) Config {
 	envStr("CRAYFISH_SYSTEM_PROMPT", &cfg.SystemPrompt)
 	envStr("CRAYFISH_TELEGRAM_TOKEN", &cfg.TelegramToken)
 	envStr("CRAYFISH_GMAIL_USER", &cfg.GmailUser)
-	envStr("CRAYFISH_GMAIL_APP_PASSWORD", &cfg.GmailAppPassword)
 	envInt("CRAYFISH_GMAIL_POLL_MINUTES", &cfg.GmailPollMinutes)
 	envStr("CRAYFISH_BRAVE_API_KEY", &cfg.BraveAPIKey)
 	envBool("CRAYFISH_CONTINUITY_ENABLED", &cfg.ContinuityEnabled)

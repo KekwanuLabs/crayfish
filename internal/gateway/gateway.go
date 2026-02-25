@@ -53,6 +53,7 @@ type Gateway struct {
 	rt              *runtime.Runtime
 	adapters        map[string]channels.ChannelAdapter
 	skillRegistry   *skills.Registry
+	skillHub        *skills.HubClient
 	appRef          AppAccessor
 	oauthClient     *oauth.Client
 	onOAuthComplete func(oauth.Token)
@@ -76,6 +77,11 @@ func New(cfg Config, db *storage.DB, logger *slog.Logger) *Gateway {
 // This enables the skills API and web UI.
 func (g *Gateway) SetSkillRegistry(registry *skills.Registry) {
 	g.skillRegistry = registry
+}
+
+// SetSkillHub sets the hub client for the gateway's skills API.
+func (g *Gateway) SetSkillHub(hub *skills.HubClient) {
+	g.skillHub = hub
 }
 
 // SetAppAccessor sets the app accessor for the dashboard.
@@ -286,7 +292,7 @@ func (g *Gateway) httpHandler() http.Handler {
 
 	// Register skills API and UI if registry is available.
 	if g.skillRegistry != nil {
-		skillsAPI := NewSkillsAPI(g.skillRegistry, g.config.SkillsDir)
+		skillsAPI := NewSkillsAPI(g.skillRegistry, g.config.SkillsDir, g.skillHub)
 		skillsAPI.RegisterRoutes(mux, g.requireAuth)
 
 		skillsUI := NewSkillsUI(g.skillRegistry, g.config.APIKey)

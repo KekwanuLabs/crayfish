@@ -42,14 +42,12 @@ type SetupData struct {
 	Name        string `json:"name" yaml:"name"`
 	Personality string `json:"personality,omitempty" yaml:"personality,omitempty"`
 
-	Provider         string `json:"provider" yaml:"provider"`
-	APIKey           string `json:"api_key" yaml:"api_key"`
-	Endpoint         string `json:"endpoint,omitempty" yaml:"endpoint,omitempty"`
-	Model            string `json:"model,omitempty" yaml:"model,omitempty"`
-	TelegramToken    string `json:"telegram_token,omitempty" yaml:"telegram_token,omitempty"`
-	GmailUser        string `json:"gmail_user,omitempty" yaml:"gmail_user,omitempty"`
-	GmailAppPassword string `json:"gmail_app_password,omitempty" yaml:"gmail_app_password,omitempty"`
-	BraveAPIKey      string `json:"brave_api_key,omitempty" yaml:"brave_api_key,omitempty"`
+	Provider      string `json:"provider" yaml:"provider"`
+	APIKey        string `json:"api_key" yaml:"api_key"`
+	Endpoint      string `json:"endpoint,omitempty" yaml:"endpoint,omitempty"`
+	Model         string `json:"model,omitempty" yaml:"model,omitempty"`
+	TelegramToken string `json:"telegram_token,omitempty" yaml:"telegram_token,omitempty"`
+	BraveAPIKey   string `json:"brave_api_key,omitempty" yaml:"brave_api_key,omitempty"`
 	AutoUpdate       bool   `json:"auto_update" yaml:"auto_update"`
 }
 
@@ -214,7 +212,6 @@ func (w *Wizard) handleSetup(rw http.ResponseWriter, r *http.Request) {
 		"name", data.Name,
 		"provider", data.Provider,
 		"telegram", data.TelegramToken != "",
-		"gmail", data.GmailUser != "",
 	)
 
 	rw.Header().Set("Content-Type", "application/json")
@@ -428,10 +425,6 @@ func (w *Wizard) writeEnvFile(data SetupData) error {
 	}
 	if data.TelegramToken != "" {
 		lines = append(lines, fmt.Sprintf("CRAYFISH_TELEGRAM_TOKEN=%s", data.TelegramToken))
-	}
-	if data.GmailUser != "" {
-		lines = append(lines, fmt.Sprintf("CRAYFISH_GMAIL_USER=%s", data.GmailUser))
-		lines = append(lines, fmt.Sprintf("CRAYFISH_GMAIL_APP_PASSWORD=%s", data.GmailAppPassword))
 	}
 	if data.BraveAPIKey != "" {
 		lines = append(lines, fmt.Sprintf("CRAYFISH_BRAVE_API_KEY=%s", data.BraveAPIKey))

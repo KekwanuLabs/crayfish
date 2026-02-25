@@ -158,6 +158,25 @@ func (a *App) Start(ctx context.Context) error {
 		tools.RegisterSearchTools(toolReg, tools.BraveSearchConfig{APIKey: a.Config.BraveAPIKey})
 	}
 
+	// Always register brave_connect so users can set up web search conversationally.
+	tools.RegisterBraveConnectTool(toolReg, tools.BraveConnectDeps{
+		IsConfigured: func() bool {
+			a.configMu.RLock()
+			defer a.configMu.RUnlock()
+			return a.Config.BraveAPIKey != ""
+		},
+		SaveKey: func(key string) {
+			a.configMu.Lock()
+			a.Config.BraveAPIKey = key
+			a.configMu.Unlock()
+			if err := a.Config.SaveConfig(); err != nil {
+				a.Logger.Warn("failed to save Brave API key to config", "error", err)
+			}
+			a.Logger.Info("Brave Search API key saved and activated")
+		},
+		Registry: toolReg,
+	})
+
 	// 7. Google OAuth client — credentials injected at build time or via config override.
 	googleClientID := oauth.CrayfishClientID
 	googleClientSecret := oauth.CrayfishClientSecret
@@ -183,18 +202,35 @@ func (a *App) Start(ctx context.Context) error {
 	// Load existing Google token if available.
 	a.googleToken = a.loadGoogleToken()
 
-	// 7a. Gmail (optional — App Password path, independent of OAuth)
-	if a.Config.GmailUser != "" && a.Config.GmailAppPassword != "" {
-		a.gmailPoller = gmail.NewPoller(gmail.Config{
-			Email:        a.Config.GmailUser,
-			AppPassword:  a.Config.GmailAppPassword,
-			PollInterval: a.Config.GmailPollInterval(),
-		}, db.Inner(), a.Logger.With("component", "gmail"))
+	// 7a. Gmail (via OAuth REST API)
+	if a.oauthClient != nil && a.googleToken != nil && a.googleToken.RefreshToken != "" {
+		tokenProvider := func(ctx context.Context) (string, error) {
+			a.googleMu.RLock()
+			tok := a.googleToken
+			a.googleMu.RUnlock()
+			return a.oauthClient.ValidAccessToken(ctx, tok)
+		}
+		apiClient := gmail.NewAPIClient(tokenProvider)
 
-		tools.RegisterEmailTools(toolReg, a.gmailPoller)
+		// Auto-discover email from OAuth profile if not configured.
+		gmailUser := a.Config.GmailUser
+		if gmailUser == "" {
+			if email, err := apiClient.GetProfile(ctx); err == nil {
+				gmailUser = email
+			}
+		}
 
-		if err := a.gmailPoller.Start(ctx); err != nil {
-			a.Logger.Error("Gmail poller failed to start", "error", err)
+		if gmailUser != "" {
+			a.gmailPoller = gmail.NewPoller(gmail.Config{
+				Email:        gmailUser,
+				PollInterval: a.Config.GmailPollInterval(),
+			}, apiClient, db.Inner(), a.Logger.With("component", "gmail"))
+
+			tools.RegisterEmailTools(toolReg, a.gmailPoller)
+
+			if err := a.gmailPoller.Start(ctx); err != nil {
+				a.Logger.Error("Gmail poller failed to start", "error", err)
+			}
 		}
 	}
 
@@ -336,10 +372,35 @@ func (a *App) Start(ctx context.Context) error {
 		a.Logger.Info("skills loaded", "count", a.skillRegistry.Count())
 	}
 
+	// Determine skills directory (also used by gateway later).
+	skillsDir := "skills" // Default to local directory for user-created skills
+	if _, err := os.Stat("/var/lib/crayfish"); err == nil {
+		skillsDir = "/var/lib/crayfish/skills"
+	}
+
+	// 10a. Skill Hub client + conversational tools
+	hubClient := skills.NewHubClient(
+		"https://raw.githubusercontent.com/KekwanuLabs/crayfish-skills/main/index.json",
+		a.Logger.With("component", "skill-hub"),
+	)
+	tools.RegisterSkillTools(toolReg, tools.SkillToolDeps{
+		Registry:  a.skillRegistry,
+		SkillsDir: skillsDir,
+		Hub:       hubClient,
+	})
+
 	// 11. Skill scheduler
 	a.skillScheduler = skills.NewScheduler(a.skillRegistry, func(ctx context.Context, skill *skills.Skill) {
 		a.Logger.Info("scheduled skill triggered", "skill", skill.Name)
-		// TODO: execute via runtime when skill engine is wired to agent runtime
+		// Inject synthetic message through the bus so the runtime processes it.
+		a.bus.Publish(ctx, bus.Event{
+			Type:    bus.TypeMessageInbound,
+			Channel: "system",
+			Payload: bus.MustJSON(bus.InboundMessage{
+				From: "scheduler",
+				Text: skill.Trigger.Command,
+			}),
+		})
 	}, a.Logger.With("component", "skill-scheduler"))
 	a.skillScheduler.Start(ctx)
 
@@ -436,6 +497,7 @@ func (a *App) Start(ctx context.Context) error {
 		rtCfg.Personality = a.Config.Personality
 	}
 	rtCfg.GoogleConnected = a.googleToken != nil && a.googleToken.RefreshToken != ""
+	rtCfg.WebSearchEnabled = a.Config.BraveAPIKey != ""
 
 	rt := runtime.New(rtCfg, a.bus, db.Inner(), llm, a.sessions, toolReg,
 		a.offlineQueue, a.pairing, memExtractor, memRetriever,
@@ -444,11 +506,6 @@ func (a *App) Start(ctx context.Context) error {
 	a.rt = rt
 
 	// 18. Gateway
-	skillsDir := "skills" // Default to local directory for user-created skills
-	if _, err := os.Stat("/var/lib/crayfish"); err == nil {
-		skillsDir = "/var/lib/crayfish/skills"
-	}
-
 	// Generate dashboard API key on first run.
 	if a.Config.DashboardAPIKey == "" {
 		key := make([]byte, 32)
@@ -467,8 +524,9 @@ func (a *App) Start(ctx context.Context) error {
 		APIKey:     a.Config.DashboardAPIKey,
 	}, db, a.Logger.With("component", "gateway"))
 
-	// Wire skill registry and app accessor to gateway for API, web UI, and dashboard.
+	// Wire skill registry, hub client, and app accessor to gateway for API, web UI, and dashboard.
 	a.gateway.SetSkillRegistry(a.skillRegistry)
+	a.gateway.SetSkillHub(hubClient)
 	a.gateway.SetAppAccessor(a)
 	if a.oauthClient != nil {
 		a.gateway.SetOAuthClient(a.oauthClient, func(tok oauth.Token) {
@@ -579,7 +637,6 @@ func (a *App) DashboardConfig() map[string]any {
 		"stt_enabled":            a.Config.STTEnabled,
 		"telegram_token":         mask(a.Config.TelegramToken),
 		"gmail_user":             a.Config.GmailUser,
-		"gmail_app_password":     mask(a.Config.GmailAppPassword),
 		"gmail_poll_minutes":     a.Config.GmailPollMinutes,
 		"brave_api_key":          mask(a.Config.BraveAPIKey),
 		"system_prompt":          a.Config.SystemPrompt,
@@ -659,11 +716,6 @@ func (a *App) UpdateConfig(updates map[string]any) (bool, error) {
 		case "gmail_user":
 			if s, ok := val.(string); ok && s != a.Config.GmailUser {
 				a.Config.GmailUser = s
-				changed = true
-			}
-		case "gmail_app_password":
-			if s, ok := val.(string); ok && !strings.Contains(s, "****") && s != a.Config.GmailAppPassword {
-				a.Config.GmailAppPassword = s
 				changed = true
 			}
 		case "brave_api_key":

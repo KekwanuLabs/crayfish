@@ -17,43 +17,45 @@ const (
 	batchInsertSize     = 10
 )
 
-// Poller polls Gmail IMAP for new emails and stores them in SQLite.
-// Designed for single-connection, low-memory operation on Pi.
+// Poller polls Gmail via the REST API for new emails and stores them in SQLite.
 type Poller struct {
 	cfg    Config
+	api    *APIClient
 	db     *sql.DB
-	smtp   *SMTPClient
 	logger *slog.Logger
 
-	mu           sync.Mutex
-	imap         *IMAPClient
 	stopChan     chan struct{}
 	pollWg       sync.WaitGroup
 	shutdownOnce sync.Once
 }
 
 // NewPoller creates a new Gmail background poller.
-func NewPoller(cfg Config, db *sql.DB, logger *slog.Logger) *Poller {
+func NewPoller(cfg Config, api *APIClient, db *sql.DB, logger *slog.Logger) *Poller {
 	if cfg.PollInterval == 0 {
 		cfg.PollInterval = defaultPollInterval
 	}
 	return &Poller{
-		cfg:    cfg,
-		db:     db,
-		smtp:   NewSMTPClient(cfg.Email, cfg.AppPassword, logger),
-		logger: logger,
+		cfg:      cfg,
+		api:      api,
+		db:       db,
+		logger:   logger,
 		stopChan: make(chan struct{}),
 	}
-}
-
-// SMTP returns the SMTP client for sending emails.
-func (p *Poller) SMTP() *SMTPClient {
-	return p.smtp
 }
 
 // Email returns the configured Gmail address.
 func (p *Poller) Email() string {
 	return p.cfg.Email
+}
+
+// Send sends a new email via the Gmail API.
+func (p *Poller) Send(ctx context.Context, to, subject, body string) error {
+	return p.api.SendMessage(ctx, p.cfg.Email, to, subject, body, "")
+}
+
+// SendReply sends a reply email via the Gmail API with proper threading headers.
+func (p *Poller) SendReply(ctx context.Context, to, subject, body, inReplyTo string) error {
+	return p.api.SendMessage(ctx, p.cfg.Email, to, subject, body, inReplyTo)
 }
 
 // Start begins the background polling loop.
@@ -86,13 +88,6 @@ func (p *Poller) Stop() error {
 		case <-time.After(10 * time.Second):
 			err = fmt.Errorf("gmail poller shutdown timeout")
 		}
-
-		p.mu.Lock()
-		if p.imap != nil {
-			p.imap.Close()
-			p.imap = nil
-		}
-		p.mu.Unlock()
 	})
 	return err
 }
@@ -149,47 +144,10 @@ func (p *Poller) syncEmails(ctx context.Context) {
 		}
 	}()
 
-	// Connect to IMAP (lazy, reconnect on failure).
-	p.mu.Lock()
-	if p.imap == nil {
-		conn, err := Dial(p.cfg.Email, p.cfg.AppPassword, p.logger)
-		if err != nil {
-			p.mu.Unlock()
-			p.logger.Error("Gmail IMAP connect failed", "error", err)
-			if _, dbErr := p.db.ExecContext(context.Background(),
-				"UPDATE gmail_sync_state SET error_message = ? WHERE id = 1",
-				err.Error()); dbErr != nil {
-				p.logger.Warn("failed to update sync error state", "error", dbErr)
-			}
-			return
-		}
-		p.imap = conn
-	}
-	imapClient := p.imap
-	p.mu.Unlock()
-
-	// Close connection after sync — Google drops idle IMAP connections
-	// after ~20s, which is well before our 5-minute poll interval.
-	defer func() {
-		p.mu.Lock()
-		if p.imap != nil {
-			p.imap.Close()
-			p.imap = nil
-		}
-		p.mu.Unlock()
-	}()
-
-	// Fetch unread emails.
-	emails, err := imapClient.FetchUnread(maxFetchBatch)
+	// Fetch unread emails via REST API.
+	emails, err := p.api.FetchUnread(ctx, maxFetchBatch)
 	if err != nil {
 		p.logger.Error("Gmail fetch failed", "error", err)
-		// Reset connection on error so next sync reconnects.
-		p.mu.Lock()
-		if p.imap != nil {
-			p.imap.Close()
-			p.imap = nil
-		}
-		p.mu.Unlock()
 		if _, dbErr := p.db.ExecContext(context.Background(),
 			"UPDATE gmail_sync_state SET error_message = ? WHERE id = 1",
 			err.Error()); dbErr != nil {
@@ -271,7 +229,8 @@ func storeEmail(ctx context.Context, tx *sql.Tx, e *Email) error {
 	return err
 }
 
-// GetEmailByID reads a stored email from SQLite.
+// GetEmailByID reads a stored email from SQLite. If the body is not cached
+// locally, it fetches the full message from the Gmail API.
 func (p *Poller) GetEmailByID(ctx context.Context, emailID string) (*Email, error) {
 	var e Email
 	var isRead, isStarred, hasAttach int
@@ -294,6 +253,16 @@ func (p *Poller) GetEmailByID(ctx context.Context, emailID string) (*Email, erro
 	e.IsStarred = isStarred == 1
 	e.HasAttachments = hasAttach == 1
 	e.ReceivedAt, _ = time.Parse("2006-01-02 15:04:05", receivedStr)
+
+	// If we don't have a full body cached, fetch it from the API.
+	if e.BodyFull == "" {
+		if full, err := p.api.FetchByID(ctx, emailID); err == nil && full.BodyFull != "" {
+			e.BodyFull = full.BodyFull
+			// Cache for next time.
+			_, _ = p.db.ExecContext(ctx,
+				"UPDATE emails SET body_full = ? WHERE id = ?", e.BodyFull, emailID)
+		}
+	}
 
 	return &e, nil
 }
@@ -375,8 +344,9 @@ func (p *Poller) SearchStored(ctx context.Context, query string, limit int) ([]E
 	return summaries, rows.Err()
 }
 
-// UpdateLabel updates a label on a stored email.
+// UpdateLabel updates a label on a stored email and syncs to Gmail.
 func (p *Poller) UpdateLabel(ctx context.Context, emailID, label string, add bool) error {
+	// Update locally.
 	var labelsJSON string
 	err := p.db.QueryRowContext(ctx, "SELECT labels FROM emails WHERE id = ?", emailID).Scan(&labelsJSON)
 	if err != nil {
@@ -392,7 +362,7 @@ func (p *Poller) UpdateLabel(ctx context.Context, emailID, label string, add boo
 		// Don't duplicate.
 		for _, l := range labels {
 			if l == label {
-				return nil
+				goto syncRemote
 			}
 		}
 		labels = append(labels, label)
@@ -406,18 +376,40 @@ func (p *Poller) UpdateLabel(ctx context.Context, emailID, label string, add boo
 		labels = filtered
 	}
 
-	newJSON, err := json.Marshal(labels)
-	if err != nil {
-		return fmt.Errorf("marshal labels: %w", err)
+	{
+		newJSON, err := json.Marshal(labels)
+		if err != nil {
+			return fmt.Errorf("marshal labels: %w", err)
+		}
+		_, err = p.db.ExecContext(ctx, "UPDATE emails SET labels = ? WHERE id = ?",
+			string(newJSON), emailID)
+		if err != nil {
+			return err
+		}
 	}
-	_, err = p.db.ExecContext(ctx, "UPDATE emails SET labels = ? WHERE id = ?",
-		string(newJSON), emailID)
-	return err
+
+syncRemote:
+	// Sync label change to Gmail server.
+	if add {
+		if err := p.api.ModifyMessage(ctx, emailID, []string{label}, nil); err != nil {
+			p.logger.Warn("failed to sync label add to Gmail", "email_id", emailID, "label", label, "error", err)
+		}
+	} else {
+		if err := p.api.ModifyMessage(ctx, emailID, nil, []string{label}); err != nil {
+			p.logger.Warn("failed to sync label remove to Gmail", "email_id", emailID, "label", label, "error", err)
+		}
+	}
+
+	return nil
 }
 
-// ArchiveEmail removes INBOX label from an email.
+// ArchiveEmail removes INBOX label from an email (locally and on Gmail).
 func (p *Poller) ArchiveEmail(ctx context.Context, emailID string) error {
-	return p.UpdateLabel(ctx, emailID, "INBOX", false)
+	// Update local store.
+	if err := p.UpdateLabel(ctx, emailID, "INBOX", false); err != nil {
+		return err
+	}
+	return nil
 }
 
 func boolToInt(b bool) int {
@@ -425,4 +417,28 @@ func boolToInt(b bool) int {
 		return 1
 	}
 	return 0
+}
+
+// cleanPreview strips excessive whitespace and truncates.
+func cleanPreview(s string) string {
+	// Collapse whitespace.
+	fields := strings.Fields(s)
+	cleaned := strings.Join(fields, " ")
+	if len(cleaned) > 500 {
+		cleaned = cleaned[:500] + "..."
+	}
+	return cleaned
+}
+
+// maskEmail redacts the middle of an email for logging.
+func maskEmail(email string) string {
+	parts := strings.SplitN(email, "@", 2)
+	if len(parts) != 2 {
+		return "***"
+	}
+	name := parts[0]
+	if len(name) <= 2 {
+		return "**@" + parts[1]
+	}
+	return name[:2] + "***@" + parts[1]
 }

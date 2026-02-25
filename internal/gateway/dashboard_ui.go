@@ -300,6 +300,14 @@ const dashboardPageHTML = `<!DOCTYPE html>
   .modal-body { padding: 1.25rem; }
   .modal-footer { padding: 1.25rem; border-top: 1px solid rgba(71,85,105,0.3); display: flex; justify-content: flex-end; gap: 0.75rem; }
 
+  /* Toggle switch */
+  .toggle { position: relative; display: inline-block; width: 36px; height: 20px; flex-shrink: 0; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle .slider { position: absolute; cursor: pointer; inset: 0; background: #475569; border-radius: 20px; transition: 0.2s; }
+  .toggle .slider:before { content: ""; position: absolute; height: 14px; width: 14px; left: 3px; bottom: 3px; background: #e2e8f0; border-radius: 50%; transition: 0.2s; }
+  .toggle input:checked + .slider { background: #f97316; }
+  .toggle input:checked + .slider:before { transform: translateX(16px); }
+
   /* Loading */
   .loading { text-align: center; padding: 2rem; color: #64748b; }
   .empty-state { text-align: center; padding: 2.5rem; color: #64748b; }
@@ -346,7 +354,7 @@ const dashboardPageHTML = `<!DOCTYPE html>
   <div class="tab-content active" id="tab-overview">
     <div class="status-bar">
       <span class="status-badge"><span class="status-dot"></span> Running</span>
-      <span class="status-info" id="ov-version">v{{.Version}}</span>
+      <span class="status-info" id="ov-version">{{.Version}}</span>
       <span class="status-info" id="ov-uptime"></span>
     </div>
     <div class="stats-grid" id="ov-stats">
@@ -429,10 +437,14 @@ const dashboardPageHTML = `<!DOCTYPE html>
   <!-- Skills Tab -->
   <div class="tab-content" id="tab-skills">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
-      <h3 style="color:#f8fafc;">Skills</h3>
+      <div style="display:flex;gap:0.375rem;">
+        <button class="tab-btn btn-sm active" id="sk-tab-my" onclick="switchSkillTab('my')">My Skills</button>
+        <button class="tab-btn btn-sm" id="sk-tab-hub" onclick="switchSkillTab('hub')">Browse Hub</button>
+      </div>
       <button class="btn btn-primary btn-sm" onclick="openSkillModal()">+ New Skill</button>
     </div>
-    <div id="skills-list"><div class="loading">Loading skills...</div></div>
+    <div id="skills-my-list"><div class="loading">Loading skills...</div></div>
+    <div id="skills-hub-list" style="display:none;"><div class="loading">Loading hub...</div></div>
   </div>
 
   <!-- Sessions Tab -->
@@ -502,7 +514,7 @@ const dashboardPageHTML = `<!DOCTYPE html>
     <div class="footer-top">
       <div class="footer-brand">
         <svg viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="fg" x1="0%" y1="0%" x2="100%" y2="100%"><stop offset="0%" style="stop-color:#ff6b35"/><stop offset="100%" style="stop-color:#f7931e"/></linearGradient></defs><ellipse cx="50" cy="52" rx="18" ry="12" fill="url(#fg)"/><path d="M32 52 Q28 42 20 35 Q18 33 20 31 L26 28 Q28 27 29 29 L35 40 Q37 44 35 48Z" fill="url(#fg)"/><path d="M68 52 Q72 42 80 35 Q82 33 80 31 L74 28 Q72 27 71 29 L65 40 Q63 44 65 48Z" fill="url(#fg)"/><ellipse cx="50" cy="66" rx="14" ry="6" fill="url(#fg)"/><ellipse cx="50" cy="76" rx="10" ry="5" fill="url(#fg)"/><ellipse cx="50" cy="84" rx="7" ry="4" fill="url(#fg)"/><circle cx="44" cy="48" r="2.5" fill="#1a1a2e"/><circle cx="56" cy="48" r="2.5" fill="#1a1a2e"/></svg>
-        Crayfish v{{.Version}}
+        Crayfish {{.Version}}
       </div>
       <div class="footer-tagline">Accessible AI for everyone</div>
       <div class="footer-uptime" id="footer-uptime"></div>
@@ -512,7 +524,7 @@ const dashboardPageHTML = `<!DOCTYPE html>
 </footer>
 
 <script>
-const S = {tab:'overview', eventFilter:'', autoRefresh:false, refreshTimer:null, uptimeSec:0, memTimer:null};
+const S = {tab:'overview', eventFilter:'', autoRefresh:false, refreshTimer:null, uptimeSec:0, memTimer:null, voiceTimer:null};
 
 /* === Tabs === */
 function switchTab(t) {
@@ -546,12 +558,19 @@ async function loadOverview() {
   setText('ov-events', fmtNum(d.events));
   S.uptimeSec = d.uptime_seconds || 0;
   setText('ov-uptime', 'Uptime: ' + fmtUptime(S.uptimeSec));
-  if (d.voice && d.voice.status !== 'complete' && d.voice.status !== 'not_started') {
+  if (d.voice && d.voice.status !== 'complete' && d.voice.status !== 'not_started' && d.voice.status !== 'not_supported') {
     document.getElementById('ov-voice').style.display = '';
     setText('ov-voice-msg', d.voice.message);
     document.getElementById('ov-voice-bar').style.width = (d.voice.progress * 100) + '%';
+    // Poll while voice install is in progress.
+    if (!S.voiceTimer) {
+      S.voiceTimer = setInterval(async () => {
+        if (S.tab === 'overview') await loadOverview();
+      }, 3000);
+    }
   } else {
     document.getElementById('ov-voice').style.display = 'none';
+    if (S.voiceTimer) { clearInterval(S.voiceTimer); S.voiceTimer = null; }
   }
   const al = document.getElementById('ov-adapters');
   if (d.adapters && d.adapters.length) {
@@ -595,22 +614,70 @@ function togglePass(id) {
 }
 
 /* === Skills === */
+let skillTab = 'my';
+function switchSkillTab(t) {
+  skillTab = t;
+  document.getElementById('sk-tab-my').classList.toggle('active', t==='my');
+  document.getElementById('sk-tab-hub').classList.toggle('active', t==='hub');
+  document.getElementById('skills-my-list').style.display = t==='my'?'':'none';
+  document.getElementById('skills-hub-list').style.display = t==='hub'?'':'none';
+  if (t==='hub') loadHub();
+  else loadSkills();
+}
 async function loadSkills() {
   const d = await fetchJSON('/api/skills');
   const list = d.skills || [];
-  const el = document.getElementById('skills-list');
-  if (!list.length) { el.innerHTML = '<div class="empty-state">No skills yet. Create your first!</div>'; return; }
+  const el = document.getElementById('skills-my-list');
+  if (!list.length) { el.innerHTML = '<div class="empty-state"><p style="font-size:1rem;color:#94a3b8;margin-bottom:0.5rem;">Skills teach your Crayfish new tricks automatically</p><p style="font-size:0.8125rem;">Create a skill or <a href="#" onclick="switchSkillTab(\'hub\');return false;" style="color:#f97316;">browse the Skill Hub</a> to get started.</p></div>'; return; }
   el.innerHTML = list.map(s => {
     const tc = s.type==='workflow'?'badge-blue':s.type==='prompt'?'badge-green':'badge-purple';
-    const triggers = [s.trigger.command?'Cmd: '+esc(s.trigger.command):'', s.trigger.schedule?'Sched: '+esc(s.trigger.schedule):'', s.trigger.event?'Event: '+esc(s.trigger.event):''].filter(Boolean).join(' &middot; ');
-    return '<div class="card"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.5rem;"><span style="font-weight:600;color:#f8fafc;">'+esc(s.name)+'</span><span class="badge '+tc+'">'+esc(s.type)+'</span></div>'
+    const typeLabel = s.type==='workflow'?'Multi-step workflow':s.type==='prompt'?'Context enhancer':'Auto-trigger';
+    const trigger = s.trigger.schedule_human||s.trigger.command||s.trigger.event||(s.trigger.keywords&&s.trigger.keywords.length?'Keywords: '+s.trigger.keywords.join(', '):'');
+    const checked = s.enabled?'checked':'';
+    return '<div class="card"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.5rem;">'
+      +'<div style="display:flex;align-items:center;gap:0.625rem;"><label class="toggle"><input type="checkbox" '+checked+' onchange="toggleSkill(\''+esc(s.name)+'\',this.checked)"><span class="slider"></span></label><span style="font-weight:600;color:#f8fafc;">'+esc(s.name)+'</span></div>'
+      +'<span class="badge '+tc+'" title="'+esc(typeLabel)+'">'+esc(typeLabel)+'</span></div>'
       +'<div style="color:#94a3b8;font-size:0.8125rem;margin-bottom:0.5rem;">'+(esc(s.description)||'No description')+'</div>'
-      +(triggers?'<div style="font-size:0.6875rem;color:#64748b;">'+triggers+'</div>':'')
+      +(trigger?'<div style="font-size:0.6875rem;color:#64748b;">'+esc(trigger)+'</div>':'')
       +'<div style="margin-top:0.625rem;padding-top:0.625rem;border-top:1px solid rgba(71,85,105,0.3);display:flex;gap:0.5rem;">'
       +'<button class="btn btn-secondary btn-sm" onclick="editSkill(\''+esc(s.name)+'\')">Edit</button>'
       +(s.source!=='builtin'?'<button class="btn btn-danger btn-sm" onclick="delSkill(\''+esc(s.name)+'\')">Delete</button>':'')
       +'</div></div>';
   }).join('');
+}
+async function toggleSkill(name, enabled) {
+  try {
+    await fetchJSON('/api/skills/'+name+'/toggle',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled:enabled})});
+    showToast('Skill '+(enabled?'enabled':'disabled'),'success');
+  } catch(e) { showToast('Toggle failed: '+e.message,'error'); loadSkills(); }
+}
+async function loadHub() {
+  const el = document.getElementById('skills-hub-list');
+  el.innerHTML = '<div class="loading">Loading hub...</div>';
+  try {
+    const d = await fetchJSON('/api/skills/hub');
+    const hubSkills = d.skills || [];
+    const installed = await fetchJSON('/api/skills');
+    const installedNames = new Set((installed.skills||[]).map(s=>s.name.toLowerCase()));
+    if (!hubSkills.length) { el.innerHTML = '<div class="empty-state">The Skill Hub is empty right now. Check back later.</div>'; return; }
+    el.innerHTML = hubSkills.map(s => {
+      const isInstalled = installedNames.has(s.name.toLowerCase());
+      const tags = (s.tags||[]).map(t=>'<span class="badge badge-gray" style="margin-right:0.25rem;">'+esc(t)+'</span>').join('');
+      return '<div class="card"><div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.5rem;">'
+        +'<span style="font-weight:600;color:#f8fafc;">'+esc(s.name)+'</span>'
+        +(isInstalled?'<span class="badge badge-green">Installed</span>':'<button class="btn btn-primary btn-sm" onclick="installHub(\''+esc(s.name)+'\')">Install</button>')
+        +'</div><div style="color:#94a3b8;font-size:0.8125rem;margin-bottom:0.5rem;">'+esc(s.description)+'</div>'
+        +(tags?'<div style="margin-top:0.375rem;">'+tags+'</div>':'')
+        +'</div>';
+    }).join('');
+  } catch(e) { el.innerHTML = '<div class="empty-state">Could not reach the Skill Hub: '+esc(e.message)+'</div>'; }
+}
+async function installHub(name) {
+  try {
+    await fetchJSON('/api/skills/hub/install',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})});
+    showToast('Skill "'+name+'" installed!','success');
+    loadHub();
+  } catch(e) { showToast('Install failed: '+e.message,'error'); }
 }
 function openSkillModal() { document.getElementById('skill-modal-title').textContent='New Skill'; document.querySelectorAll('#skill-modal input,#skill-modal textarea,#skill-modal select').forEach(e=>e.value=''); document.getElementById('skill-modal').classList.add('show'); }
 function closeSkillModal() { document.getElementById('skill-modal').classList.remove('show'); }

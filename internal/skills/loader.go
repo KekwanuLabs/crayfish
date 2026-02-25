@@ -12,6 +12,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// boolPtr returns a pointer to a bool value.
+func boolPtr(b bool) *bool { return &b }
+
+// isEnabled returns whether a skill is enabled (nil = true).
+func isEnabled(s *Skill) bool {
+	return s.Enabled == nil || *s.Enabled
+}
+
 // Registry holds all loaded skills and provides lookup by name, command, or event.
 type Registry struct {
 	mu     sync.RWMutex
@@ -68,12 +76,13 @@ func (r *Registry) All() []*Skill {
 }
 
 // FindByCommand returns the skill triggered by the given command (e.g., "/briefing").
+// Disabled skills are skipped.
 func (r *Registry) FindByCommand(command string) *Skill {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	for _, s := range r.skills {
-		if s.Trigger.Command != "" && s.Trigger.Command == command {
+		if isEnabled(s) && s.Trigger.Command != "" && s.Trigger.Command == command {
 			return s
 		}
 	}
@@ -81,13 +90,14 @@ func (r *Registry) FindByCommand(command string) *Skill {
 }
 
 // FindByEvent returns all skills triggered by the given event type.
+// Disabled skills are skipped.
 func (r *Registry) FindByEvent(eventType string) []*Skill {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	var result []*Skill
 	for _, s := range r.skills {
-		if s.Trigger.Event != "" && s.Trigger.Event == eventType {
+		if isEnabled(s) && s.Trigger.Event != "" && s.Trigger.Event == eventType {
 			result = append(result, s)
 		}
 	}
@@ -95,13 +105,14 @@ func (r *Registry) FindByEvent(eventType string) []*Skill {
 }
 
 // FindScheduled returns all skills that have a cron schedule.
+// Disabled skills are skipped.
 func (r *Registry) FindScheduled() []*Skill {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	var result []*Skill
 	for _, s := range r.skills {
-		if s.Trigger.Schedule != "" {
+		if isEnabled(s) && s.Trigger.Schedule != "" {
 			result = append(result, s)
 		}
 	}
@@ -109,6 +120,7 @@ func (r *Registry) FindScheduled() []*Skill {
 }
 
 // FindByKeyword returns skills whose keywords match the given text (case-insensitive substring).
+// Disabled skills are skipped.
 func (r *Registry) FindByKeyword(text string) []*Skill {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -116,6 +128,9 @@ func (r *Registry) FindByKeyword(text string) []*Skill {
 	lower := strings.ToLower(text)
 	var result []*Skill
 	for _, s := range r.skills {
+		if !isEnabled(s) {
+			continue
+		}
 		for _, kw := range s.Trigger.Keywords {
 			if strings.Contains(lower, strings.ToLower(kw)) {
 				result = append(result, s)
@@ -124,6 +139,34 @@ func (r *Registry) FindByKeyword(text string) []*Skill {
 		}
 	}
 	return result
+}
+
+// SetEnabled enables or disables a skill by name. Updates in-memory and re-saves the YAML file.
+func (r *Registry) SetEnabled(name string, enabled bool) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	skill, exists := r.skills[name]
+	if !exists {
+		return fmt.Errorf("skill %q not found", name)
+	}
+
+	skill.Enabled = boolPtr(enabled)
+	r.logger.Info("skill enabled state changed", "name", name, "enabled", enabled)
+
+	// Re-save to file if the skill has a file source.
+	if skill.Source != "" && skill.Source != "builtin" && skill.Source != "web" {
+		data, err := yaml.Marshal(skill)
+		if err != nil {
+			return fmt.Errorf("marshal skill: %w", err)
+		}
+		if err := os.WriteFile(skill.Source, data, 0644); err != nil {
+			r.logger.Warn("failed to re-save skill file after toggle", "path", skill.Source, "error", err)
+			// Non-fatal: in-memory state is updated.
+		}
+	}
+
+	return nil
 }
 
 // Count returns the number of registered skills.
@@ -289,6 +332,11 @@ func ParseSkill(data []byte) (*Skill, error) {
 	// Default type to prompt.
 	if skill.Type == "" {
 		skill.Type = TypePrompt
+	}
+
+	// Default enabled to true.
+	if skill.Enabled == nil {
+		skill.Enabled = boolPtr(true)
 	}
 
 	// Security validation.

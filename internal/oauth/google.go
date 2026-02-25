@@ -24,6 +24,7 @@ const (
 	CalendarScope = "https://www.googleapis.com/auth/calendar"
 	GmailReadonly = "https://www.googleapis.com/auth/gmail.readonly"
 	GmailSend     = "https://www.googleapis.com/auth/gmail.send"
+	GmailModify   = "https://www.googleapis.com/auth/gmail.modify"
 	UserInfoEmail = "https://www.googleapis.com/auth/userinfo.email"
 	DriveScope    = "https://www.googleapis.com/auth/drive"
 	DriveReadonly = "https://www.googleapis.com/auth/drive.readonly"
@@ -34,7 +35,7 @@ const (
 )
 
 // ScopesBase is the default set of scopes for Crayfish (Calendar + Gmail).
-var ScopesBase = []string{CalendarScope, GmailReadonly, GmailSend, UserInfoEmail}
+var ScopesBase = []string{CalendarScope, GmailModify, UserInfoEmail}
 
 // ScopesByPurpose maps user-facing feature names to the scopes they require.
 // Used by the google_connect tool to determine which scopes to request
@@ -54,6 +55,8 @@ func FriendlyScope(scope string) string {
 		return "gmail (read)"
 	case GmailSend:
 		return "gmail (send)"
+	case GmailModify:
+		return "gmail (read & manage)"
 	case UserInfoEmail:
 		return "email address"
 	case DriveScope:
