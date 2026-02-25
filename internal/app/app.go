@@ -49,6 +49,8 @@ type App struct {
 	// Components
 	gateway        *gateway.Gateway
 	gmailPoller    *gmail.Poller
+	emailProvider  gmail.EmailProvider // Active email provider (OAuth poller or IMAP)
+	emailMu        sync.RWMutex       // Protects emailProvider
 	heartbeatSvc   *heartbeat.Service
 	offlineQueue   *queue.OfflineQueue
 	pairing        *security.PairingService
@@ -177,14 +179,27 @@ func (a *App) Start(ctx context.Context) error {
 		Registry: toolReg,
 	})
 
-	// 7. Google OAuth client — credentials injected at build time or via config override.
-	googleClientID := oauth.CrayfishClientID
-	googleClientSecret := oauth.CrayfishClientSecret
-	if a.Config.GoogleClientID != "" {
-		googleClientID = a.Config.GoogleClientID
+	// 7. Google OAuth client — build-time credentials (ldflags) are the source of truth
+	// from the maintainer. Config file is a persistence layer for when the binary
+	// doesn't have them (auto-updater, curl|bash installs). Self-hosters who set
+	// config values without ldflags get their config respected.
+	googleClientID := a.Config.GoogleClientID
+	googleClientSecret := a.Config.GoogleClientSecret
+	if oauth.CrayfishClientID != "" {
+		// Build-time credentials always win — maintainer may have rotated keys.
+		googleClientID = oauth.CrayfishClientID
+		googleClientSecret = oauth.CrayfishClientSecret
 	}
-	if a.Config.GoogleClientSecret != "" {
-		googleClientSecret = a.Config.GoogleClientSecret
+
+	// Persist build-time credentials to config so they survive binary replacement.
+	if oauth.CrayfishClientID != "" && oauth.CrayfishClientID != a.Config.GoogleClientID {
+		a.Config.GoogleClientID = oauth.CrayfishClientID
+		a.Config.GoogleClientSecret = oauth.CrayfishClientSecret
+		if err := a.Config.SaveConfig(); err != nil {
+			a.Logger.Warn("failed to persist Google credentials to config", "error", err)
+		} else {
+			a.Logger.Info("Google OAuth credentials persisted to config file")
+		}
 	}
 
 	if googleClientID == "" || googleClientSecret == "" {
@@ -202,8 +217,11 @@ func (a *App) Start(ctx context.Context) error {
 	// Load existing Google token if available.
 	a.googleToken = a.loadGoogleToken()
 
-	// 7a. Gmail (via OAuth REST API)
+	// 7a. Email provider — priority: OAuth > IMAP+SMTP > email_connect tool
+	emailViaApp := false
+
 	if a.oauthClient != nil && a.googleToken != nil && a.googleToken.RefreshToken != "" {
+		// OAuth path: Gmail REST API.
 		tokenProvider := func(ctx context.Context) (string, error) {
 			a.googleMu.RLock()
 			tok := a.googleToken
@@ -226,13 +244,73 @@ func (a *App) Start(ctx context.Context) error {
 				PollInterval: a.Config.GmailPollInterval(),
 			}, apiClient, db.Inner(), a.Logger.With("component", "gmail"))
 
-			tools.RegisterEmailTools(toolReg, a.gmailPoller)
+			a.emailMu.Lock()
+			a.emailProvider = a.gmailPoller
+			a.emailMu.Unlock()
 
 			if err := a.gmailPoller.Start(ctx); err != nil {
 				a.Logger.Error("Gmail poller failed to start", "error", err)
 			}
 		}
+	} else if a.Config.GmailUser != "" && a.Config.GmailAppPassword != "" {
+		// IMAP+SMTP path: App Password.
+		imapProvider := gmail.NewIMAPProvider(gmail.IMAPConfig{
+			Email:        a.Config.GmailUser,
+			AppPassword:  a.Config.GmailAppPassword,
+			PollInterval: a.Config.GmailPollInterval(),
+		}, db.Inner(), a.Logger.With("component", "email-imap"))
+
+		a.emailMu.Lock()
+		a.emailProvider = imapProvider
+		a.emailMu.Unlock()
+		emailViaApp = true
+
+		if err := imapProvider.Start(ctx); err != nil {
+			a.Logger.Error("IMAP email provider failed to start", "error", err)
+		}
 	}
+
+	a.emailMu.RLock()
+	hasEmail := a.emailProvider != nil
+	a.emailMu.RUnlock()
+	if hasEmail {
+		a.emailMu.RLock()
+		tools.RegisterEmailTools(toolReg, a.emailProvider)
+		a.emailMu.RUnlock()
+	}
+
+	// Always register email_connect so users can set up email conversationally.
+	tools.RegisterEmailConnectTool(toolReg, tools.EmailConnectDeps{
+		IsConfigured: func() bool {
+			a.emailMu.RLock()
+			defer a.emailMu.RUnlock()
+			return a.emailProvider != nil
+		},
+		SaveCreds: func(email, appPassword string) {
+			a.configMu.Lock()
+			a.Config.GmailUser = email
+			a.Config.GmailAppPassword = appPassword
+			a.configMu.Unlock()
+			if err := a.Config.SaveConfig(); err != nil {
+				a.Logger.Warn("failed to save email credentials to config", "error", err)
+			}
+			a.Logger.Info("email credentials saved and activated", "email", email)
+		},
+		StartProvider: func(provider gmail.EmailProvider) {
+			go provider.Start(ctx)
+		},
+		Registry: toolReg,
+		DB:       db.Inner(),
+		Logger:   a.Logger.With("component", "email-imap"),
+		OnConnected: func(provider gmail.EmailProvider) {
+			a.emailMu.Lock()
+			a.emailProvider = provider
+			a.emailMu.Unlock()
+			if a.rt != nil {
+				a.rt.SetEmailEnabled(true, true)
+			}
+		},
+	})
 
 	// 7b. Calendar — prefer OAuth, fall back to App Password
 	var calendarClient *calendar.Client
@@ -276,7 +354,52 @@ func (a *App) Start(ctx context.Context) error {
 			},
 			OnTokenReceived: func(tok oauth.Token) {
 				a.saveGoogleToken(tok)
-				a.Logger.Info("Google account connected — restart to enable calendar tools")
+
+				// Hot-reload: auto-discover email and register calendar tools immediately.
+				tokenProvider := func(ctx context.Context) (string, error) {
+					a.googleMu.RLock()
+					t := a.googleToken
+					a.googleMu.RUnlock()
+					return a.oauthClient.ValidAccessToken(ctx, t)
+				}
+
+				// Auto-discover email via OAuth profile.
+				discoverCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+
+				apiClient := gmail.NewAPIClient(tokenProvider)
+				if email, err := apiClient.GetProfile(discoverCtx); err == nil && email != "" {
+					a.configMu.Lock()
+					if a.Config.GmailUser == "" {
+						a.Config.GmailUser = email
+					}
+					a.configMu.Unlock()
+					if err := a.Config.SaveConfig(); err != nil {
+						a.Logger.Warn("failed to save discovered email", "error", err)
+					}
+				}
+
+				// Register calendar tools with the new token.
+				a.configMu.RLock()
+				gmailUser := a.Config.GmailUser
+				a.configMu.RUnlock()
+
+				if gmailUser != "" {
+					calClient := calendar.NewOAuthClient(
+						gmailUser,
+						tokenProvider,
+						a.Logger.With("component", "calendar"),
+					)
+					tools.RegisterCalendarTools(toolReg, calClient)
+					a.Logger.Info("calendar tools hot-reloaded after OAuth", "email", gmailUser)
+				}
+
+				// Update runtime flags.
+				if a.rt != nil {
+					a.rt.SetGoogleConnected(true)
+				}
+
+				a.Logger.Info("Google account connected — calendar tools activated")
 			},
 			IsConnected: func() bool {
 				a.googleMu.RLock()
@@ -498,6 +621,10 @@ func (a *App) Start(ctx context.Context) error {
 	}
 	rtCfg.GoogleConnected = a.googleToken != nil && a.googleToken.RefreshToken != ""
 	rtCfg.WebSearchEnabled = a.Config.BraveAPIKey != ""
+	a.emailMu.RLock()
+	rtCfg.EmailEnabled = a.emailProvider != nil
+	a.emailMu.RUnlock()
+	rtCfg.EmailViaApp = emailViaApp
 
 	rt := runtime.New(rtCfg, a.bus, db.Inner(), llm, a.sessions, toolReg,
 		a.offlineQueue, a.pairing, memExtractor, memRetriever,
@@ -531,7 +658,33 @@ func (a *App) Start(ctx context.Context) error {
 	if a.oauthClient != nil {
 		a.gateway.SetOAuthClient(a.oauthClient, func(tok oauth.Token) {
 			a.saveGoogleToken(tok)
-			a.Logger.Info("Google account connected via dashboard — restart to enable calendar tools")
+
+			// Hot-reload calendar tools from dashboard OAuth flow too.
+			tokenProvider := func(ctx context.Context) (string, error) {
+				a.googleMu.RLock()
+				t := a.googleToken
+				a.googleMu.RUnlock()
+				return a.oauthClient.ValidAccessToken(ctx, t)
+			}
+
+			a.configMu.RLock()
+			gmailUser := a.Config.GmailUser
+			a.configMu.RUnlock()
+
+			if gmailUser != "" {
+				calClient := calendar.NewOAuthClient(
+					gmailUser,
+					tokenProvider,
+					a.Logger.With("component", "calendar"),
+				)
+				tools.RegisterCalendarTools(toolReg, calClient)
+			}
+
+			if a.rt != nil {
+				a.rt.SetGoogleConnected(true)
+			}
+
+			a.Logger.Info("Google account connected via dashboard — calendar tools activated")
 		})
 	}
 
@@ -579,6 +732,16 @@ func (a *App) Stop() error {
 	if a.gmailPoller != nil {
 		if err := a.gmailPoller.Stop(); err != nil {
 			a.Logger.Error("Gmail poller stop error", "error", err)
+		}
+	}
+
+	// Stop IMAP provider if it's separate from the Gmail poller.
+	a.emailMu.RLock()
+	ep := a.emailProvider
+	a.emailMu.RUnlock()
+	if ep != nil && ep != a.gmailPoller {
+		if err := ep.Stop(); err != nil {
+			a.Logger.Error("email provider stop error", "error", err)
 		}
 	}
 

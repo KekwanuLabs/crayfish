@@ -2,8 +2,10 @@ package tools
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -11,9 +13,9 @@ import (
 	"github.com/KekwanuLabs/crayfish/internal/security"
 )
 
-// RegisterEmailTools adds Gmail email tools to the registry.
-// Called only when Gmail is configured.
-func RegisterEmailTools(reg *Registry, poller *gmail.Poller) {
+// RegisterEmailTools adds email tools to the registry.
+// Accepts any EmailProvider (Gmail OAuth poller or IMAP+SMTP client).
+func RegisterEmailTools(reg *Registry, poller gmail.EmailProvider) {
 	reg.logger.Info("registering email tools", "email", poller.Email())
 
 	// email_check — list new/unread emails.
@@ -513,6 +515,108 @@ func RegisterEmailTools(reg *Registry, poller *gmail.Poller) {
 
 			out, _ := json.Marshal(digest)
 			return string(out), nil
+		},
+	})
+}
+
+// EmailConnectDeps holds dependencies for the email_connect tool.
+type EmailConnectDeps struct {
+	IsConfigured  func() bool                                                      // Check if email is already configured.
+	SaveCreds     func(email, appPassword string)                                  // Persist credentials to config.
+	StartProvider func(provider gmail.EmailProvider)                               // Start provider with app lifecycle context.
+	Registry      *Registry                                                        // Tool registry for dynamic registration.
+	DB            *sql.DB                                                          // Database for the IMAP provider.
+	Logger        *slog.Logger                                                     // Logger.
+	OnConnected   func(provider gmail.EmailProvider)                               // Called after successful connection.
+}
+
+// RegisterEmailConnectTool adds the email_connect tool so users can set up
+// email via app password conversationally. Always registered regardless of
+// whether email is already configured.
+func RegisterEmailConnectTool(reg *Registry, deps EmailConnectDeps) {
+	reg.logger.Info("registering email_connect tool")
+
+	reg.Register(&Tool{
+		Name: "email_connect",
+		Description: `Set up email access using a Gmail app password. Walk the user through generating an app password, then verify and activate email.
+If the user provides their email and app_password, verify the IMAP connection and enable email tools.`,
+		MinTier: security.TierOperator,
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"email": {
+					"type": "string",
+					"description": "Gmail address (e.g., user@gmail.com)"
+				},
+				"app_password": {
+					"type": "string",
+					"description": "The 16-character app password from Google"
+				}
+			}
+		}`),
+		Execute: func(ctx context.Context, sess *security.Session, input json.RawMessage) (string, error) {
+			var params struct {
+				Email       string `json:"email"`
+				AppPassword string `json:"app_password"`
+			}
+			if err := json.Unmarshal(input, &params); err != nil {
+				return "", fmt.Errorf("email_connect: parse input: %w", err)
+			}
+
+			// If no credentials provided, return setup instructions.
+			if params.Email == "" || params.AppPassword == "" {
+				if deps.IsConfigured() {
+					return "Email is already configured and working. No action needed.", nil
+				}
+				return `Email is not set up yet. Google doesn't allow email access through the quick device-code method (the one used for calendar), so a separate app password is needed.
+
+Here's how to set it up:
+
+1. Go to myaccount.google.com → Security → 2-Step Verification
+   (2-Step Verification must be turned on first)
+2. Scroll down to "App passwords"
+3. Create a new app password — select "Mail" as the app
+4. Google will show a 16-character code (like "abcd efgh ijkl mnop")
+5. Copy that code and give it to me along with the Gmail address
+
+Once the user has the app password, call this tool again with both the email and app_password parameters.`, nil
+			}
+
+			// Clean up app password (remove spaces).
+			appPassword := strings.ReplaceAll(strings.TrimSpace(params.AppPassword), " ", "")
+			email := strings.TrimSpace(params.Email)
+
+			// Test IMAP login.
+			provider := gmail.NewIMAPProvider(gmail.IMAPConfig{
+				Email:       email,
+				AppPassword: appPassword,
+			}, deps.DB, deps.Logger)
+
+			if err := provider.TestLogin(ctx); err != nil {
+				return fmt.Sprintf("Could not connect to Gmail IMAP: %v\n\nPlease double-check:\n- The email address is correct\n- The app password is correct (16 characters, no spaces)\n- 2-Step Verification is enabled on the Google account", err), nil
+			}
+
+			// Credentials verified — save and activate.
+			deps.SaveCreds(email, appPassword)
+
+			// Create the full provider with polling config.
+			fullProvider := gmail.NewIMAPProvider(gmail.IMAPConfig{
+				Email:       email,
+				AppPassword: appPassword,
+			}, deps.DB, deps.Logger)
+
+			RegisterEmailTools(deps.Registry, fullProvider)
+
+			if deps.OnConnected != nil {
+				deps.OnConnected(fullProvider)
+			}
+
+			// Start background polling with app lifecycle context.
+			if deps.StartProvider != nil {
+				deps.StartProvider(fullProvider)
+			}
+
+			return fmt.Sprintf("Email connected successfully! Connected as %s via app password. Email tools are now active — you can check, search, send, and reply to emails.", email), nil
 		},
 	})
 }
