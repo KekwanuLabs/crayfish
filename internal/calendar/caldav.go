@@ -158,15 +158,65 @@ func (c *Client) GetUpcoming(days int) ([]Event, error) {
 
 // CreateEvent creates a new calendar event.
 func (c *Client) CreateEvent(event *Event) error {
+	if event.ID == "" {
+		event.ID = fmt.Sprintf("%d@crayfish", time.Now().UnixNano())
+	}
+	return c.putEvent(event)
+}
+
+// GetEventByID fetches a single event by its ID.
+func (c *Client) GetEventByID(eventID string) (*Event, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), httpTimeout)
 	defer cancel()
 
-	uid := fmt.Sprintf("%d@crayfish", time.Now().UnixNano())
-	if event.ID == "" {
-		event.ID = uid
+	eventURL := c.calendarURL() + eventID + ".ics"
+	body, err := c.doRequest(ctx, "GET", eventURL, nil, "")
+	if err != nil {
+		return nil, fmt.Errorf("get event %s: %w", eventID, err)
 	}
 
-	// Build iCalendar format
+	event, err := parseICalEvent(string(body))
+	if err != nil {
+		return nil, fmt.Errorf("parse event %s: %w", eventID, err)
+	}
+	return &event, nil
+}
+
+// UpdateEvent modifies an existing event. Only non-zero fields in the
+// update are applied; everything else is preserved from the original.
+func (c *Client) UpdateEvent(eventID string, update *Event) error {
+	existing, err := c.GetEventByID(eventID)
+	if err != nil {
+		return fmt.Errorf("update event: %w", err)
+	}
+
+	// Merge: apply non-zero update fields onto the existing event.
+	if update.Title != "" {
+		existing.Title = update.Title
+	}
+	if update.Description != "" {
+		existing.Description = update.Description
+	}
+	if update.Location != "" {
+		existing.Location = update.Location
+	}
+	if !update.Start.IsZero() {
+		existing.Start = update.Start
+	}
+	if !update.End.IsZero() {
+		existing.End = update.End
+	}
+
+	// Rebuild iCalendar and PUT it back.
+	existing.ID = eventID
+	return c.putEvent(existing)
+}
+
+// putEvent writes an event to CalDAV via PUT.
+func (c *Client) putEvent(event *Event) error {
+	ctx, cancel := context.WithTimeout(context.Background(), httpTimeout)
+	defer cancel()
+
 	var ical strings.Builder
 	ical.WriteString("BEGIN:VCALENDAR\r\n")
 	ical.WriteString("VERSION:2.0\r\n")
@@ -196,10 +246,10 @@ func (c *Client) CreateEvent(event *Event) error {
 	eventURL := c.calendarURL() + event.ID + ".ics"
 	_, err := c.doRequest(ctx, "PUT", eventURL, []byte(ical.String()), "text/calendar")
 	if err != nil {
-		return fmt.Errorf("create event: %w", err)
+		return fmt.Errorf("update event: %w", err)
 	}
 
-	c.logger.Info("calendar event created", "title", event.Title, "start", event.Start)
+	c.logger.Info("calendar event updated", "title", event.Title, "id", event.ID)
 	return nil
 }
 

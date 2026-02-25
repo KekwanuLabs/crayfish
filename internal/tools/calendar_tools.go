@@ -405,6 +405,124 @@ func RegisterCalendarTools(reg *Registry, client *calendar.Client) {
 		},
 	})
 
+	// calendar_update — modify an existing event.
+	reg.Register(&Tool{
+		Name:        "calendar_update",
+		Description: "Update an existing calendar event. Only the fields you provide will be changed — everything else stays the same. Use calendar_search or calendar_today first to find the event ID.",
+		MinTier:     security.TierTrusted,
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"event_id": {
+					"type": "string",
+					"description": "The event ID to update (from calendar_today, calendar_upcoming, or calendar_search)"
+				},
+				"title": {
+					"type": "string",
+					"description": "New title for the event (leave empty to keep current)"
+				},
+				"date": {
+					"type": "string",
+					"description": "New date in YYYY-MM-DD format (leave empty to keep current)"
+				},
+				"start_time": {
+					"type": "string",
+					"description": "New start time in HH:MM format, 24-hour (leave empty to keep current)"
+				},
+				"end_time": {
+					"type": "string",
+					"description": "New end time in HH:MM format, 24-hour (leave empty to keep current)"
+				},
+				"location": {
+					"type": "string",
+					"description": "New location (leave empty to keep current)"
+				},
+				"description": {
+					"type": "string",
+					"description": "New description (leave empty to keep current)"
+				}
+			},
+			"required": ["event_id"]
+		}`),
+		Execute: func(ctx context.Context, sess *security.Session, input json.RawMessage) (string, error) {
+			var params struct {
+				EventID     string `json:"event_id"`
+				Title       string `json:"title"`
+				Date        string `json:"date"`
+				StartTime   string `json:"start_time"`
+				EndTime     string `json:"end_time"`
+				Location    string `json:"location"`
+				Description string `json:"description"`
+			}
+			if err := json.Unmarshal(input, &params); err != nil {
+				return "", fmt.Errorf("calendar_update: parse input: %w", err)
+			}
+			if params.EventID == "" {
+				return "", fmt.Errorf("calendar_update: event_id is required")
+			}
+
+			update := &calendar.Event{
+				Title:       params.Title,
+				Location:    params.Location,
+				Description: params.Description,
+			}
+
+			// Parse date + time if provided.
+			if params.Date != "" {
+				date, err := time.Parse("2006-01-02", params.Date)
+				if err != nil {
+					return "", fmt.Errorf("calendar_update: invalid date format (use YYYY-MM-DD): %w", err)
+				}
+
+				if params.StartTime != "" {
+					startTime, err := time.Parse("15:04", params.StartTime)
+					if err != nil {
+						return "", fmt.Errorf("calendar_update: invalid start_time format (use HH:MM): %w", err)
+					}
+					update.Start = time.Date(date.Year(), date.Month(), date.Day(),
+						startTime.Hour(), startTime.Minute(), 0, 0, time.Local)
+				}
+
+				if params.EndTime != "" {
+					endTime, err := time.Parse("15:04", params.EndTime)
+					if err != nil {
+						return "", fmt.Errorf("calendar_update: invalid end_time format (use HH:MM): %w", err)
+					}
+					update.End = time.Date(date.Year(), date.Month(), date.Day(),
+						endTime.Hour(), endTime.Minute(), 0, 0, time.Local)
+				}
+			} else {
+				// Date not provided but times are — apply to existing event's date.
+				if params.StartTime != "" || params.EndTime != "" {
+					return "", fmt.Errorf("calendar_update: date is required when changing start_time or end_time")
+				}
+			}
+
+			if err := client.UpdateEvent(params.EventID, update); err != nil {
+				return "", fmt.Errorf("calendar_update: %w", err)
+			}
+
+			var changes []string
+			if params.Title != "" {
+				changes = append(changes, "title")
+			}
+			if params.Date != "" {
+				changes = append(changes, "date/time")
+			}
+			if params.Location != "" {
+				changes = append(changes, "location")
+			}
+			if params.Description != "" {
+				changes = append(changes, "description")
+			}
+			if len(changes) == 0 {
+				changes = append(changes, "no fields")
+			}
+
+			return fmt.Sprintf("Event updated (%s changed).", strings.Join(changes, ", ")), nil
+		},
+	})
+
 	// calendar_delete — remove an event by ID.
 	reg.Register(&Tool{
 		Name:        "calendar_delete",
