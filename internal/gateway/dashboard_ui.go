@@ -403,7 +403,7 @@ const dashboardPageHTML = `<!DOCTYPE html>
         <div class="form-group"><label>Telegram Token</label><div class="pass-wrap"><input type="password" id="cfg-telegram_token"><button class="pass-toggle" onclick="togglePass('cfg-telegram_token')">&#128065;</button></div></div>
         <div class="form-row">
           <div class="form-group"><label>Gmail User</label><input type="text" id="cfg-gmail_user" placeholder="you@gmail.com"></div>
-          <div class="form-group"><label>Gmail App Password</label><div class="pass-wrap"><input type="password" id="cfg-gmail_app_password"><button class="pass-toggle" onclick="togglePass('cfg-gmail_app_password')">&#128065;</button></div></div>
+          <div class="form-group"><label>Gmail App Password <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener" style="font-weight:normal;font-size:0.85em">(get one here)</a></label><div class="pass-wrap"><input type="password" id="cfg-gmail_app_password"><button class="pass-toggle" onclick="togglePass('cfg-gmail_app_password')">&#128065;</button></div></div>
         </div>
         <div class="form-group"><label>Brave API Key</label><div class="pass-wrap"><input type="password" id="cfg-brave_api_key"><button class="pass-toggle" onclick="togglePass('cfg-brave_api_key')">&#128065;</button></div></div>
       </div>

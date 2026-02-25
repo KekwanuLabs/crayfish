@@ -152,7 +152,7 @@ You have email access via app password. You can read, search, send, and reply to
 		base += `
 
 ## Email
-Email is not set up yet. If the user asks about email, offer to set it up using the email_connect tool — they'll need a Gmail app password. Explain that Google doesn't allow email access through the quick device-code method, so a separate app password is needed. Walk them through it step by step.`
+Email is not set up yet. If the user asks about email, offer to set it up using the email_connect tool — they'll need a Gmail app password. Explain that Google doesn't allow email access through the quick device-code method, so a separate app password is needed. Give them the direct link: https://myaccount.google.com/apppasswords — they just create an app password there and paste the code back to you. Walk them through it step by step, keep it simple.`
 	}
 
 	// Web search context.

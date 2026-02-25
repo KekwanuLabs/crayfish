@@ -572,12 +572,11 @@ If the user provides their email and app_password, verify the IMAP connection an
 
 Here's how to set it up:
 
-1. Go to myaccount.google.com → Security → 2-Step Verification
-   (2-Step Verification must be turned on first)
-2. Scroll down to "App passwords"
-3. Create a new app password — select "Mail" as the app
-4. Google will show a 16-character code (like "abcd efgh ijkl mnop")
-5. Copy that code and give it to me along with the Gmail address
+1. Open this link: https://myaccount.google.com/apppasswords
+   (Make sure 2-Step Verification is turned on first — if the link doesn't work, enable it at https://myaccount.google.com/signinoptions/two-step-verification)
+2. Create a new app password — name it anything (e.g., "Crayfish")
+3. Google will show a 16-character code (like "abcd efgh ijkl mnop")
+4. Copy that code and give it to me along with the Gmail address
 
 Once the user has the app password, call this tool again with both the email and app_password parameters.`, nil
 			}
