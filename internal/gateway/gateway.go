@@ -14,6 +14,7 @@ import (
 
 	"github.com/KekwanuLabs/crayfish/internal/bus"
 	"github.com/KekwanuLabs/crayfish/internal/channels"
+	"github.com/KekwanuLabs/crayfish/internal/oauth"
 	"github.com/KekwanuLabs/crayfish/internal/runtime"
 	"github.com/KekwanuLabs/crayfish/internal/skills"
 	"github.com/KekwanuLabs/crayfish/internal/storage"
@@ -46,16 +47,18 @@ func DefaultConfig() Config {
 
 // Gateway is the main application orchestrator.
 type Gateway struct {
-	config        Config
-	db            *storage.DB
-	bus           bus.Bus
-	rt            *runtime.Runtime
-	adapters      map[string]channels.ChannelAdapter
-	skillRegistry *skills.Registry
-	appRef        AppAccessor
-	server        *http.Server
-	logger        *slog.Logger
-	mu            sync.RWMutex
+	config          Config
+	db              *storage.DB
+	bus             bus.Bus
+	rt              *runtime.Runtime
+	adapters        map[string]channels.ChannelAdapter
+	skillRegistry   *skills.Registry
+	appRef          AppAccessor
+	oauthClient     *oauth.Client
+	onOAuthComplete func(oauth.Token)
+	server          *http.Server
+	logger          *slog.Logger
+	mu              sync.RWMutex
 }
 
 // New creates a new Gateway instance. Accepts a pre-opened DB so the entire
@@ -78,6 +81,12 @@ func (g *Gateway) SetSkillRegistry(registry *skills.Registry) {
 // SetAppAccessor sets the app accessor for the dashboard.
 func (g *Gateway) SetAppAccessor(a AppAccessor) {
 	g.appRef = a
+}
+
+// SetOAuthClient sets the OAuth client and completion callback for Google integration.
+func (g *Gateway) SetOAuthClient(client *oauth.Client, onComplete func(oauth.Token)) {
+	g.oauthClient = client
+	g.onOAuthComplete = onComplete
 }
 
 // RegisterAdapter adds a channel adapter to the gateway.
@@ -269,6 +278,12 @@ func (g *Gateway) httpHandler() http.Handler {
 		})
 	})
 
+	// Google OAuth API endpoints (for dashboard).
+	if g.oauthClient != nil {
+		mux.HandleFunc("/api/google/status", g.requireAuth(g.handleGoogleStatus))
+		mux.HandleFunc("/api/google/connect", g.requireAuth(g.handleGoogleConnect))
+	}
+
 	// Register skills API and UI if registry is available.
 	if g.skillRegistry != nil {
 		skillsAPI := NewSkillsAPI(g.skillRegistry, g.config.SkillsDir)
@@ -309,4 +324,69 @@ h1{color:#d63031}a{color:#0984e3}</style></head>
 	}
 
 	return mux
+}
+
+// handleGoogleStatus returns the current Google OAuth connection state.
+func (g *Gateway) handleGoogleStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	connected := false
+	var scopes []string
+	if g.appRef != nil {
+		cfg := g.appRef.DashboardConfig()
+		if _, ok := cfg["google_connected"]; ok {
+			connected, _ = cfg["google_connected"].(bool)
+		}
+		if s, ok := cfg["google_scopes"]; ok {
+			scopes, _ = s.([]string)
+		}
+	}
+
+	json.NewEncoder(w).Encode(map[string]any{
+		"connected": connected,
+		"scopes":    scopes,
+	})
+}
+
+// handleGoogleConnect initiates the device authorization flow.
+// Returns the user_code and verification_url for the user to complete on their phone.
+// Then polls in a goroutine until the user completes consent.
+func (g *Gateway) handleGoogleConnect(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+		return
+	}
+
+	dc, err := g.oauthClient.RequestDeviceCode(r.Context())
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	// Poll in background goroutine — the HTTP response returns immediately
+	// with the user code so the dashboard can display it.
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(dc.ExpiresIn)*time.Second)
+		defer cancel()
+
+		tok, err := g.oauthClient.PollForToken(ctx, dc)
+		if err != nil {
+			g.logger.Error("Google OAuth device flow failed", "error", err)
+			return
+		}
+
+		g.logger.Info("Google account connected via dashboard")
+		if g.onOAuthComplete != nil {
+			g.onOAuthComplete(*tok)
+		}
+	}()
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"user_code":        dc.UserCode,
+		"verification_url": dc.VerificationURL,
+		"expires_in":       dc.ExpiresIn,
+	})
 }

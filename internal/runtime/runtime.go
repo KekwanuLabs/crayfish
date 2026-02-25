@@ -55,11 +55,12 @@ Guidelines:
 
 // Config holds runtime configuration.
 type Config struct {
-	Name         string `json:"name" yaml:"name"`                   // The Crayfish's given name
-	Personality  string `json:"personality" yaml:"personality"`     // friendly, professional, casual, minimal
-	SystemPrompt string `json:"system_prompt" yaml:"system_prompt"` // Custom override (optional)
-	Model        string `json:"model" yaml:"model"`
-	MaxTokens    int    `json:"max_tokens" yaml:"max_tokens"`
+	Name           string `json:"name" yaml:"name"`                   // The Crayfish's given name
+	Personality    string `json:"personality" yaml:"personality"`     // friendly, professional, casual, minimal
+	SystemPrompt   string `json:"system_prompt" yaml:"system_prompt"` // Custom override (optional)
+	Model          string `json:"model" yaml:"model"`
+	MaxTokens      int    `json:"max_tokens" yaml:"max_tokens"`
+	GoogleConnected bool  `json:"-" yaml:"-"` // Whether Google OAuth is active (injected at startup)
 }
 
 // DefaultConfig returns sensible defaults for the runtime.
@@ -116,6 +117,21 @@ You are resourceful, practical, and accessible — like crayfish itself. Found e
 
 ## Session Continuity
 You have a checkpoint tool. When session state is recovered, it will appear as [Session State] in your context. Use it to continue seamlessly — never say "I don't remember" without checking the session state first. If you notice gaps, briefly acknowledge them. The user should never need to re-explain context.`, name, name, name, personalityGuide, name)
+	}
+
+	// Google integration context.
+	if c.GoogleConnected {
+		base += `
+
+## Google Integration
+The user's Google account is connected with calendar and email access. You can check their calendar, read emails, and help manage their schedule.
+
+If they ask about Google Drive, Docs, or Sheets, you can add those capabilities without disconnecting — call google_connect with a purpose parameter (e.g., purpose="drive"). Same quick code-on-phone process, and Google only asks for the new permission.`
+	} else {
+		base += `
+
+## Google Integration
+You can help the user connect their Google account for calendar and email features. If they ask about calendar or email, offer to set it up using the google_connect tool. Keep it simple and conversational — they just need to enter a code on their phone at google.com/device.`
 	}
 
 	// Append identity content if available.

@@ -269,8 +269,8 @@ func NewSTT(cfg STTConfig, logger *slog.Logger) *STTEngine {
 
 	// Check if whisper-cpp is available
 	if !isWhisperInstalled() {
-		logger.Warn("whisper-cpp not installed, STT disabled",
-			"hint", "Install whisper.cpp from https://github.com/ggml-org/whisper.cpp")
+		logger.Info("whisper-cpp not installed yet, STT deferred",
+			"hint", "background installer will handle this")
 		e.enabled = false
 		return e
 	}

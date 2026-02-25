@@ -22,6 +22,7 @@ import (
 	"github.com/KekwanuLabs/crayfish/internal/gmail"
 	"github.com/KekwanuLabs/crayfish/internal/heartbeat"
 	"github.com/KekwanuLabs/crayfish/internal/identity"
+	"github.com/KekwanuLabs/crayfish/internal/oauth"
 	"github.com/KekwanuLabs/crayfish/internal/provider"
 	"github.com/KekwanuLabs/crayfish/internal/queue"
 	"github.com/KekwanuLabs/crayfish/internal/runtime"
@@ -58,6 +59,11 @@ type App struct {
 
 	// Identity system
 	identityStore *identity.Store
+
+	// Google OAuth
+	oauthClient *oauth.Client
+	googleToken *oauth.Token
+	googleMu    sync.RWMutex
 
 	// Runtime reference for hot-reload
 	rt *runtime.Runtime
@@ -126,9 +132,10 @@ func (a *App) Start(ctx context.Context) error {
 		cliAdapter.Name(): cliAdapter,
 	}
 
+	var tgAdapter *telegram.Adapter
 	if a.Config.TelegramToken != "" {
-		tg := telegram.New(a.Config.TelegramToken, a.Logger.With("component", "telegram"))
-		adapterMap[tg.Name()] = tg
+		tgAdapter = telegram.New(a.Config.TelegramToken, a.Logger.With("component", "telegram"))
+		adapterMap[tgAdapter.Name()] = tgAdapter
 
 		// Wire up STT for voice message transcription
 		if a.Config.STTEnabled {
@@ -137,7 +144,7 @@ func (a *App) Start(ctx context.Context) error {
 				ModelPath: a.Config.STTModelPath,
 			}, a.Logger.With("component", "stt"))
 			if sttEngine.STTEnabled() {
-				tg.SetSTT(sttEngine)
+				tgAdapter.SetSTT(sttEngine)
 				a.Logger.Info("voice transcription enabled for Telegram")
 			}
 		}
@@ -151,7 +158,32 @@ func (a *App) Start(ctx context.Context) error {
 		tools.RegisterSearchTools(toolReg, tools.BraveSearchConfig{APIKey: a.Config.BraveAPIKey})
 	}
 
-	// 7. Gmail (optional)
+	// 7. Google OAuth client — credentials injected at build time or via config override.
+	googleClientID := oauth.CrayfishClientID
+	googleClientSecret := oauth.CrayfishClientSecret
+	if a.Config.GoogleClientID != "" {
+		googleClientID = a.Config.GoogleClientID
+	}
+	if a.Config.GoogleClientSecret != "" {
+		googleClientSecret = a.Config.GoogleClientSecret
+	}
+
+	if googleClientID == "" || googleClientSecret == "" {
+		a.Logger.Info("Google OAuth disabled — no client credentials configured")
+	} else {
+		a.oauthClient = oauth.NewClient(oauth.Config{
+			ClientID:     googleClientID,
+			ClientSecret: googleClientSecret,
+			Scopes:       oauth.ScopesBase,
+		}, func(tok oauth.Token) {
+			a.saveGoogleToken(tok)
+		})
+	}
+
+	// Load existing Google token if available.
+	a.googleToken = a.loadGoogleToken()
+
+	// 7a. Gmail (optional — App Password path, independent of OAuth)
 	if a.Config.GmailUser != "" && a.Config.GmailAppPassword != "" {
 		a.gmailPoller = gmail.NewPoller(gmail.Config{
 			Email:        a.Config.GmailUser,
@@ -161,25 +193,76 @@ func (a *App) Start(ctx context.Context) error {
 
 		tools.RegisterEmailTools(toolReg, a.gmailPoller)
 
-		// Calendar uses the same credentials as Gmail (App Password works for CalDAV too)
-		calendarClient := calendar.NewClient(
+		if err := a.gmailPoller.Start(ctx); err != nil {
+			a.Logger.Error("Gmail poller failed to start", "error", err)
+		}
+	}
+
+	// 7b. Calendar — prefer OAuth, fall back to App Password
+	var calendarClient *calendar.Client
+	if a.oauthClient != nil && a.googleToken != nil && a.googleToken.RefreshToken != "" && a.Config.GmailUser != "" {
+		// OAuth path: use Bearer tokens for CalDAV.
+		currentToken := a.googleToken
+		calendarClient = calendar.NewOAuthClient(
+			a.Config.GmailUser,
+			func(ctx context.Context) (string, error) {
+				a.googleMu.RLock()
+				tok := a.googleToken
+				a.googleMu.RUnlock()
+				return a.oauthClient.ValidAccessToken(ctx, tok)
+			},
+			a.Logger.With("component", "calendar"),
+		)
+		a.Logger.Info("calendar using OAuth", "email", a.Config.GmailUser,
+			"scopes", currentToken.Scopes)
+	} else if a.Config.GmailUser != "" && a.Config.GmailAppPassword != "" {
+		// Legacy path: App Password for CalDAV.
+		calendarClient = calendar.NewClient(
 			a.Config.GmailUser,
 			a.Config.GmailAppPassword,
 			a.Logger.With("component", "calendar"),
 		)
+		a.Logger.Info("calendar using App Password", "email", a.Config.GmailUser)
+	}
+
+	if calendarClient != nil {
 		tools.RegisterCalendarTools(toolReg, calendarClient)
+	}
 
-		if err := a.gmailPoller.Start(ctx); err != nil {
-			a.Logger.Error("Gmail poller failed to start", "error", err)
-			// Non-fatal
-		}
+	// 7c. Google OAuth tools (registered only when credentials are available)
+	if a.oauthClient != nil {
+		tools.RegisterGoogleTools(toolReg, tools.GoogleToolsDeps{
+			OAuthClient: a.oauthClient,
+			GetToken: func() *oauth.Token {
+				a.googleMu.RLock()
+				defer a.googleMu.RUnlock()
+				return a.googleToken
+			},
+			OnTokenReceived: func(tok oauth.Token) {
+				a.saveGoogleToken(tok)
+				a.Logger.Info("Google account connected — restart to enable calendar tools")
+			},
+			IsConnected: func() bool {
+				a.googleMu.RLock()
+				defer a.googleMu.RUnlock()
+				return a.googleToken != nil && a.googleToken.RefreshToken != ""
+			},
+			GetScopes: func() []string {
+				a.googleMu.RLock()
+				defer a.googleMu.RUnlock()
+				if a.googleToken == nil {
+					return nil
+				}
+				return a.googleToken.Scopes
+			},
+		})
+	}
 
-		// Heartbeat service - proactive check-ins
-		// Find the Telegram adapter for notifications
+	// 7d. Heartbeat service (needs Gmail poller + calendar client)
+	if a.gmailPoller != nil || calendarClient != nil {
 		var notifyFunc heartbeat.NotifyFunc
-		if tgAdapter, ok := adapterMap["telegram"].(*telegram.Adapter); ok {
+		if tgAdapter != nil {
 			notifyFunc = func(ctx context.Context, message string) error {
-				// Persist to conversation history so user follow-ups have context
 				chatID := tgAdapter.GetOperatorChatID()
 				if chatID != 0 {
 					sessionID := fmt.Sprintf("telegram:%d", chatID)
@@ -286,6 +369,16 @@ func (a *App) Start(ctx context.Context) error {
 				a.Logger.Info("starting background voice recognition setup")
 				if err := a.voiceInstaller.Install(ctx); err != nil {
 					a.Logger.Warn("voice recognition setup failed (non-fatal)", "error", err)
+					return
+				}
+				// Re-enable STT now that whisper is installed
+				sttEngine := voice.NewSTT(voice.STTConfig{
+					Enabled:   true,
+					ModelPath: a.Config.STTModelPath,
+				}, a.Logger.With("component", "stt"))
+				if sttEngine.STTEnabled() && tgAdapter != nil {
+					tgAdapter.SetSTT(sttEngine)
+					a.Logger.Info("voice transcription enabled for Telegram (post-install)")
 				}
 			}()
 		} else {
@@ -342,6 +435,7 @@ func (a *App) Start(ctx context.Context) error {
 	if a.Config.Personality != "" {
 		rtCfg.Personality = a.Config.Personality
 	}
+	rtCfg.GoogleConnected = a.googleToken != nil && a.googleToken.RefreshToken != ""
 
 	rt := runtime.New(rtCfg, a.bus, db.Inner(), llm, a.sessions, toolReg,
 		a.offlineQueue, a.pairing, memExtractor, memRetriever,
@@ -376,14 +470,16 @@ func (a *App) Start(ctx context.Context) error {
 	// Wire skill registry and app accessor to gateway for API, web UI, and dashboard.
 	a.gateway.SetSkillRegistry(a.skillRegistry)
 	a.gateway.SetAppAccessor(a)
+	if a.oauthClient != nil {
+		a.gateway.SetOAuthClient(a.oauthClient, func(tok oauth.Token) {
+			a.saveGoogleToken(tok)
+			a.Logger.Info("Google account connected via dashboard — restart to enable calendar tools")
+		})
+	}
 
 	a.gateway.RegisterAdapter(cliAdapter)
-	if a.Config.TelegramToken != "" {
-		for _, adapter := range adapterMap {
-			if adapter.Name() == "telegram" {
-				a.gateway.RegisterAdapter(adapter)
-			}
-		}
+	if tgAdapter != nil {
+		a.gateway.RegisterAdapter(tgAdapter)
 	}
 
 	if err := a.gateway.Start(ctx, rt, a.bus); err != nil {
@@ -492,6 +588,8 @@ func (a *App) DashboardConfig() map[string]any {
 		"snapshots_per_session":  a.Config.SnapshotsPerSession,
 		"auto_update":            a.Config.AutoUpdate,
 		"update_channel":         a.Config.UpdateChannel,
+		"google_connected":       a.Config.Google != nil && a.Config.Google.RefreshToken != "",
+		"google_scopes":          googleScopes(a.Config.Google),
 	}
 }
 
@@ -644,6 +742,61 @@ func (a *App) VoiceInstallProgress() map[string]any {
 		"status":   p.Status.String(),
 		"progress": p.Progress,
 		"message":  p.Message,
+	}
+}
+
+// googleScopes returns the scopes from a GoogleConfig, or nil if not configured.
+func googleScopes(g *GoogleConfig) []string {
+	if g == nil {
+		return nil
+	}
+	return g.Scopes
+}
+
+// loadGoogleToken converts the config's GoogleConfig into an oauth.Token.
+func (a *App) loadGoogleToken() *oauth.Token {
+	a.configMu.RLock()
+	defer a.configMu.RUnlock()
+
+	g := a.Config.Google
+	if g == nil || g.RefreshToken == "" {
+		return nil
+	}
+
+	tok := &oauth.Token{
+		AccessToken:  g.AccessToken,
+		RefreshToken: g.RefreshToken,
+		Scopes:       g.Scopes,
+	}
+
+	if g.Expiry != "" {
+		if t, err := time.Parse(time.RFC3339, g.Expiry); err == nil {
+			tok.Expiry = t
+		}
+	}
+
+	return tok
+}
+
+// saveGoogleToken persists an OAuth token to the config file.
+func (a *App) saveGoogleToken(tok oauth.Token) {
+	a.configMu.Lock()
+	defer a.configMu.Unlock()
+
+	a.Config.Google = &GoogleConfig{
+		AccessToken:  tok.AccessToken,
+		RefreshToken: tok.RefreshToken,
+		Expiry:       tok.Expiry.Format(time.RFC3339),
+		Scopes:       tok.Scopes,
+	}
+
+	// Update in-memory token.
+	a.googleMu.Lock()
+	a.googleToken = &tok
+	a.googleMu.Unlock()
+
+	if err := a.Config.SaveConfig(); err != nil {
+		a.Logger.Warn("failed to save Google token to config", "error", err)
 	}
 }
 
