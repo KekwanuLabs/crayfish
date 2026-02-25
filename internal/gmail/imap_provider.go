@@ -66,7 +66,7 @@ func (p *IMAPProvider) TestLogin(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer client.Logout().Wait()
+	defer func() { _ = client.Logout().Wait() }()
 	return nil
 }
 
@@ -313,7 +313,7 @@ func (p *IMAPProvider) syncEmails(ctx context.Context) {
 		p.logger.Error("IMAP sync connect failed", "error", err)
 		return
 	}
-	defer client.Logout().Wait()
+	defer func() { _ = client.Logout().Wait() }()
 
 	// Select INBOX.
 	mbox, err := client.Select("INBOX", nil).Wait()
