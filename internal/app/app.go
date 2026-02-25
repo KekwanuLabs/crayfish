@@ -217,11 +217,29 @@ func (a *App) Start(ctx context.Context) error {
 	// Load existing Google token if available.
 	a.googleToken = a.loadGoogleToken()
 
-	// 7a. Email provider — priority: OAuth > IMAP+SMTP > email_connect tool
+	// 7a. Email provider — priority: OAuth Gmail > IMAP+SMTP > email_connect tool
 	emailViaApp := false
 
-	if a.oauthClient != nil && a.googleToken != nil && a.googleToken.RefreshToken != "" {
-		// OAuth path: Gmail REST API.
+	// Auto-discover email from Google OAuth if not configured.
+	// Uses the UserInfo API (only needs userinfo.email scope, not Gmail scopes).
+	if a.oauthClient != nil && a.googleToken != nil && a.googleToken.RefreshToken != "" && a.Config.GmailUser == "" {
+		accessToken, err := a.oauthClient.ValidAccessToken(ctx, a.googleToken)
+		if err == nil {
+			if email, err := oauth.GetUserEmail(ctx, accessToken); err == nil {
+				a.Config.GmailUser = email
+				if saveErr := a.Config.SaveConfig(); saveErr != nil {
+					a.Logger.Warn("failed to persist discovered email", "error", saveErr)
+				}
+				a.Logger.Info("auto-discovered email from Google OAuth", "email", email)
+			} else {
+				a.Logger.Warn("failed to discover email from OAuth", "error", err)
+			}
+		}
+	}
+
+	// Gmail via OAuth REST API (requires Gmail scopes on the token).
+	if a.oauthClient != nil && a.googleToken != nil && a.googleToken.RefreshToken != "" &&
+		a.Config.GmailUser != "" && a.oauthClient.HasScope(a.googleToken, oauth.GmailModify) {
 		tokenProvider := func(ctx context.Context) (string, error) {
 			a.googleMu.RLock()
 			tok := a.googleToken
@@ -230,27 +248,17 @@ func (a *App) Start(ctx context.Context) error {
 		}
 		apiClient := gmail.NewAPIClient(tokenProvider)
 
-		// Auto-discover email from OAuth profile if not configured.
-		gmailUser := a.Config.GmailUser
-		if gmailUser == "" {
-			if email, err := apiClient.GetProfile(ctx); err == nil {
-				gmailUser = email
-			}
-		}
+		a.gmailPoller = gmail.NewPoller(gmail.Config{
+			Email:        a.Config.GmailUser,
+			PollInterval: a.Config.GmailPollInterval(),
+		}, apiClient, db.Inner(), a.Logger.With("component", "gmail"))
 
-		if gmailUser != "" {
-			a.gmailPoller = gmail.NewPoller(gmail.Config{
-				Email:        gmailUser,
-				PollInterval: a.Config.GmailPollInterval(),
-			}, apiClient, db.Inner(), a.Logger.With("component", "gmail"))
+		a.emailMu.Lock()
+		a.emailProvider = a.gmailPoller
+		a.emailMu.Unlock()
 
-			a.emailMu.Lock()
-			a.emailProvider = a.gmailPoller
-			a.emailMu.Unlock()
-
-			if err := a.gmailPoller.Start(ctx); err != nil {
-				a.Logger.Error("Gmail poller failed to start", "error", err)
-			}
+		if err := a.gmailPoller.Start(ctx); err != nil {
+			a.Logger.Error("Gmail poller failed to start", "error", err)
 		}
 	} else if a.Config.GmailUser != "" && a.Config.GmailAppPassword != "" {
 		// IMAP+SMTP path: App Password.
@@ -363,19 +371,21 @@ func (a *App) Start(ctx context.Context) error {
 					return a.oauthClient.ValidAccessToken(ctx, t)
 				}
 
-				// Auto-discover email via OAuth profile.
+				// Auto-discover email via UserInfo API (only needs userinfo.email scope).
 				discoverCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 				defer cancel()
 
-				apiClient := gmail.NewAPIClient(tokenProvider)
-				if email, err := apiClient.GetProfile(discoverCtx); err == nil && email != "" {
-					a.configMu.Lock()
-					if a.Config.GmailUser == "" {
-						a.Config.GmailUser = email
-					}
-					a.configMu.Unlock()
-					if err := a.Config.SaveConfig(); err != nil {
-						a.Logger.Warn("failed to save discovered email", "error", err)
+				accessToken, err := tokenProvider(discoverCtx)
+				if err == nil {
+					if email, err := oauth.GetUserEmail(discoverCtx, accessToken); err == nil && email != "" {
+						a.configMu.Lock()
+						if a.Config.GmailUser == "" {
+							a.Config.GmailUser = email
+						}
+						a.configMu.Unlock()
+						if err := a.Config.SaveConfig(); err != nil {
+							a.Logger.Warn("failed to save discovered email", "error", err)
+						}
 					}
 				}
 
@@ -665,6 +675,20 @@ func (a *App) Start(ctx context.Context) error {
 				t := a.googleToken
 				a.googleMu.RUnlock()
 				return a.oauthClient.ValidAccessToken(ctx, t)
+			}
+
+			// Auto-discover email if not yet known.
+			discoverCtx, discoverCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer discoverCancel()
+			if accessToken, err := tokenProvider(discoverCtx); err == nil {
+				if email, err := oauth.GetUserEmail(discoverCtx, accessToken); err == nil && email != "" {
+					a.configMu.Lock()
+					if a.Config.GmailUser == "" {
+						a.Config.GmailUser = email
+					}
+					a.configMu.Unlock()
+					_ = a.Config.SaveConfig()
+				}
 			}
 
 			a.configMu.RLock()

@@ -395,3 +395,40 @@ func (c *Client) HasScope(token *Token, scope string) bool {
 	}
 	return false
 }
+
+// GetUserEmail fetches the authenticated user's email address using the
+// Google UserInfo API. Only requires the userinfo.email scope (part of ScopesBase).
+func GetUserEmail(ctx context.Context, accessToken string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET",
+		"https://www.googleapis.com/oauth2/v2/userinfo", nil)
+	if err != nil {
+		return "", fmt.Errorf("oauth: create userinfo request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		return "", fmt.Errorf("oauth: userinfo request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("oauth: read userinfo response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("oauth: userinfo failed (%d): %s", resp.StatusCode, body)
+	}
+
+	var info struct {
+		Email string `json:"email"`
+	}
+	if err := json.Unmarshal(body, &info); err != nil {
+		return "", fmt.Errorf("oauth: parse userinfo: %w", err)
+	}
+	if info.Email == "" {
+		return "", fmt.Errorf("oauth: userinfo returned empty email")
+	}
+	return info.Email, nil
+}
