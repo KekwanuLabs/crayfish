@@ -48,6 +48,14 @@ type Config struct {
 	GmailAppPassword string `yaml:"gmail_app_password"`
 	GmailPollMinutes int    `yaml:"gmail_poll_minutes"`
 
+	// Google OAuth 2.0 — tokens from Device Authorization flow.
+	// Client ID/secret are embedded in the binary (not stored in config).
+	Google *GoogleConfig `yaml:"google,omitempty"`
+
+	// Google OAuth client overrides — for self-hosters with their own GCP project.
+	GoogleClientID     string `yaml:"google_client_id"`
+	GoogleClientSecret string `yaml:"google_client_secret"`
+
 	// Search
 	BraveAPIKey string `yaml:"brave_api_key"`
 
@@ -68,6 +76,15 @@ type Config struct {
 
 	// Internal — resolved config file path, not serialized to YAML.
 	ConfigPath string `yaml:"-" json:"-"`
+}
+
+// GoogleConfig holds OAuth 2.0 tokens for Google API access.
+// Stored in crayfish.yaml under the "google" key.
+type GoogleConfig struct {
+	AccessToken  string   `yaml:"access_token,omitempty"`
+	RefreshToken string   `yaml:"refresh_token,omitempty"`
+	Expiry       string   `yaml:"expiry,omitempty"` // RFC3339 format
+	Scopes       []string `yaml:"scopes,omitempty"`
 }
 
 // DefaultConfig returns sensible defaults.
@@ -177,6 +194,8 @@ func LoadConfig(logger *slog.Logger) Config {
 	envBool("CRAYFISH_AUTO_UPDATE", &cfg.AutoUpdate)
 	envStr("CRAYFISH_UPDATE_CHANNEL", &cfg.UpdateChannel)
 	envStr("CRAYFISH_DASHBOARD_API_KEY", &cfg.DashboardAPIKey)
+	envStr("CRAYFISH_GOOGLE_CLIENT_ID", &cfg.GoogleClientID)
+	envStr("CRAYFISH_GOOGLE_CLIENT_SECRET", &cfg.GoogleClientSecret)
 
 	// API key: check Crayfish key first, fall back to provider-specific.
 	if v := os.Getenv("CRAYFISH_API_KEY"); v != "" {

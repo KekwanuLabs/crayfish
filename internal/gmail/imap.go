@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/mail"
 	"strings"
 	"time"
@@ -28,9 +29,15 @@ type IMAPClient struct {
 // Dial connects to Gmail IMAP with TLS and authenticates.
 func Dial(email, appPassword string, logger *slog.Logger) (*IMAPClient, error) {
 	tlsCfg := &tls.Config{ServerName: "imap.gmail.com"}
-	c, err := client.DialTLS(gmailIMAPAddr, tlsCfg)
+	conn, err := net.DialTimeout("tcp", gmailIMAPAddr, dialTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("gmail.Dial: %w", err)
+	}
+	tlsConn := tls.Client(conn, tlsCfg)
+	c, err := client.New(tlsConn)
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("gmail.Dial TLS: %w", err)
 	}
 	c.Timeout = 30 * time.Second
 

@@ -168,6 +168,17 @@ func (p *Poller) syncEmails(ctx context.Context) {
 	imapClient := p.imap
 	p.mu.Unlock()
 
+	// Close connection after sync — Google drops idle IMAP connections
+	// after ~20s, which is well before our 5-minute poll interval.
+	defer func() {
+		p.mu.Lock()
+		if p.imap != nil {
+			p.imap.Close()
+			p.imap = nil
+		}
+		p.mu.Unlock()
+	}()
+
 	// Fetch unread emails.
 	emails, err := imapClient.FetchUnread(maxFetchBatch)
 	if err != nil {

@@ -207,7 +207,8 @@ func (a *Adapter) SendToOperator(ctx context.Context, message string) error {
 	a.operatorMu.Unlock()
 
 	if chatID == 0 {
-		return fmt.Errorf("telegram.SendToOperator: no operator chat ID set yet")
+		a.logger.Debug("skipping notification, no operator chat ID set yet")
+		return nil
 	}
 
 	return a.Send(ctx, channels.OutboundMessage{

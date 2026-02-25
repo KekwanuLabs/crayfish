@@ -174,7 +174,10 @@ jobs:
         run: |
           VERSION="${{ needs.prepare.outputs.version }}"
           COMMIT=$(git rev-parse --short HEAD)
+          OAUTH_PKG="github.com/KekwanuLabs/crayfish/internal/oauth"
           LDFLAGS="-s -w -X main.version=${VERSION} -X main.commit=${COMMIT}"
+          LDFLAGS="${LDFLAGS} -X '${OAUTH_PKG}.CrayfishClientID=${{ secrets.GOOGLE_CLIENT_ID }}'"
+          LDFLAGS="${LDFLAGS} -X '${OAUTH_PKG}.CrayfishClientSecret=${{ secrets.GOOGLE_CLIENT_SECRET }}'"
 
           go build -ldflags "${LDFLAGS}" -o crayfish-${{ matrix.name }} ./cmd/crayfish
           tar -czvf crayfish-${{ matrix.name }}.tar.gz crayfish-${{ matrix.name }}

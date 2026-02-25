@@ -6,7 +6,11 @@ BINARY    := crayfish
 VERSION   ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo "0.4.0-dev")
 COMMIT    := $(shell git rev-parse --short HEAD 2>/dev/null || echo "dev")
 BUILD_TIME := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
+OAUTH_PKG := github.com/KekwanuLabs/crayfish/internal/oauth
 LDFLAGS   := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.buildTime=$(BUILD_TIME)
+ifdef GOOGLE_CLIENT_ID
+LDFLAGS   += -X '$(OAUTH_PKG).CrayfishClientID=$(GOOGLE_CLIENT_ID)' -X '$(OAUTH_PKG).CrayfishClientSecret=$(GOOGLE_CLIENT_SECRET)'
+endif
 GOFLAGS   := -trimpath
 
 # All release targets: linux (4 archs) + macOS (2 archs)
