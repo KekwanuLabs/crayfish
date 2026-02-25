@@ -153,6 +153,15 @@ build_binary() {
     build_time=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
     ldflags="-s -w -X main.version=${version} -X main.commit=${commit} -X main.buildTime=${build_time}"
 
+    # Inject Google OAuth credentials if available (from .env or environment).
+    if [ -f .env ]; then
+        set -a; source .env; set +a
+    fi
+    if [ -n "${GOOGLE_CLIENT_ID:-}" ]; then
+        local oauth_pkg="github.com/KekwanuLabs/crayfish/internal/oauth"
+        ldflags="${ldflags} -X '${oauth_pkg}.CrayfishClientID=${GOOGLE_CLIENT_ID}' -X '${oauth_pkg}.CrayfishClientSecret=${GOOGLE_CLIENT_SECRET}'"
+    fi
+
     # Build with environment variables. GOARM is only set for ARM builds.
     export CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch"
     if [ -n "$goarm" ]; then
