@@ -404,4 +404,38 @@ func RegisterCalendarTools(reg *Registry, client *calendar.Client) {
 			return string(out), nil
 		},
 	})
+
+	// calendar_delete — remove an event by ID.
+	reg.Register(&Tool{
+		Name:        "calendar_delete",
+		Description: "Delete a calendar event by its ID. Use calendar_search or calendar_today first to find the event ID, then delete it.",
+		MinTier:     security.TierTrusted,
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"event_id": {
+					"type": "string",
+					"description": "The event ID from calendar_today, calendar_upcoming, or calendar_search results"
+				}
+			},
+			"required": ["event_id"]
+		}`),
+		Execute: func(ctx context.Context, sess *security.Session, input json.RawMessage) (string, error) {
+			var params struct {
+				EventID string `json:"event_id"`
+			}
+			if err := json.Unmarshal(input, &params); err != nil {
+				return "", fmt.Errorf("calendar_delete: parse input: %w", err)
+			}
+			if params.EventID == "" {
+				return "", fmt.Errorf("calendar_delete: event_id is required")
+			}
+
+			if err := client.DeleteEvent(params.EventID); err != nil {
+				return "", fmt.Errorf("calendar_delete: %w", err)
+			}
+
+			return fmt.Sprintf("Event %s deleted.", params.EventID), nil
+		},
+	})
 }
