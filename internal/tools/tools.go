@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/KekwanuLabs/crayfish/internal/channels"
@@ -29,7 +30,9 @@ type Tool struct {
 }
 
 // Registry holds all registered tools and provides lookup/filtering.
+// Thread-safe: tools can be registered from background goroutines (e.g., after OAuth completes).
 type Registry struct {
+	mu     sync.RWMutex
 	tools  map[string]*Tool
 	logger *slog.Logger
 }
@@ -44,17 +47,23 @@ func NewRegistry(logger *slog.Logger) *Registry {
 
 // Register adds a tool to the registry.
 func (r *Registry) Register(tool *Tool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.tools[tool.Name] = tool
 	r.logger.Debug("tool registered", "name", tool.Name, "min_tier", tool.MinTier)
 }
 
 // Get returns a tool by name, or nil if not found.
 func (r *Registry) Get(name string) *Tool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	return r.tools[name]
 }
 
 // ForTier returns all tools accessible at the given trust tier.
 func (r *Registry) ForTier(tier security.TrustTier) []*Tool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	var result []*Tool
 	for _, t := range r.tools {
 		if tier >= t.MinTier {
@@ -66,7 +75,10 @@ func (r *Registry) ForTier(tier security.TrustTier) []*Tool {
 
 // Execute runs a tool by name after checking the session's trust tier.
 func (r *Registry) Execute(ctx context.Context, sess *security.Session, name string, input json.RawMessage) (string, error) {
+	r.mu.RLock()
 	tool := r.tools[name]
+	r.mu.RUnlock()
+
 	if tool == nil {
 		return "", fmt.Errorf("tools.Execute: unknown tool %q", name)
 	}

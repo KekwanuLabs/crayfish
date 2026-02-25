@@ -62,6 +62,8 @@ type Config struct {
 	MaxTokens      int    `json:"max_tokens" yaml:"max_tokens"`
 	GoogleConnected  bool `json:"-" yaml:"-"` // Whether Google OAuth is active (injected at startup)
 	WebSearchEnabled bool `json:"-" yaml:"-"` // Whether Brave Search is configured (injected at startup)
+	EmailEnabled     bool `json:"-" yaml:"-"` // Whether email is configured (OAuth or App Password)
+	EmailViaApp      bool `json:"-" yaml:"-"` // True if email is via App Password (not OAuth)
 }
 
 // DefaultConfig returns sensible defaults for the runtime.
@@ -125,14 +127,32 @@ You have a checkpoint tool. When session state is recovered, it will appear as [
 		base += `
 
 ## Google Integration
-The user's Google account is connected with calendar and email access. You can check their calendar, read emails, and help manage their schedule.
+The user's Google account is connected with calendar access. You can check their calendar and help manage their schedule.
 
 If they ask about Google Drive, Docs, or Sheets, you can add those capabilities without disconnecting — call google_connect with a purpose parameter (e.g., purpose="drive"). Same quick code-on-phone process, and Google only asks for the new permission.`
 	} else {
 		base += `
 
 ## Google Integration
-You can help the user connect their Google account for calendar and email features. If they ask about calendar or email, offer to set it up using the google_connect tool. Keep it simple and conversational — they just need to enter a code on their phone at google.com/device.`
+You can help the user connect their Google account for calendar features. If they ask about their calendar or schedule, offer to set it up using the google_connect tool. Keep it simple and conversational — they just need to enter a code on their phone at google.com/device.`
+	}
+
+	// Email context.
+	if c.EmailEnabled && !c.EmailViaApp {
+		base += `
+
+## Email
+You have full email access via Google OAuth. You can read, search, send, reply to, label, and archive emails.`
+	} else if c.EmailEnabled && c.EmailViaApp {
+		base += `
+
+## Email
+You have email access via app password. You can read, search, send, and reply to emails.`
+	} else {
+		base += `
+
+## Email
+Email is not set up yet. If the user asks about email, offer to set it up using the email_connect tool — they'll need a Gmail app password. Explain that Google doesn't allow email access through the quick device-code method, so a separate app password is needed. Walk them through it step by step.`
 	}
 
 	// Web search context.
@@ -251,8 +271,28 @@ func (r *Runtime) UpdateConfig(name, personality, systemPrompt string) {
 	r.config.SystemPrompt = systemPrompt
 }
 
+// SetGoogleConnected updates the Google connection state at runtime.
+func (r *Runtime) SetGoogleConnected(connected bool) {
+	r.configMu.Lock()
+	defer r.configMu.Unlock()
+	r.config.GoogleConnected = connected
+}
+
+// SetEmailEnabled updates the email availability state at runtime.
+func (r *Runtime) SetEmailEnabled(enabled, viaApp bool) {
+	r.configMu.Lock()
+	defer r.configMu.Unlock()
+	r.config.EmailEnabled = enabled
+	r.config.EmailViaApp = viaApp
+}
+
 // Run starts the agent loop, consuming inbound message events from the bus.
 func (r *Runtime) Run(ctx context.Context) error {
+	// Flush response cache on startup — it's a short-lived TTL cache (5 min)
+	// with no value across restarts. Stale entries can mask fixes (e.g.,
+	// credential rotation, scope changes) by serving old error responses.
+	r.db.ExecContext(ctx, "DELETE FROM message_cache")
+
 	events, err := r.bus.Subscribe(ctx, []string{bus.TypeMessageInbound})
 	if err != nil {
 		return fmt.Errorf("runtime.Run: subscribe: %w", err)
@@ -371,6 +411,7 @@ func (r *Runtime) handleInbound(ctx context.Context, event bus.Event) error {
 	// === Agentic loop: model call → tool exec → repeat until text response ===
 	var finalContent string
 	totalTokens := 0
+	toolErrorOccurred := false
 
 	for iteration := 0; iteration < maxToolIterations; iteration++ {
 		resp, err := r.provider.Complete(ctx, provider.CompletionRequest{
@@ -429,6 +470,7 @@ func (r *Runtime) handleInbound(ctx context.Context, event bus.Event) error {
 			if toolErr != nil {
 				toolMsg.Content = fmt.Sprintf("Error: %v", toolErr)
 				toolMsg.IsError = true
+				toolErrorOccurred = true
 			}
 			messages = append(messages, toolMsg)
 		}
@@ -443,8 +485,12 @@ func (r *Runtime) handleInbound(ctx context.Context, event bus.Event) error {
 	}
 
 	// Persist, cache, publish, route.
+	// Don't cache responses where a tool error occurred — the underlying
+	// issue may be fixed on retry (e.g., credential rotation, network blip).
 	r.persistMessage(ctx, sess.ID, provider.RoleAssistant, finalContent)
-	r.cacheResponse(ctx, sess.ID, msg.Text, finalContent)
+	if !toolErrorOccurred {
+		r.cacheResponse(ctx, sess.ID, msg.Text, finalContent)
+	}
 
 	r.bus.Publish(ctx, bus.Event{
 		Type:      bus.TypeMessageOutbound,

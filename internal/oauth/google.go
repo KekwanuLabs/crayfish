@@ -34,8 +34,10 @@ const (
 	SheetsReadonly = "https://www.googleapis.com/auth/spreadsheets.readonly"
 )
 
-// ScopesBase is the default set of scopes for Crayfish (Calendar + Gmail).
-var ScopesBase = []string{CalendarScope, GmailModify, UserInfoEmail}
+// ScopesBase is the default set of scopes for Crayfish (Calendar + profile).
+// Gmail scopes are not included because Google blocks them on the Device Authorization flow
+// ("TVs and Limited Input devices" client type).
+var ScopesBase = []string{CalendarScope, UserInfoEmail}
 
 // ScopesByPurpose maps user-facing feature names to the scopes they require.
 // Used by the google_connect tool to determine which scopes to request

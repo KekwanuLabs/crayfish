@@ -45,14 +45,14 @@ type Config struct {
 
 	// Gmail
 	GmailUser        string `yaml:"gmail_user,omitempty"`
-	GmailAppPassword string `yaml:"gmail_app_password,omitempty"` // Deprecated: OAuth is used instead.
+	GmailAppPassword string `yaml:"gmail_app_password,omitempty"` // App password for IMAP+SMTP email access.
 	GmailPollMinutes int    `yaml:"gmail_poll_minutes"`
 
 	// Google OAuth 2.0 — tokens from Device Authorization flow.
-	// Client ID/secret are embedded in the binary (not stored in config).
 	Google *GoogleConfig `yaml:"google,omitempty"`
 
-	// Google OAuth client overrides — for self-hosters with their own GCP project.
+	// Google OAuth client credentials — auto-persisted from build-time injection on first run,
+	// or set manually by self-hosters with their own GCP project.
 	GoogleClientID     string `yaml:"google_client_id"`
 	GoogleClientSecret string `yaml:"google_client_secret"`
 
