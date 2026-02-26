@@ -1,0 +1,64 @@
+name: shabbat_planner
+version: 1
+description: "Shabbat preparation — candle lighting, dinner menu, and Friday timeline"
+category: faith
+type: workflow
+min_tier: trusted
+
+trigger:
+  command: "/shabbat"
+  keywords:
+    - "shabbat"
+    - "shabbos"
+    - "candle lighting"
+    - "challah"
+    - "havdalah"
+    - "friday night dinner"
+
+steps:
+  - tool: memory_search
+    params:
+      query: "family dietary kosher customs shabbat traditions candle lighting location"
+    store_as: family_info
+    on_error: skip
+
+  - tool: web_search
+    params:
+      query: "shabbat candle lighting times this week challah recipes"
+      count: 5
+    store_as: shabbat_info
+    on_error: skip
+
+  - tool: calendar_upcoming
+    params:
+      days: 2
+    store_as: friday_schedule
+    on_error: skip
+
+prompt: |
+  Help this family prepare for Shabbat with warmth and practicality.
+
+  Family info and customs from memory:
+  {{family_info}}
+
+  Shabbat info from web (candle lighting times, recipes):
+  {{shabbat_info}}
+
+  Friday/Saturday schedule:
+  {{friday_schedule}}
+
+  If family info exists, create a Shabbat prep guide:
+
+  1. **Candle lighting** — time for their location, who lights, any family traditions
+  2. **Friday night dinner** — menu suggestions respecting dietary needs and customs
+     - Include challah notes if relevant
+  3. **Friday prep timeline** — what to do and when, working backward from candle lighting
+     - Cooking, cleaning, any errands to finish before Shabbat
+  4. **Shabbat day** — services, meals, rest, family time
+  5. **Havdalah** — approximate time and any family traditions
+
+  If NO family info is saved:
+  - Warmly greet them: "Shabbat Shalom! I'd love to help you prepare for Shabbat."
+  - Ask for their city (for candle lighting times) and any family customs
+  - Offer to remember their preferences: "Tell me about your family's Shabbat traditions and I'll keep them in mind every week."
+  - Be respectful of different levels of observance — don't assume

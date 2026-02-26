@@ -1,0 +1,67 @@
+name: prayer_times
+version: 1
+description: "Islamic daily prayer times — salah schedule, conflicts, and Ramadan notes"
+category: faith
+type: workflow
+min_tier: trusted
+
+trigger:
+  command: "/prayer"
+  keywords:
+    - "salah"
+    - "salat"
+    - "fajr"
+    - "dhuhr"
+    - "asr"
+    - "maghrib"
+    - "isha"
+    - "prayer times"
+
+steps:
+  - tool: memory_search
+    params:
+      query: "location city mosque prayer calculation method Ramadan fasting"
+    store_as: prayer_prefs
+    on_error: skip
+
+  - tool: web_search
+    params:
+      query: "Islamic prayer times today salah schedule"
+      count: 5
+    store_as: prayer_data
+    on_error: skip
+
+  - tool: calendar_search
+    params:
+      query: "meeting appointment call"
+    store_as: schedule_conflicts
+    on_error: skip
+
+prompt: |
+  Provide today's Islamic prayer schedule in a clear, helpful format.
+
+  User preferences and location from memory:
+  {{prayer_prefs}}
+
+  Prayer time data from web:
+  {{prayer_data}}
+
+  Today's calendar (for conflict checking):
+  {{schedule_conflicts}}
+
+  If location/preferences exist, present:
+
+  1. **Today's prayer times** — all five daily prayers (Fajr, Dhuhr, Asr, Maghrib, Isha)
+     - Format as a clean, scannable list with times
+     - Note sunrise and sunset if available
+  2. **Schedule conflicts** — flag any calendar events that overlap with prayer times
+     - Suggest when to pray if a meeting conflicts
+  3. **Nearest mosque** — if saved in memory, include name and any notes
+  4. **Ramadan notes** — if during Ramadan, include Suhoor and Iftar times
+     - Otherwise skip this section entirely
+
+  If NO location is saved:
+  - Greet warmly: "Assalamu Alaikum! I can help you keep track of prayer times."
+  - Ask for their city and preferred calculation method (ISNA, MWL, Egyptian, etc.)
+  - Offer to remember: "Once I know your location, I can give you accurate times every day."
+  - Be respectful and supportive regardless of their level of practice
