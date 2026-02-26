@@ -148,6 +148,11 @@ func (i *Installer) ModelPath(model string) string {
 	return filepath.Join(i.config.DataDir, "models", fmt.Sprintf("ggml-%s.bin", model))
 }
 
+// RecommendedModel returns the recommended whisper model for the detected device.
+func (i *Installer) RecommendedModel() string {
+	return i.device.RecommendedWhisperModel()
+}
+
 // IsInstalled checks if whisper is already installed and working.
 func (i *Installer) IsInstalled() bool {
 	binPath := i.findBinary()

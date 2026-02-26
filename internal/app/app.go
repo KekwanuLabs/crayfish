@@ -740,10 +740,15 @@ func (a *App) Start(ctx context.Context) error {
 					a.Logger.Warn("voice recognition setup failed (non-fatal)", "error", err)
 					return
 				}
-				// Re-enable STT now that whisper is installed
+				// Re-enable STT now that whisper is installed.
+				// Use installer's model path if not explicitly configured.
+				modelPath := a.Config.STTModelPath
+				if modelPath == "" {
+					modelPath = a.voiceInstaller.ModelPath(a.voiceInstaller.RecommendedModel())
+				}
 				sttEngine := voice.NewSTT(voice.STTConfig{
 					Enabled:   true,
-					ModelPath: a.Config.STTModelPath,
+					ModelPath: modelPath,
 				}, a.Logger.With("component", "stt"))
 				if sttEngine.STTEnabled() && tgAdapter != nil {
 					tgAdapter.SetSTT(sttEngine)

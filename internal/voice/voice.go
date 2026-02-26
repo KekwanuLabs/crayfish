@@ -18,6 +18,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 )
 
@@ -234,10 +235,11 @@ func putLE32(b []byte, v uint32) {
 
 // STTEngine provides speech-to-text transcription using whisper.cpp.
 type STTEngine struct {
-	enabled   bool
-	modelPath string // Path to whisper model (e.g., "ggml-tiny.bin" or "ggml-base.bin")
-	logger    *slog.Logger
-	mu        sync.Mutex
+	enabled    bool
+	binaryPath string // Resolved path to whisper binary
+	modelPath  string // Path to whisper model (e.g., "ggml-tiny.bin" or "ggml-base.bin")
+	logger     *slog.Logger
+	mu         sync.Mutex
 }
 
 // STTConfig holds STT engine configuration.
@@ -267,8 +269,9 @@ func NewSTT(cfg STTConfig, logger *slog.Logger) *STTEngine {
 		return e
 	}
 
-	// Check if whisper-cpp is available
-	if !isWhisperInstalled() {
+	// Resolve whisper binary path (system PATH + installer location)
+	e.binaryPath = findWhisperBinary()
+	if e.binaryPath == "" {
 		logger.Info("whisper-cpp not installed yet, STT deferred",
 			"hint", "background installer will handle this")
 		e.enabled = false
@@ -286,7 +289,7 @@ func NewSTT(cfg STTConfig, logger *slog.Logger) *STTEngine {
 		}
 	}
 
-	logger.Info("STT engine ready", "model", e.modelPath)
+	logger.Info("STT engine ready", "binary", e.binaryPath, "model", e.modelPath)
 	return e
 }
 
@@ -329,24 +332,17 @@ func (e *STTEngine) Transcribe(ctx context.Context, audioData []byte, format str
 		}
 	}
 
-	// Run whisper-cpp
-	// whisper -m model.bin -f audio.wav -nt (no timestamps)
+	// Run whisper-cpp using the resolved binary path
 	args := []string{"-m", e.modelPath, "-f", wavPath, "-nt", "-np"}
-	cmd := exec.CommandContext(ctx, "whisper", args...)
+	cmd := exec.CommandContext(ctx, e.binaryPath, args...)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
 	if err := cmd.Run(); err != nil {
-		// Try alternate command name
-		cmd2 := exec.CommandContext(ctx, "whisper-cpp", args...)
-		cmd2.Stdout = &stdout
-		cmd2.Stderr = &stderr
-		if err2 := cmd2.Run(); err2 != nil {
-			e.logger.Error("whisper transcription failed", "error", err, "stderr", stderr.String())
-			return "", fmt.Errorf("whisper: %w", err)
-		}
+		e.logger.Error("whisper transcription failed", "error", err, "stderr", stderr.String())
+		return "", fmt.Errorf("whisper: %w", err)
 	}
 
 	text := bytes.TrimSpace(stdout.Bytes())
@@ -354,27 +350,40 @@ func (e *STTEngine) Transcribe(ctx context.Context, audioData []byte, format str
 	return string(text), nil
 }
 
-// isWhisperInstalled checks if whisper-cpp is available.
-func isWhisperInstalled() bool {
-	// Try common command names
-	for _, cmd := range []string{"whisper", "whisper-cpp", "main"} {
-		if _, err := exec.LookPath(cmd); err == nil {
-			return true
+// findWhisperBinary locates the whisper binary on system PATH or in the
+// installer's standard location (~/.crayfish/whisper/bin/).
+func findWhisperBinary() string {
+	// System PATH
+	for _, cmd := range []string{"whisper", "whisper-cpp"} {
+		if path, err := exec.LookPath(cmd); err == nil {
+			return path
 		}
 	}
-	return false
+	// Installer's standard location
+	dataDir := filepath.Join(os.Getenv("HOME"), ".crayfish", "whisper", "bin")
+	for _, name := range []string{"whisper", "whisper-cli", "whisper-cpp", "main"} {
+		p := filepath.Join(dataDir, name)
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
 }
 
 // findWhisperModel looks for whisper models in common locations.
 func findWhisperModel() string {
+	home := os.Getenv("HOME")
 	// Common model locations
 	locations := []string{
+		// Installer's standard location
+		filepath.Join(home, ".crayfish", "whisper", "models", "ggml-tiny.bin"),
+		filepath.Join(home, ".crayfish", "whisper", "models", "ggml-base.bin"),
 		// Relative to crayfish
 		"models/ggml-tiny.bin",
 		"models/ggml-base.bin",
 		// User home
-		os.Getenv("HOME") + "/.local/share/whisper/ggml-tiny.bin",
-		os.Getenv("HOME") + "/.local/share/whisper/ggml-base.bin",
+		filepath.Join(home, ".local", "share", "whisper", "ggml-tiny.bin"),
+		filepath.Join(home, ".local", "share", "whisper", "ggml-base.bin"),
 		// System
 		"/usr/local/share/whisper/ggml-tiny.bin",
 		"/usr/local/share/whisper/ggml-base.bin",
