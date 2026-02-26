@@ -317,7 +317,7 @@ func (a *App) Start(ctx context.Context) error {
 	a.emailMu.RUnlock()
 	if hasEmail {
 		a.emailMu.RLock()
-		tools.RegisterEmailTools(toolReg, a.emailProvider)
+		tools.RegisterEmailTools(toolReg, a.emailProvider, db.Inner())
 		a.emailMu.RUnlock()
 	}
 
@@ -461,8 +461,12 @@ func (a *App) Start(ctx context.Context) error {
 		})
 	}
 
-	// 7d. Heartbeat service (needs Gmail poller + calendar client)
-	if a.gmailPoller != nil || calendarClient != nil {
+	// 7d. Heartbeat service (needs email provider + calendar client)
+	a.emailMu.RLock()
+	hasEmailProvider := a.emailProvider != nil
+	a.emailMu.RUnlock()
+
+	if hasEmailProvider || calendarClient != nil {
 		var notifyFunc heartbeat.NotifyFunc
 		if tgAdapter != nil {
 			notifyFunc = func(ctx context.Context, message string) error {
@@ -491,16 +495,56 @@ func (a *App) Start(ctx context.Context) error {
 			}
 		}
 
-		a.heartbeatSvc = heartbeat.NewService(
-			heartbeat.DefaultConfig(),
-			a.gmailPoller,
-			calendarClient,
-			notifyFunc,
-			a.Logger.With("component", "heartbeat"),
-		)
+		a.emailMu.RLock()
+		ep := a.emailProvider
+		a.emailMu.RUnlock()
+
+		// LLM closure for auto-reply — enriches with identity context.
+		llmComplete := func(ctx context.Context, system, user string) (string, error) {
+			resp, err := llm.Complete(ctx, provider.CompletionRequest{
+				Messages: []provider.Message{
+					{Role: provider.RoleSystem, Content: system},
+					{Role: provider.RoleUser, Content: user},
+				},
+				MaxTokens: 512,
+			})
+			if err != nil {
+				return "", err
+			}
+			return resp.Content, nil
+		}
+
+		a.heartbeatSvc = heartbeat.NewService(heartbeat.ServiceDeps{
+			Config:           a.Config.HeartbeatConfig(),
+			Email:            ep,
+			Calendar:         calendarClient,
+			Notify:           notifyFunc,
+			DB:               db.Inner(),
+			LLMComplete:      llmComplete,
+			SelfEmail:        a.Config.GmailUser,
+			AutoReplyEnabled: a.Config.IsAutoReplyEnabled(),
+			Logger:           a.Logger.With("component", "heartbeat"),
+		})
 		if err := a.heartbeatSvc.Start(ctx); err != nil {
 			a.Logger.Error("Heartbeat service failed to start", "error", err)
 		}
+
+		// Wire sync callbacks for real-time urgency detection and auto-reply.
+		syncCallback := func(ctx context.Context, newIDs []string) {
+			if a.heartbeatSvc != nil {
+				a.heartbeatSvc.CheckNewEmails(ctx, newIDs)
+				a.heartbeatSvc.CheckAutoReply(ctx, newIDs)
+			}
+		}
+		if a.gmailPoller != nil {
+			a.gmailPoller.SetOnSyncComplete(syncCallback)
+		}
+		// Also set on IMAP provider if it's separate from the Gmail poller.
+		a.emailMu.RLock()
+		if imapProv, ok := a.emailProvider.(*gmail.IMAPProvider); ok {
+			imapProv.SetOnSyncComplete(syncCallback)
+		}
+		a.emailMu.RUnlock()
 	}
 
 	// 8. Offline queue
@@ -556,7 +600,99 @@ func (a *App) Start(ctx context.Context) error {
 		Hub:       hubClient,
 	})
 
-	// 10b. Hub syncer — auto-sync skills from hub on startup + every 6 hours
+	// 10b. Conversational settings tool
+	tools.RegisterSettingsTool(toolReg, tools.SettingsDeps{
+		GetSettings: func() map[string]any {
+			a.configMu.RLock()
+			defer a.configMu.RUnlock()
+
+			weekdaysOnly := true
+			if a.Config.HeartbeatWeekdaysOnly != nil {
+				weekdaysOnly = *a.Config.HeartbeatWeekdaysOnly
+			}
+
+			keywords := a.Config.UrgencyKeywords
+			if len(keywords) == 0 {
+				keywords = heartbeat.DefaultUrgencyKeywords
+			}
+
+			interval := a.Config.HeartbeatIntervalMins
+			if interval == 0 {
+				interval = 30
+			}
+
+			workStart := a.Config.HeartbeatWorkHourStart
+			if workStart == 0 {
+				workStart = 9
+			}
+
+			workEnd := a.Config.HeartbeatWorkHourEnd
+			if workEnd == 0 {
+				workEnd = 18
+			}
+
+			return map[string]any{
+				"heartbeat_interval_minutes": interval,
+				"heartbeat_work_hour_start":  workStart,
+				"heartbeat_work_hour_end":    workEnd,
+				"heartbeat_weekdays_only":    weekdaysOnly,
+				"urgency_keywords":           keywords,
+				"auto_reply_enabled":         a.Config.IsAutoReplyEnabled(),
+			}
+		},
+		UpdateSettings: func(updates map[string]any) error {
+			a.configMu.Lock()
+
+			for key, val := range updates {
+				switch key {
+				case "heartbeat_interval_minutes":
+					if v, ok := val.(int); ok {
+						a.Config.HeartbeatIntervalMins = v
+					}
+				case "heartbeat_work_hour_start":
+					if v, ok := val.(int); ok {
+						a.Config.HeartbeatWorkHourStart = v
+					}
+				case "heartbeat_work_hour_end":
+					if v, ok := val.(int); ok {
+						a.Config.HeartbeatWorkHourEnd = v
+					}
+				case "heartbeat_weekdays_only":
+					if v, ok := val.(bool); ok {
+						a.Config.HeartbeatWeekdaysOnly = &v
+					}
+				case "urgency_keywords":
+					if v, ok := val.([]string); ok {
+						a.Config.UrgencyKeywords = v
+					}
+				case "auto_reply_enabled":
+					if v, ok := val.(bool); ok {
+						a.Config.AutoReplyEnabled = &v
+					}
+				}
+			}
+
+			a.configMu.Unlock()
+
+			if err := a.Config.SaveConfig(); err != nil {
+				a.Logger.Warn("failed to save settings", "error", err)
+			}
+
+			// Hot-reload heartbeat config.
+			if a.heartbeatSvc != nil {
+				a.configMu.RLock()
+				newCfg := a.Config.HeartbeatConfig()
+				autoReply := a.Config.IsAutoReplyEnabled()
+				a.configMu.RUnlock()
+				a.heartbeatSvc.UpdateConfig(newCfg)
+				a.heartbeatSvc.SetAutoReplyEnabled(autoReply)
+			}
+
+			return nil
+		},
+	})
+
+	// 10c. Hub syncer — auto-sync skills from hub on startup + every 6 hours
 	a.hubSyncer = skills.NewHubSyncer(hubClient, a.skillRegistry, skillsDir,
 		a.Logger.With("component", "hub-syncer"))
 	a.hubSyncer.Start(ctx)

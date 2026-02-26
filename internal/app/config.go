@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/KekwanuLabs/crayfish/internal/heartbeat"
 	"gopkg.in/yaml.v3"
 )
 
@@ -73,6 +74,16 @@ type Config struct {
 	ContinuityEnabled    bool `yaml:"continuity_enabled"`     // Enable session snapshot system (default: true)
 	SessionResumeMinutes int  `yaml:"session_resume_minutes"` // Idle gap threshold for snapshot injection (default: 30)
 	SnapshotsPerSession  int  `yaml:"snapshots_per_session"`  // Max snapshots retained per session (default: 3)
+
+	// Heartbeat
+	HeartbeatIntervalMins  int      `yaml:"heartbeat_interval_minutes,omitempty"`
+	HeartbeatWorkHourStart int      `yaml:"heartbeat_work_hour_start,omitempty"`
+	HeartbeatWorkHourEnd   int      `yaml:"heartbeat_work_hour_end,omitempty"`
+	HeartbeatWeekdaysOnly  *bool    `yaml:"heartbeat_weekdays_only,omitempty"`
+	UrgencyKeywords        []string `yaml:"urgency_keywords,omitempty"`
+
+	// Auto-reply
+	AutoReplyEnabled *bool `yaml:"auto_reply_enabled,omitempty"`
 
 	// Dashboard
 	DashboardAPIKey string `yaml:"dashboard_api_key"`
@@ -228,6 +239,36 @@ func (c Config) GmailPollInterval() time.Duration {
 		return time.Duration(c.GmailPollMinutes) * time.Minute
 	}
 	return 5 * time.Minute
+}
+
+// HeartbeatConfig builds a heartbeat.Config from config fields, applying defaults for zero values.
+func (c Config) HeartbeatConfig() heartbeat.Config {
+	cfg := heartbeat.DefaultConfig()
+
+	if c.HeartbeatIntervalMins > 0 {
+		cfg.Interval = time.Duration(c.HeartbeatIntervalMins) * time.Minute
+	}
+	if c.HeartbeatWorkHourStart > 0 {
+		cfg.WorkHourStart = c.HeartbeatWorkHourStart
+	}
+	if c.HeartbeatWorkHourEnd > 0 {
+		cfg.WorkHourEnd = c.HeartbeatWorkHourEnd
+	}
+	if c.HeartbeatWeekdaysOnly != nil {
+		cfg.WeekdaysOnly = *c.HeartbeatWeekdaysOnly
+	}
+	if len(c.UrgencyKeywords) > 0 {
+		cfg.UrgencyKeywords = c.UrgencyKeywords
+	}
+	return cfg
+}
+
+// IsAutoReplyEnabled returns whether auto-reply is enabled. Defaults to false (opt-in).
+func (c Config) IsAutoReplyEnabled() bool {
+	if c.AutoReplyEnabled == nil {
+		return false
+	}
+	return *c.AutoReplyEnabled
 }
 
 // SaveConfig writes the current config to its YAML file.

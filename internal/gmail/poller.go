@@ -24,6 +24,8 @@ type Poller struct {
 	db     *sql.DB
 	logger *slog.Logger
 
+	onSyncComplete func(ctx context.Context, newIDs []string)
+
 	stopChan     chan struct{}
 	pollWg       sync.WaitGroup
 	shutdownOnce sync.Once
@@ -41,6 +43,11 @@ func NewPoller(cfg Config, api *APIClient, db *sql.DB, logger *slog.Logger) *Pol
 		logger:   logger,
 		stopChan: make(chan struct{}),
 	}
+}
+
+// SetOnSyncComplete registers a callback that fires after each sync with the IDs of newly stored emails.
+func (p *Poller) SetOnSyncComplete(fn func(ctx context.Context, newIDs []string)) {
+	p.onSyncComplete = fn
 }
 
 // Email returns the configured Gmail address.
@@ -167,6 +174,7 @@ func (p *Poller) syncEmails(ctx context.Context) {
 
 	// Store in batches to limit memory.
 	stored := 0
+	var newIDs []string
 	for i := 0; i < len(emails); i += batchInsertSize {
 		end := i + batchInsertSize
 		if end > len(emails) {
@@ -191,6 +199,7 @@ func (p *Poller) syncEmails(ctx context.Context) {
 				continue
 			}
 			stored++
+			newIDs = append(newIDs, email.ID)
 		}
 
 		if err := tx.Commit(); err != nil {
@@ -207,6 +216,10 @@ func (p *Poller) syncEmails(ctx context.Context) {
 	}
 
 	p.logger.Info("Gmail sync completed", "fetched", len(emails), "stored", stored)
+
+	if len(newIDs) > 0 && p.onSyncComplete != nil {
+		go p.onSyncComplete(ctx, newIDs)
+	}
 	if _, dbErr := p.db.ExecContext(ctx,
 		"UPDATE gmail_sync_state SET error_message = NULL WHERE id = 1"); dbErr != nil {
 		p.logger.Warn("failed to clear sync error state", "error", dbErr)

@@ -187,6 +187,18 @@ You can watch prices and check daily — offer this when travel planning comes u
 You can teach me new tricks through Skills — automations that extend what I can do.
 Use skill_list to see installed skills, skill_hub_browse to discover new ones, and skill_install to add them. If the user wants to automate something, suggest relevant skills from the hub.`
 
+	// Settings context.
+	base += `
+
+## Settings
+You can adjust my behavior using the settings_update tool. Use it when the user says things like:
+- "Check my email every 10 minutes" → heartbeat_interval_minutes
+- "Also check on weekends" → heartbeat_weekdays_only: false
+- "Work hours are 8 to 7" → heartbeat_work_hour_start/end
+- "Add 'critical' to urgency keywords" → urgency_keywords
+- "Turn on auto-reply" → auto_reply_enabled
+Call settings_update with no parameters to see current settings.`
+
 	// Append identity content if available.
 	if soulMD != "" {
 		base += "\n\n## Who I Am\n" + soulMD

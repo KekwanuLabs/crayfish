@@ -2,7 +2,9 @@ package tools
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -15,7 +17,12 @@ import (
 
 // RegisterEmailTools adds email tools to the registry.
 // Accepts any EmailProvider (Gmail OAuth poller or IMAP+SMTP client).
-func RegisterEmailTools(reg *Registry, poller gmail.EmailProvider) {
+// The optional db parameter enables thread tracking for auto-reply (pass nil to disable).
+func RegisterEmailTools(reg *Registry, poller gmail.EmailProvider, db ...*sql.DB) {
+	var trackDB *sql.DB
+	if len(db) > 0 {
+		trackDB = db[0]
+	}
 	reg.logger.Info("registering email tools", "email", poller.Email())
 
 	// email_check — list new/unread emails.
@@ -363,6 +370,15 @@ func RegisterEmailTools(reg *Registry, poller gmail.EmailProvider) {
 				return "", fmt.Errorf("email_send: send failed: %w", err)
 			}
 
+			// Track thread for auto-reply detection.
+			if trackDB != nil {
+				threadID := emailThreadID(params.To, params.Subject)
+				trackDB.ExecContext(ctx, `
+					INSERT OR REPLACE INTO tracked_threads (thread_id, last_email_id, to_addr, subject)
+					VALUES (?, ?, ?, ?)`,
+					threadID, threadID, params.To, params.Subject)
+			}
+
 			return fmt.Sprintf("Email sent to %s with subject: %s", params.To, params.Subject), nil
 		},
 	})
@@ -438,6 +454,18 @@ func RegisterEmailTools(reg *Registry, poller gmail.EmailProvider) {
 
 			if err := poller.SendReply(ctx, replyTo, subject, params.Body, email.MessageID); err != nil {
 				return "", fmt.Errorf("email_reply: send failed: %w", err)
+			}
+
+			// Track thread for auto-reply detection.
+			if trackDB != nil {
+				threadID := email.ThreadID
+				if threadID == "" {
+					threadID = emailThreadID(replyTo, subject)
+				}
+				trackDB.ExecContext(ctx, `
+					INSERT OR REPLACE INTO tracked_threads (thread_id, last_email_id, to_addr, subject)
+					VALUES (?, ?, ?, ?)`,
+					threadID, email.ID, replyTo, subject)
 			}
 
 			return fmt.Sprintf("Reply sent to %s.", email.From), nil
@@ -618,4 +646,18 @@ Once the user has the app password, call this tool again with both the email and
 			return fmt.Sprintf("Email connected successfully! Connected as %s via app password. Email tools are now active — you can check, search, send, and reply to emails.", email), nil
 		},
 	})
+}
+
+// emailThreadID generates a deterministic thread ID from recipient and subject.
+func emailThreadID(to, subject string) string {
+	// Normalize: lowercase, strip "re:" prefixes.
+	norm := strings.ToLower(strings.TrimSpace(to))
+	subj := strings.ToLower(strings.TrimSpace(subject))
+	for strings.HasPrefix(subj, "re: ") || strings.HasPrefix(subj, "re:") {
+		subj = strings.TrimPrefix(subj, "re: ")
+		subj = strings.TrimPrefix(subj, "re:")
+		subj = strings.TrimSpace(subj)
+	}
+	h := sha256.Sum256([]byte(norm + ":" + subj))
+	return "thread-" + hex.EncodeToString(h[:8])
 }
