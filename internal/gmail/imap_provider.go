@@ -37,6 +37,8 @@ type IMAPProvider struct {
 	db     *sql.DB
 	logger *slog.Logger
 
+	onSyncComplete func(ctx context.Context, newIDs []string)
+
 	stopChan     chan struct{}
 	pollWg       sync.WaitGroup
 	shutdownOnce sync.Once
@@ -53,6 +55,11 @@ func NewIMAPProvider(cfg IMAPConfig, db *sql.DB, logger *slog.Logger) *IMAPProvi
 		logger:   logger,
 		stopChan: make(chan struct{}),
 	}
+}
+
+// SetOnSyncComplete registers a callback that fires after each sync with the IDs of newly stored emails.
+func (p *IMAPProvider) SetOnSyncComplete(fn func(ctx context.Context, newIDs []string)) {
+	p.onSyncComplete = fn
 }
 
 // Email returns the configured email address.
@@ -370,6 +377,7 @@ func (p *IMAPProvider) syncEmails(ctx context.Context) {
 	}
 
 	stored := 0
+	var newIDs []string
 	for _, msg := range messages {
 		email := p.imapToEmail(msg, bodySection)
 		if email == nil {
@@ -395,9 +403,14 @@ func (p *IMAPProvider) syncEmails(ctx context.Context) {
 			continue
 		}
 		stored++
+		newIDs = append(newIDs, email.ID)
 	}
 
 	p.logger.Info("IMAP sync completed", "fetched", len(messages), "stored", stored)
+
+	if len(newIDs) > 0 && p.onSyncComplete != nil {
+		go p.onSyncComplete(ctx, newIDs)
+	}
 }
 
 // imapToEmail converts a fetched IMAP message to our Email type.

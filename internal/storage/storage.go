@@ -461,6 +461,27 @@ var migrations = []migration{
 		CREATE INDEX IF NOT EXISTS idx_todos_list ON todos(list_name);
 		`,
 	},
+	{
+		name: "urgency tracking and auto-reply threads",
+		sql: `
+		CREATE TABLE IF NOT EXISTS urgency_notified (
+			email_id    TEXT PRIMARY KEY,
+			notified_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+
+		CREATE TABLE IF NOT EXISTS tracked_threads (
+			thread_id          TEXT PRIMARY KEY,
+			last_email_id      TEXT NOT NULL,
+			to_addr            TEXT NOT NULL,
+			subject            TEXT NOT NULL,
+			reply_count        INTEGER NOT NULL DEFAULT 0,
+			last_auto_reply_at TEXT,
+			created_at         TEXT NOT NULL DEFAULT (datetime('now')),
+			active             INTEGER NOT NULL DEFAULT 1
+		);
+		CREATE INDEX IF NOT EXISTS idx_tracked_active ON tracked_threads(active);
+		`,
+	},
 }
 
 // Now returns the current time formatted for SQLite storage.

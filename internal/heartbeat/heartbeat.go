@@ -8,6 +8,7 @@ package heartbeat
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -18,35 +19,53 @@ import (
 	"github.com/KekwanuLabs/crayfish/internal/gmail"
 )
 
+// DefaultUrgencyKeywords are the default keywords for urgent email detection.
+var DefaultUrgencyKeywords = []string{"urgent", "asap", "important", "action required", "deadline", "reminder"}
+
 // Config holds heartbeat configuration.
 type Config struct {
-	Enabled       bool          // Whether heartbeat is active (default: true when email/calendar configured)
-	Interval      time.Duration // Check interval (default: 30 minutes)
-	WorkHourStart int           // Start of work hours (default: 9)
-	WorkHourEnd   int           // End of work hours (default: 18)
-	WeekdaysOnly  bool          // Only run on weekdays (default: true)
+	Enabled         bool          // Whether heartbeat is active (default: true when email/calendar configured)
+	Interval        time.Duration // Check interval (default: 30 minutes)
+	WorkHourStart   int           // Start of work hours (default: 9)
+	WorkHourEnd     int           // End of work hours (default: 18)
+	WeekdaysOnly    bool          // Only run on weekdays (default: true)
+	UrgencyKeywords []string      // Keywords that trigger urgent notifications
 }
 
 // DefaultConfig returns sensible defaults.
 func DefaultConfig() Config {
 	return Config{
-		Enabled:       true,
-		Interval:      30 * time.Minute,
-		WorkHourStart: 9,
-		WorkHourEnd:   18,
-		WeekdaysOnly:  true,
+		Enabled:         true,
+		Interval:        30 * time.Minute,
+		WorkHourStart:   9,
+		WorkHourEnd:     18,
+		WeekdaysOnly:    true,
+		UrgencyKeywords: DefaultUrgencyKeywords,
 	}
+}
+
+// ServiceDeps holds all dependencies for the heartbeat service.
+type ServiceDeps struct {
+	Config           Config
+	Email            gmail.EmailProvider
+	Calendar         *calendar.Client
+	Notify           NotifyFunc
+	DB               *sql.DB
+	LLMComplete      func(ctx context.Context, system, user string) (string, error)
+	SelfEmail        string
+	AutoReplyEnabled bool
+	Logger           *slog.Logger
 }
 
 // Update contains the information from a heartbeat check.
 type Update struct {
-	UrgentEmails    []EmailSummary   `json:"urgent_emails,omitempty"`
-	UnreadCount     int              `json:"unread_count"`
-	UpcomingEvents  []EventSummary   `json:"upcoming_events,omitempty"`
-	NextMeeting     *EventSummary    `json:"next_meeting,omitempty"`
-	MinutesToNext   int              `json:"minutes_to_next,omitempty"`
-	HasUpdates      bool             `json:"has_updates"`
-	Message         string           `json:"message"`
+	UrgentEmails   []EmailSummary `json:"urgent_emails,omitempty"`
+	UnreadCount    int            `json:"unread_count"`
+	UpcomingEvents []EventSummary `json:"upcoming_events,omitempty"`
+	NextMeeting    *EventSummary  `json:"next_meeting,omitempty"`
+	MinutesToNext  int            `json:"minutes_to_next,omitempty"`
+	HasUpdates     bool           `json:"has_updates"`
+	Message        string         `json:"message"`
 }
 
 // EmailSummary is a brief email representation.
@@ -68,11 +87,15 @@ type NotifyFunc func(ctx context.Context, message string) error
 
 // Service runs periodic heartbeat checks.
 type Service struct {
-	config   Config
-	gmail    *gmail.Poller
-	calendar *calendar.Client
-	notify   NotifyFunc
-	logger   *slog.Logger
+	config           Config
+	email            gmail.EmailProvider
+	calendar         *calendar.Client
+	notify           NotifyFunc
+	db               *sql.DB
+	llmComplete      func(ctx context.Context, system, user string) (string, error)
+	selfEmail        string
+	autoReplyEnabled bool
+	logger           *slog.Logger
 
 	mu                sync.Mutex
 	stopCh            chan struct{}
@@ -83,15 +106,40 @@ type Service struct {
 }
 
 // NewService creates a new heartbeat service.
-func NewService(cfg Config, gmailPoller *gmail.Poller, calendarClient *calendar.Client, notify NotifyFunc, logger *slog.Logger) *Service {
-	return &Service{
-		config:   cfg,
-		gmail:    gmailPoller,
-		calendar: calendarClient,
-		notify:   notify,
-		logger:   logger,
-		stopCh:   make(chan struct{}),
+func NewService(deps ServiceDeps) *Service {
+	cfg := deps.Config
+	if len(cfg.UrgencyKeywords) == 0 {
+		cfg.UrgencyKeywords = DefaultUrgencyKeywords
 	}
+	return &Service{
+		config:           cfg,
+		email:            deps.Email,
+		calendar:         deps.Calendar,
+		notify:           deps.Notify,
+		db:               deps.DB,
+		llmComplete:      deps.LLMComplete,
+		selfEmail:        deps.SelfEmail,
+		autoReplyEnabled: deps.AutoReplyEnabled,
+		logger:           deps.Logger,
+		stopCh:           make(chan struct{}),
+	}
+}
+
+// UpdateConfig hot-reloads the heartbeat configuration.
+func (s *Service) UpdateConfig(cfg Config) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(cfg.UrgencyKeywords) == 0 {
+		cfg.UrgencyKeywords = DefaultUrgencyKeywords
+	}
+	s.config = cfg
+}
+
+// SetAutoReplyEnabled updates the auto-reply state at runtime.
+func (s *Service) SetAutoReplyEnabled(enabled bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.autoReplyEnabled = enabled
 }
 
 // Start begins the heartbeat loop.
@@ -144,8 +192,12 @@ func (s *Service) loop(ctx context.Context) {
 func (s *Service) checkAndNotify(ctx context.Context) {
 	now := time.Now()
 
+	s.mu.Lock()
+	cfg := s.config
+	s.mu.Unlock()
+
 	// Only run during work hours
-	if !s.isWorkHours(now) {
+	if !isWorkHours(cfg, now) {
 		s.logger.Debug("skipping heartbeat (outside work hours)")
 		return
 	}
@@ -178,18 +230,15 @@ func (s *Service) checkAndNotify(ctx context.Context) {
 }
 
 // isWorkHours checks if the current time is within work hours.
-func (s *Service) isWorkHours(t time.Time) bool {
-	// Check weekday
-	if s.config.WeekdaysOnly {
+func isWorkHours(cfg Config, t time.Time) bool {
+	if cfg.WeekdaysOnly {
 		day := t.Weekday()
 		if day == time.Saturday || day == time.Sunday {
 			return false
 		}
 	}
-
-	// Check hour
 	hour := t.Hour()
-	return hour >= s.config.WorkHourStart && hour < s.config.WorkHourEnd
+	return hour >= cfg.WorkHourStart && hour < cfg.WorkHourEnd
 }
 
 // check performs the actual heartbeat check.
@@ -197,15 +246,19 @@ func (s *Service) check(ctx context.Context) (*Update, error) {
 	update := &Update{}
 	var messages []string
 
+	s.mu.Lock()
+	cfg := s.config
+	s.mu.Unlock()
+
 	// Check emails
-	if s.gmail != nil {
-		emails, err := s.gmail.ListEmails(ctx, true, 20) // unread only, for urgent scan
+	if s.email != nil {
+		emails, err := s.email.ListEmails(ctx, true, 20) // unread only, for urgent scan
 		if err != nil {
 			s.logger.Warn("heartbeat: email check failed", "error", err)
 			messages = append(messages, "⚠️ Email check failed — I couldn't reach your inbox. You may want to check your Gmail credentials.")
 		} else {
 			// Get accurate unread count from the database instead of using len(emails)
-			unreadCount, countErr := s.gmail.GetUnreadCount(ctx)
+			unreadCount, countErr := s.email.GetUnreadCount(ctx)
 			if countErr != nil {
 				s.logger.Warn("heartbeat: unread count failed", "error", countErr)
 				update.UnreadCount = len(emails) // fallback to len(emails)
@@ -213,12 +266,11 @@ func (s *Service) check(ctx context.Context) (*Update, error) {
 				update.UnreadCount = unreadCount
 			}
 
-			// Find urgent emails (simple heuristic: subject contains urgent keywords)
-			urgentKeywords := []string{"urgent", "asap", "important", "action required", "deadline", "reminder"}
+			// Find urgent emails using configurable keywords.
 			for _, e := range emails {
 				subjectLower := strings.ToLower(e.Subject)
-				for _, kw := range urgentKeywords {
-					if strings.Contains(subjectLower, kw) {
+				for _, kw := range cfg.UrgencyKeywords {
+					if strings.Contains(subjectLower, strings.ToLower(kw)) {
 						update.UrgentEmails = append(update.UrgentEmails, EmailSummary{
 							From:    e.From,
 							Subject: e.Subject,
@@ -304,6 +356,62 @@ func (s *Service) check(ctx context.Context) (*Update, error) {
 	return update, nil
 }
 
+// CheckNewEmails is called by the sync callback to immediately check newly synced emails
+// for urgency. NOT gated by work hours — urgent emails should always notify.
+func (s *Service) CheckNewEmails(ctx context.Context, emailIDs []string) {
+	if s.email == nil || s.db == nil || s.notify == nil {
+		return
+	}
+
+	s.mu.Lock()
+	keywords := s.config.UrgencyKeywords
+	s.mu.Unlock()
+
+	for _, id := range emailIDs {
+		// Skip if already notified.
+		var exists int
+		if err := s.db.QueryRowContext(ctx,
+			"SELECT 1 FROM urgency_notified WHERE email_id = ?", id).Scan(&exists); err == nil {
+			continue
+		}
+
+		email, err := s.email.GetEmailByID(ctx, id)
+		if err != nil {
+			s.logger.Warn("urgency check: failed to fetch email", "id", id, "error", err)
+			continue
+		}
+
+		subjectLower := strings.ToLower(email.Subject)
+		isUrgent := false
+		for _, kw := range keywords {
+			if strings.Contains(subjectLower, strings.ToLower(kw)) {
+				isUrgent = true
+				break
+			}
+		}
+
+		if !isUrgent {
+			continue
+		}
+
+		// Record notification to avoid duplicates.
+		if _, err := s.db.ExecContext(ctx,
+			"INSERT OR IGNORE INTO urgency_notified (email_id) VALUES (?)", id); err != nil {
+			s.logger.Warn("urgency check: failed to record notification", "id", id, "error", err)
+		}
+
+		// Notify immediately.
+		msg := fmt.Sprintf("🚨 Urgent email from %s: %s\n\n%s",
+			shortName(email.From), email.Subject, truncate(email.BodyPreview, 200))
+
+		if err := s.notify(ctx, msg); err != nil {
+			s.logger.Warn("urgency notification failed", "id", id, "error", err)
+		} else {
+			s.logger.Info("urgent email notification sent", "id", id, "subject", email.Subject)
+		}
+	}
+}
+
 // ForceCheck triggers an immediate heartbeat check (for testing/manual trigger).
 func (s *Service) ForceCheck(ctx context.Context) (*Update, error) {
 	return s.check(ctx)
@@ -318,4 +426,12 @@ func shortName(from string) string {
 		return from[:idx]
 	}
 	return from
+}
+
+// truncate cuts a string to maxLen, appending "..." if truncated.
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
