@@ -104,6 +104,8 @@ type Adapter struct {
 	operatorChatID  int64      // First user to interact becomes operator
 	operatorMu      sync.Mutex // protects operatorChatID
 	sttEngine       STTTranscriber // Optional: for voice message transcription
+	typingMu        sync.Mutex
+	typingCancel    map[int64]context.CancelFunc // chatID -> cancel typing ticker
 }
 
 // STTTranscriber is the interface for speech-to-text engines.
@@ -115,11 +117,12 @@ type STTTranscriber interface {
 // New creates a new Telegram adapter.
 func New(botToken string, logger *slog.Logger) *Adapter {
 	return &Adapter{
-		botToken:    botToken,
-		logger:      logger,
-		httpClient:  &http.Client{Timeout: time.Second * 35}, // 30s poll + 5s buffer
-		rateLimiter: &rateLimiter{chatLimts: make(map[int64]*limiter)},
-		stopChan:    make(chan struct{}),
+		botToken:     botToken,
+		logger:       logger,
+		httpClient:   &http.Client{Timeout: time.Second * 35}, // 30s poll + 5s buffer
+		rateLimiter:  &rateLimiter{chatLimts: make(map[int64]*limiter)},
+		stopChan:     make(chan struct{}),
+		typingCancel: make(map[int64]context.CancelFunc),
 	}
 }
 
@@ -185,6 +188,9 @@ func (a *Adapter) Send(ctx context.Context, msg channels.OutboundMessage) error 
 	if err != nil {
 		return fmt.Errorf("telegram.Send: invalid chat_id '%s': %w", msg.To, err)
 	}
+
+	// Stop the typing indicator — the response is about to land
+	a.stopTypingLoop(chatID)
 
 	// Apply rate limiting
 	if !a.checkRateLimit(chatID) {
@@ -316,6 +322,46 @@ func (a *Adapter) sendChatAction(ctx context.Context, chatID int64, action strin
 
 	// We don't really care about the response for typing indicators
 	return nil
+}
+
+// startTypingLoop sends the "typing" indicator every 4 seconds until stopped.
+// Telegram's typing indicator expires after ~5 seconds, so we resend before it fades.
+func (a *Adapter) startTypingLoop(ctx context.Context, chatID int64) {
+	a.typingMu.Lock()
+	if cancel, ok := a.typingCancel[chatID]; ok {
+		cancel()
+	}
+	loopCtx, cancel := context.WithCancel(ctx)
+	a.typingCancel[chatID] = cancel
+	a.typingMu.Unlock()
+
+	// Send the first one immediately
+	_ = a.sendChatAction(loopCtx, chatID, "typing")
+
+	go func() {
+		ticker := time.NewTicker(4 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-loopCtx.Done():
+				return
+			case <-ticker.C:
+				if err := a.sendChatAction(loopCtx, chatID, "typing"); err != nil {
+					return
+				}
+			}
+		}
+	}()
+}
+
+// stopTypingLoop cancels the typing indicator loop for a chat.
+func (a *Adapter) stopTypingLoop(chatID int64) {
+	a.typingMu.Lock()
+	if cancel, ok := a.typingCancel[chatID]; ok {
+		cancel()
+		delete(a.typingCancel, chatID)
+	}
+	a.typingMu.Unlock()
 }
 
 // sendMessage sends a message via Telegram Bot API.
@@ -530,10 +576,8 @@ func (a *Adapter) handleUpdate(ctx context.Context, update Update) {
 		text = "Hi!"
 	}
 
-	// Show typing indicator while AI is thinking
-	if err := a.sendChatAction(ctx, chatID, "typing"); err != nil {
-		a.logger.Debug("Failed to send typing indicator", "error", err, "chat_id", chatID)
-	}
+	// Show typing indicator until the response is delivered
+	a.startTypingLoop(ctx, chatID)
 
 	// Publish inbound message to the bus
 	inboundMsg := bus.InboundMessage{

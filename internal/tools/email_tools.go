@@ -321,7 +321,7 @@ func RegisterEmailTools(reg *Registry, poller gmail.EmailProvider) {
 	reg.Register(&Tool{
 		Name:        "email_send",
 		Description: "Compose and send a new email. Use this to send emails to anyone. The email is sent from the configured Gmail account.",
-		MinTier:     security.TierTrusted,
+		MinTier:     security.TierOperator,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
