@@ -734,7 +734,7 @@ func (a *App) Start(ctx context.Context) error {
 	a.Logger.Info("Crayfish ready",
 		"listen", a.Config.ListenAddr,
 		"provider", llm.Name(),
-		"model", a.Config.Model,
+		"model", llm.Model(),
 	)
 
 	return nil

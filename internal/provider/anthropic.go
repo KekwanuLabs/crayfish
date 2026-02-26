@@ -64,6 +64,9 @@ func NewAnthropicProvider(apiKey string, logger *slog.Logger, opts ...AnthropicO
 // Name returns "anthropic".
 func (p *AnthropicProvider) Name() string { return "anthropic" }
 
+// Model returns the resolved model name.
+func (p *AnthropicProvider) Model() string { return p.model }
+
 // --- Wire format types for the Anthropic Messages API ---
 
 type anthropicRequest struct {

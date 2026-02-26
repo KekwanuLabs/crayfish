@@ -63,4 +63,7 @@ type Provider interface {
 
 	// Name returns the provider identifier (e.g., "anthropic", "openai").
 	Name() string
+
+	// Model returns the resolved model name being used.
+	Model() string
 }

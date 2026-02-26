@@ -77,6 +77,9 @@ func NewOpenAICompatProvider(apiKey string, logger *slog.Logger, opts ...OpenAIC
 // Name returns the provider identifier.
 func (p *OpenAICompatProvider) Name() string { return p.provName }
 
+// Model returns the resolved model name.
+func (p *OpenAICompatProvider) Model() string { return p.model }
+
 // --- OpenAI wire format ---
 
 type oaiRequest struct {
