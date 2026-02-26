@@ -1,6 +1,7 @@
 name: bedtime_routine
 version: 1
 description: "Tomorrow preview — quick prep list and tomorrow at a glance for bedtime"
+category: productivity
 type: workflow
 min_tier: trusted
 

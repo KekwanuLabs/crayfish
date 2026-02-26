@@ -1,6 +1,7 @@
 name: family_context
 version: 1
 description: "Always-on family awareness — makes every conversation family-smart"
+category: family
 type: prompt
 min_tier: trusted
 

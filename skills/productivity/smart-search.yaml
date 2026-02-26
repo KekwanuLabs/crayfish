@@ -1,6 +1,7 @@
 name: smart_search
 version: 1
 description: "Search the web and synthesize a clear answer"
+category: productivity
 type: workflow
 min_tier: trusted
 

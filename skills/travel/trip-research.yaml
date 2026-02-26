@@ -1,0 +1,130 @@
+name: trip_research
+version: 2
+description: "Family trip research — personalized destination brief with family context, weather, activities, hotels, and flights"
+category: travel
+type: workflow
+min_tier: trusted
+
+trigger:
+  command: "/trip"
+  keywords:
+    - "plan a trip"
+    - "vacation ideas"
+    - "family trip"
+    - "plan vacation"
+    - "travel to"
+    - "trip to"
+    - "family vacation"
+    - "plan a vacation"
+
+vars:
+  destination: ""
+
+steps:
+  # Gather family context
+  - tool: memory_search
+    params:
+      query: "family members names ages kids children"
+    store_as: family_members
+    on_error: skip
+
+  - tool: memory_search
+    params:
+      query: "dietary restrictions allergies food preferences"
+    store_as: dietary_needs
+    on_error: skip
+
+  - tool: memory_search
+    params:
+      query: "travel budget vacation spending preferences"
+    store_as: budget_prefs
+    on_error: skip
+
+  - tool: memory_search
+    params:
+      query: "home location city airport where we live"
+    store_as: home_location
+    on_error: skip
+
+  # Check calendar for conflicts
+  - tool: calendar_search
+    params:
+      query: "trip travel vacation"
+    store_as: calendar_conflicts
+    on_error: skip
+
+  # Research the destination
+  - tool: web_search
+    params:
+      query: "{{destination}} best time to visit weather family travel"
+      count: 5
+    store_as: weather_info
+    on_error: skip
+
+  - tool: web_search
+    params:
+      query: "{{destination}} top family activities things to do with kids"
+      count: 5
+    store_as: activities
+    on_error: skip
+
+  - tool: web_search
+    params:
+      query: "{{destination}} family-friendly hotel resort best rated 2025"
+      count: 5
+    store_as: hotels
+    on_error: skip
+
+  - tool: web_search
+    params:
+      query: "flights from {{home_location}} to {{destination}} family deals"
+      count: 5
+    store_as: flights
+    on_error: skip
+
+prompt: |
+  Create a personalized family trip brief for {{destination}}.
+
+  ## Context gathered
+
+  Family members:
+  {{family_members}}
+
+  Dietary needs/restrictions:
+  {{dietary_needs}}
+
+  Budget preferences:
+  {{budget_prefs}}
+
+  Home location:
+  {{home_location}}
+
+  Calendar (check for conflicts):
+  {{calendar_conflicts}}
+
+  Weather & best time to visit:
+  {{weather_info}}
+
+  Activities:
+  {{activities}}
+
+  Hotels:
+  {{hotels}}
+
+  Flights:
+  {{flights}}
+
+  ## Instructions
+
+  Write a trip brief that feels personal — use family members' actual names and ages when available. Structure it as:
+
+  1. **Why {{destination}}** — what makes it great for THIS family specifically, referencing ages and interests
+  2. **Best time to go** — weather overview, peak vs off-season trade-offs, note any calendar conflicts found
+  3. **Getting there** — flight options from their home area, estimated costs, tips for flying with kids if applicable
+  4. **Where to stay** — 3 options (budget / mid-range / splurge) with why each suits the family
+  5. **Top activities** — 7-8 things to do, noting which are best for which family members by name/age
+  6. **Food scene** — restaurants that accommodate the family's dietary needs, kid-friendly spots, local must-tries
+  7. **Budget estimate** — realistic per-day cost for this specific family size
+  8. **Pro tips** — insider advice specific to families with kids of these ages
+
+  End with: "Want me to build a day-by-day itinerary?"

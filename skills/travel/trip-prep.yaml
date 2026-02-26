@@ -1,0 +1,106 @@
+name: trip_prep
+version: 2
+description: "Trip preparation — per-person packing lists, countdown timeline, weather-aware, and medical/document checklists"
+category: travel
+type: workflow
+min_tier: trusted
+
+trigger:
+  command: "/tripprep"
+  keywords:
+    - "packing list"
+    - "trip prep"
+    - "get ready for the trip"
+    - "pack for the trip"
+    - "what to pack"
+    - "travel checklist"
+    - "create packing lists"
+
+steps:
+  # Family and trip context
+  - tool: memory_search
+    params:
+      query: "family members names ages kids"
+    store_as: family_members
+    on_error: skip
+
+  - tool: memory_search
+    params:
+      query: "trip vacation travel plans destination itinerary"
+    store_as: trip_plans
+    on_error: skip
+
+  - tool: memory_search
+    params:
+      query: "medical prescriptions medications allergies health"
+    store_as: medical_info
+    on_error: skip
+
+  # Dates and bookings
+  - tool: calendar_search
+    params:
+      query: "trip flight hotel travel vacation"
+    store_as: trip_calendar
+    on_error: skip
+
+  # Weather for packing decisions
+  - tool: web_search
+    params:
+      query: "weather forecast packing list family trip"
+      count: 3
+    store_as: weather_packing
+    on_error: skip
+
+  # Check existing packing list
+  - tool: todo_list
+    params:
+      list: "packing"
+    store_as: existing_packing
+    on_error: skip
+
+prompt: |
+  Create a complete trip preparation plan with per-person packing lists.
+
+  ## Context gathered
+
+  Family members:
+  {{family_members}}
+
+  Trip plans and destination:
+  {{trip_plans}}
+
+  Medical info:
+  {{medical_info}}
+
+  Trip dates and bookings:
+  {{trip_calendar}}
+
+  Weather and packing guidance:
+  {{weather_packing}}
+
+  Existing packing list:
+  {{existing_packing}}
+
+  ## Create the following sections:
+
+  ### 1. Countdown Timeline
+  - **2 weeks before:** bookings confirmed, pet sitter arranged, prescriptions refilled, travel insurance
+  - **1 week before:** laundry, shopping for travel supplies, download offline maps/entertainment
+  - **3 days before:** start packing, charge all devices, notify bank of travel
+  - **Day before:** final packing, house prep (lights, mail hold, thermostat), print confirmations
+  - **Day of:** final walkthrough, snacks for travel, entertainment charged, lock up
+
+  ### 2. Packing Lists — One Per Family Member
+  Use actual names from memory. Each person gets:
+  - **Clothes** (based on weather + number of days, age-appropriate)
+  - **Toiletries** (include sunscreen, any prescription items from medical info)
+  - **Entertainment** (especially for kids: tablets, books, coloring, comfort items)
+  - **Special items** (medications, comfort objects, sports gear)
+
+  ### 3. Documents Checklist
+  IDs, passports if needed, tickets/confirmations, insurance cards, medical info, emergency contacts
+
+  ### 4. Shared/Don't Forget
+  Chargers + cables, power bank, adapters, first aid kit, snacks, car entertainment, stroller/car seat if needed
+
+  End with: "Want me to save these as a checkable todo list? I'll create a 'packing' list you can check off as you go."

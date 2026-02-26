@@ -1,6 +1,7 @@
 name: weekly_planner
 version: 1
 description: "Sunday evening weekly overview — the week at a glance with prep notes"
+category: productivity
 type: workflow
 min_tier: trusted
 

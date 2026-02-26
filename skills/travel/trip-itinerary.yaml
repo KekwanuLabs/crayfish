@@ -1,0 +1,107 @@
+name: trip_itinerary
+version: 2
+description: "Day-by-day trip itinerary — family-aware pacing with nap times, dietary-safe restaurants, and rainy backups"
+category: travel
+type: workflow
+min_tier: trusted
+
+trigger:
+  command: "/itinerary"
+  keywords:
+    - "trip itinerary"
+    - "plan the days"
+    - "build the itinerary"
+    - "build an itinerary"
+    - "what should we do each day"
+    - "day by day plan"
+    - "daily itinerary"
+
+vars:
+  destination: ""
+
+steps:
+  # Load prior research and family context
+  - tool: memory_search
+    params:
+      query: "family members names ages routines nap time bedtime"
+    store_as: family_info
+    on_error: skip
+
+  - tool: memory_search
+    params:
+      query: "trip {{destination}} research hotels activities vacation plans"
+    store_as: trip_research
+    on_error: skip
+
+  - tool: memory_search
+    params:
+      query: "dietary restrictions allergies food preferences"
+    store_as: dietary_needs
+    on_error: skip
+
+  # Calendar for trip dates
+  - tool: calendar_search
+    params:
+      query: "{{destination}} trip travel vacation"
+    store_as: trip_dates
+    on_error: skip
+
+  # Fresh research for itinerary ideas
+  - tool: web_search
+    params:
+      query: "{{destination}} family itinerary day by day guide with kids"
+      count: 5
+    store_as: itinerary_ideas
+    on_error: skip
+
+  - tool: web_search
+    params:
+      query: "{{destination}} family-friendly restaurants kid-friendly dining"
+      count: 5
+    store_as: restaurant_ideas
+    on_error: skip
+
+prompt: |
+  Create a relaxed, family-paced day-by-day itinerary for {{destination}}.
+
+  ## Context gathered
+
+  Family info (names, ages, routines):
+  {{family_info}}
+
+  Previous trip research:
+  {{trip_research}}
+
+  Dietary needs:
+  {{dietary_needs}}
+
+  Trip dates from calendar:
+  {{trip_dates}}
+
+  Itinerary ideas:
+  {{itinerary_ideas}}
+
+  Restaurant options:
+  {{restaurant_ideas}}
+
+  ## Planning principles
+
+  - Use family members' actual names throughout the itinerary
+  - ONE major activity per half-day — families need breathing room
+  - If there are toddlers/babies, schedule around nap times (typically 1-3 PM)
+  - Build in pool/beach/downtime every day
+  - Meal suggestions must respect dietary restrictions found in memory
+  - Rainy day backup for each outdoor activity
+  - Travel/check-in day should be light (settle in, explore nearby, early dinner)
+  - Last day: easy activity near the hotel, pack, late checkout if possible
+
+  ## Format each day as:
+
+  **Day X: [Theme]**
+  - Morning: [activity + logistics + why it's great for specific family members]
+  - Lunch: [restaurant name + why it works for the family's dietary needs]
+  - Afternoon: [activity or downtime, pacing note]
+  - Dinner: [restaurant suggestion, dietary-safe]
+  - Rainy backup: [indoor alternative]
+
+  End with: "Want me to create packing lists for everyone?"

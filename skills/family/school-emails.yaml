@@ -1,6 +1,7 @@
 name: school_emails
 version: 1
 description: "School communication filter — surfaces action items from school emails"
+category: family
 type: workflow
 min_tier: trusted
 

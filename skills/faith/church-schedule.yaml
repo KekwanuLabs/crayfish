@@ -1,6 +1,7 @@
 name: church_schedule
 version: 1
 description: "Church and faith community schedule — services, groups, and events"
+category: faith
 type: workflow
 min_tier: trusted
 

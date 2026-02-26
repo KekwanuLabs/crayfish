@@ -19,6 +19,7 @@ import (
 	"github.com/KekwanuLabs/crayfish/internal/provider"
 	"github.com/KekwanuLabs/crayfish/internal/queue"
 	"github.com/KekwanuLabs/crayfish/internal/security"
+	"github.com/KekwanuLabs/crayfish/internal/skills"
 	"github.com/KekwanuLabs/crayfish/internal/tools"
 )
 
@@ -60,10 +61,11 @@ type Config struct {
 	SystemPrompt   string `json:"system_prompt" yaml:"system_prompt"` // Custom override (optional)
 	Model          string `json:"model" yaml:"model"`
 	MaxTokens      int    `json:"max_tokens" yaml:"max_tokens"`
-	GoogleConnected  bool `json:"-" yaml:"-"` // Whether Google OAuth is active (injected at startup)
-	WebSearchEnabled bool `json:"-" yaml:"-"` // Whether Brave Search is configured (injected at startup)
-	EmailEnabled     bool `json:"-" yaml:"-"` // Whether email is configured (OAuth or App Password)
-	EmailViaApp      bool `json:"-" yaml:"-"` // True if email is via App Password (not OAuth)
+	GoogleConnected      bool `json:"-" yaml:"-"` // Whether Google OAuth is active (injected at startup)
+	WebSearchEnabled     bool `json:"-" yaml:"-"` // Whether Brave Search is configured (injected at startup)
+	EmailEnabled         bool `json:"-" yaml:"-"` // Whether email is configured (OAuth or App Password)
+	EmailViaApp          bool `json:"-" yaml:"-"` // True if email is via App Password (not OAuth)
+	TravelSearchEnabled  bool `json:"-" yaml:"-"` // Whether Amadeus flight search is configured
 }
 
 // DefaultConfig returns sensible defaults for the runtime.
@@ -165,6 +167,19 @@ Email is not set up yet. If the user asks about email, offer to set it up using 
 Web search is not set up yet. If the user asks you to search the web or look something up online, let them know you can enable it with a free Brave Search API key. Use the brave_connect tool to walk them through it — it only takes a minute. The free tier gives 2,000 searches per month.`
 	}
 
+	// Travel search context.
+	if c.TravelSearchEnabled {
+		base += `
+
+## Travel Search
+You have access to live flight search, price analysis, and cheapest date discovery via the Amadeus API.
+When the user asks about flights or travel prices, use these tools directly:
+- flight_search: Find specific flight offers with prices, airlines, and durations
+- flight_cheapest_dates: Discover the cheapest travel dates for a route
+- flight_price_analysis: Check if a price is HIGH, TYPICAL, or LOW compared to historical data
+You can watch prices and check daily — offer this when travel planning comes up.`
+	}
+
 	// Skills context.
 	base += `
 
@@ -191,10 +206,11 @@ type IdentityReader interface {
 	HasUser() bool
 }
 
-// PromptAugmenter provides prompt augmentations from prompt-type skills.
-// Implemented by skills.Engine to avoid import cycles.
-type PromptAugmenter interface {
+// SkillRunner provides prompt augmentations and workflow skill execution.
+// Implemented by skills.Engine.
+type SkillRunner interface {
 	GetPromptAugmentations() []string
+	MatchAndExecute(ctx context.Context, text string, executor skills.ToolExecutor) (*skills.MatchResult, error)
 }
 
 // Runtime is the agent processing loop.
@@ -209,7 +225,7 @@ type Runtime struct {
 	summarizer      *Summarizer
 	snapshotMgr     *SnapshotManager
 	identity        IdentityReader
-	promptAugmenter PromptAugmenter
+	skillRunner     SkillRunner
 	memoryExtractor *MemoryExtractor
 	memoryRetriever *MemoryRetriever
 	queue           *queue.OfflineQueue
@@ -231,7 +247,7 @@ type Response struct {
 }
 
 // New creates a new agent runtime.
-func New(cfg Config, b bus.Bus, db *sql.DB, prov provider.Provider, sessions *security.SessionStore, toolReg *tools.Registry, q *queue.OfflineQueue, pairing *security.PairingService, memExtractor *MemoryExtractor, memRetriever *MemoryRetriever, snapshotMgr *SnapshotManager, identityStore IdentityReader, promptAug PromptAugmenter, sessionResumeMinutes int, logger *slog.Logger) *Runtime {
+func New(cfg Config, b bus.Bus, db *sql.DB, prov provider.Provider, sessions *security.SessionStore, toolReg *tools.Registry, q *queue.OfflineQueue, pairing *security.PairingService, memExtractor *MemoryExtractor, memRetriever *MemoryRetriever, snapshotMgr *SnapshotManager, identityStore IdentityReader, skillRunner SkillRunner, sessionResumeMinutes int, logger *slog.Logger) *Runtime {
 	summarizer := NewSummarizer(db, prov, logger.With("component", "summarizer"))
 	if snapshotMgr != nil {
 		summarizer.SetSnapshotManager(snapshotMgr)
@@ -251,7 +267,7 @@ func New(cfg Config, b bus.Bus, db *sql.DB, prov provider.Provider, sessions *se
 		summarizer:             summarizer,
 		snapshotMgr:            snapshotMgr,
 		identity:               identityStore,
-		promptAugmenter:        promptAug,
+		skillRunner:            skillRunner,
 		memoryExtractor:        memExtractor,
 		memoryRetriever:        memRetriever,
 		queue:                  q,
@@ -294,6 +310,13 @@ func (r *Runtime) SetEmailEnabled(enabled, viaApp bool) {
 	defer r.configMu.Unlock()
 	r.config.EmailEnabled = enabled
 	r.config.EmailViaApp = viaApp
+}
+
+// SetTravelSearchEnabled updates the travel search availability state at runtime.
+func (r *Runtime) SetTravelSearchEnabled(enabled bool) {
+	r.configMu.Lock()
+	defer r.configMu.Unlock()
+	r.config.TravelSearchEnabled = enabled
 }
 
 // Run starts the agent loop, consuming inbound message events from the bus.
@@ -405,6 +428,25 @@ func (r *Runtime) handleInbound(ctx context.Context, event bus.Event) error {
 	messages, err := r.assembleContext(ctx, sess, msg.Text)
 	if err != nil {
 		return fmt.Errorf("assemble context: %w", err)
+	}
+
+	// Skill matching: check if a workflow skill matches this message.
+	// If so, execute it and inject the assembled prompt as system context.
+	if r.skillRunner != nil {
+		executor := &runtimeToolExecutor{tools: r.tools, sess: sess}
+		result, err := r.skillRunner.MatchAndExecute(ctx, msg.Text, executor)
+		if err != nil {
+			r.logger.Warn("skill execution failed, falling through to LLM", "error", err)
+		} else if result != nil && result.Success && result.FinalPrompt != "" {
+			r.logger.Info("skill matched", "skill", result.SkillName, "session_id", sess.ID)
+			skillMsg := provider.Message{
+				Role:    provider.RoleSystem,
+				Content: "## Skill: " + result.SkillName + "\n" + result.FinalPrompt,
+			}
+			// Insert before the user's message (last in the array).
+			last := messages[len(messages)-1]
+			messages = append(messages[:len(messages)-1], skillMsg, last)
+		}
 	}
 
 	// Get tools for this trust tier.
@@ -531,6 +573,17 @@ func (r *Runtime) handleInbound(ctx context.Context, event bus.Event) error {
 	return nil
 }
 
+// runtimeToolExecutor adapts the runtime's tool registry to the ToolExecutor
+// interface expected by the skill engine.
+type runtimeToolExecutor struct {
+	tools *tools.Registry
+	sess  *security.Session
+}
+
+func (e *runtimeToolExecutor) ExecuteTool(ctx context.Context, toolName string, input json.RawMessage) (string, error) {
+	return e.tools.Execute(ctx, e.sess, toolName, input)
+}
+
 // executeTool runs a single tool call with a hard timeout.
 func (r *Runtime) executeTool(ctx context.Context, sess *security.Session, tc provider.ToolCall) (string, error) {
 	toolCtx, cancel := context.WithTimeout(ctx, toolExecTimeout)
@@ -572,8 +625,8 @@ func (r *Runtime) assembleContext(ctx context.Context, sess *security.Session, c
 	r.configMu.RUnlock()
 
 	// Inject prompt augmentations from prompt-type skills.
-	if r.promptAugmenter != nil {
-		for _, aug := range r.promptAugmenter.GetPromptAugmentations() {
+	if r.skillRunner != nil {
+		for _, aug := range r.skillRunner.GetPromptAugmentations() {
 			systemPrompt += "\n\n" + aug
 		}
 	}

@@ -1,0 +1,50 @@
+name: trip_price_monitor
+version: 1
+description: "Daily price check — loads all watched routes, searches current prices, compares to baselines, and notifies on significant drops"
+category: travel
+type: workflow
+min_tier: trusted
+
+trigger:
+  command: "/pricecheck"
+  schedule: "0 8 * * *"
+  keywords:
+    - "check prices"
+    - "price update"
+    - "how are prices"
+    - "any price drops"
+    - "flight prices update"
+
+steps:
+  # Load all price watches from memory
+  - tool: memory_search
+    params:
+      query: "price_watch"
+      max_results: 10
+    store_as: watched_routes
+
+prompt: |
+  You are running a daily price check on watched flight routes.
+
+  ## Saved Price Watches
+  {{watched_routes}}
+
+  ## Instructions
+
+  For each price_watch entry found in memory:
+  1. Parse the origin, destination, and baseline price from the saved data
+  2. Call flight_search with the origin and destination to get current prices
+  3. Call flight_price_analysis to check if the price level has changed
+  4. Compare the current lowest price to the saved baseline
+
+  After checking all routes, report:
+  - For each route: current cheapest price vs baseline, and whether the price level (HIGH/TYPICAL/LOW) has changed
+  - Highlight any drops of more than 10% or any change to LOW — these are worth acting on
+  - If a price has risen significantly, mention it but don't alarm
+  - Update each price_watch memory entry with the new current price using memory_save
+
+  If no price watches are found:
+  - Let the user know they don't have any active price watches
+  - Suggest: "You can start watching prices by telling me a route, like 'watch prices for flights to Hawaii'"
+
+  Keep the report concise and actionable. Lead with the best news.
