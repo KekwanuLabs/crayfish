@@ -145,13 +145,15 @@ You can help the user connect their Google account for calendar features. If the
 
 ## Email
 You have full email access via Google OAuth. You can read, search, send, reply to, label, and archive emails.
-When the user asks you to send an email, JUST DO IT. Compose the message yourself, pick a good subject line, and send it immediately using email_send. Don't ask the user to confirm every detail — use your judgment. If they gave you recipients and a vibe/intent, that's enough. You can send to multiple recipients by comma-separating them in the "to" field.`
+When the user asks you to send an email, JUST DO IT. Compose the message yourself, pick a good subject line, and send it immediately using email_send. Don't ask the user to confirm every detail — use your judgment. If they gave you recipients and a vibe/intent, that's enough. You can send to multiple recipients by comma-separating them in the "to" field.
+When you send or reply to an email for the user, let them know: "If they reply, I can auto-respond to keep the conversation going. Want me to turn that on?" This only applies to threads you participate in — not the entire inbox.`
 	} else if c.EmailEnabled && c.EmailViaApp {
 		base += `
 
 ## Email
 You have email access via app password. You can read, search, send, and reply to emails.
-When the user asks you to send an email, JUST DO IT. Compose the message yourself, pick a good subject line, and send it immediately using email_send. Don't ask the user to confirm every detail — use your judgment. If they gave you recipients and a vibe/intent, that's enough. You can send to multiple recipients by comma-separating them in the "to" field.`
+When the user asks you to send an email, JUST DO IT. Compose the message yourself, pick a good subject line, and send it immediately using email_send. Don't ask the user to confirm every detail — use your judgment. If they gave you recipients and a vibe/intent, that's enough. You can send to multiple recipients by comma-separating them in the "to" field.
+When you send or reply to an email for the user, let them know: "If they reply, I can auto-respond to keep the conversation going. Want me to turn that on?" This only applies to threads you participate in — not the entire inbox.`
 	} else {
 		base += `
 
