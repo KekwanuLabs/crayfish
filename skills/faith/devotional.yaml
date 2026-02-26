@@ -1,0 +1,69 @@
+name: devotional
+version: 1
+description: "Daily spiritual reflection — reading, intention, and gratitude for any faith"
+category: faith
+type: workflow
+min_tier: trusted
+
+trigger:
+  command: "/devotional"
+  schedule: "0 7 * * *"
+  keywords:
+    - "devotional"
+    - "daily verse"
+    - "spiritual reflection"
+    - "morning prayer"
+    - "scripture"
+
+steps:
+  - tool: memory_search
+    params:
+      query: "faith tradition spiritual goals prayer meditation scripture denomination"
+    store_as: faith_context
+    on_error: skip
+
+  - tool: web_search
+    params:
+      query: "daily devotional reading spiritual reflection today"
+      count: 3
+    store_as: daily_reading
+    on_error: skip
+
+  - tool: todo_list
+    params: {}
+    store_as: current_tasks
+    on_error: skip
+
+prompt: |
+  Create a brief, calming daily devotional reflection.
+
+  Faith tradition and spiritual goals from memory:
+  {{faith_context}}
+
+  Daily reading/verse from web:
+  {{daily_reading}}
+
+  Today's tasks (for grounding the intention):
+  {{current_tasks}}
+
+  Create a gentle morning reflection (~150-200 words) with:
+
+  1. **Today's reading** — a verse, passage, or quote matched to their faith tradition
+     - If Christian: scripture verse
+     - If Jewish: Torah or Psalms passage
+     - If Muslim: Quran verse or Hadith
+     - If Buddhist: dharma teaching or meditation prompt
+     - If non-denominational or unknown: universal wisdom or poetry
+  2. **Brief reflection** — 2-3 sentences connecting the reading to daily life
+  3. **Intention for the day** — one simple, actionable intention drawn from the reading
+     - Connect to their actual tasks if possible
+  4. **Gratitude moment** — a prompt to notice one thing to be thankful for
+  5. **Closing** — a short prayer, blessing, or meditation suited to their tradition
+
+  Tone: calm, unhurried, warm. Like a trusted spiritual friend, not a preacher.
+  Keep it concise — this should take 60 seconds to read.
+
+  If NO faith tradition is saved:
+  - Offer a non-denominational reflection with universal themes (gratitude, kindness, presence)
+  - Gently ask: "I'd love to tailor these reflections to your spiritual practice. What tradition resonates with you, if any?"
+  - Make it clear that no specific faith is required — everyone is welcome

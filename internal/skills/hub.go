@@ -48,6 +48,7 @@ type HubSkill struct {
 	Author          string   `json:"author,omitempty"`
 	Version         int      `json:"version"`
 	Type            string   `json:"type"`
+	Category        string   `json:"category,omitempty"`
 	Tags            []string `json:"tags,omitempty"`
 	URL             string   `json:"url"`
 	Requires        []string `json:"requires,omitempty"`
@@ -121,7 +122,8 @@ func (h *HubClient) Search(ctx context.Context, query string) ([]HubSkill, error
 	var results []HubSkill
 	for _, s := range index.Skills {
 		if strings.Contains(strings.ToLower(s.Name), lower) ||
-			strings.Contains(strings.ToLower(s.Description), lower) {
+			strings.Contains(strings.ToLower(s.Description), lower) ||
+			strings.Contains(strings.ToLower(s.Category), lower) {
 			results = append(results, s)
 			continue
 		}
@@ -207,6 +209,12 @@ func (h *HubClient) SyncAll(ctx context.Context, registry *Registry, skillsDir s
 		if err := validateSkillSecurity(skill); err != nil {
 			h.logger.Warn("hub sync: skill failed security check", "name", hs.Name, "error", err)
 			continue
+		}
+
+		// Propagate category from hub index if the skill YAML doesn't set one.
+		// Since ParseSkill defaults to "general", override that with the hub's specific category.
+		if hs.Category != "" && (skill.Category == "" || skill.Category == "general") {
+			skill.Category = hs.Category
 		}
 
 		skill.Source = "hub"
