@@ -152,6 +152,15 @@ const skillsPageHTML = `<!DOCTYPE html>
   .type-prompt { background: rgba(16, 185, 129, 0.2); color: #6ee7b7; }
   .type-reactive { background: rgba(168, 85, 247, 0.2); color: #c4b5fd; }
 
+  .skill-category {
+    font-size: 0.6875rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    background: rgba(100, 116, 139, 0.2);
+    color: #94a3b8;
+    text-transform: capitalize;
+  }
+
   .skill-desc {
     color: #94a3b8;
     font-size: 0.875rem;
@@ -419,6 +428,11 @@ const skillsPageHTML = `<!DOCTYPE html>
           <input type="text" id="skill-desc" placeholder="What this skill does...">
         </div>
 
+        <div class="form-group">
+          <label for="skill-category">Category</label>
+          <select id="skill-category"></select>
+        </div>
+
         <div class="form-row">
           <div class="form-group">
             <label for="skill-command">Command Trigger</label>
@@ -472,6 +486,25 @@ function authHeaders(extra) {
 }
 let skills = [];
 let subTab = 'my';
+let categoriesLoaded = false;
+
+async function loadCategories() {
+  try {
+    const resp = await fetch('/api/skills/categories', {headers: authHeaders()});
+    const data = await resp.json();
+    const sel = document.getElementById('skill-category');
+    sel.innerHTML = '';
+    (data.categories || []).forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c.name;
+      opt.textContent = c.name.charAt(0).toUpperCase() + c.name.slice(1) + ' (' + c.count + (c.count === 1 ? ' skill' : ' skills') + ')';
+      sel.appendChild(opt);
+    });
+    categoriesLoaded = true;
+  } catch (e) {
+    console.error('Failed to load categories:', e);
+  }
+}
 
 function switchSubTab(t) {
   subTab = t;
@@ -516,7 +549,10 @@ function renderSkills() {
           <label class="toggle"><input type="checkbox" ${checked} onchange="toggleSkill('${esc(s.name)}',this.checked)"><span class="slider"></span></label>
           <span class="skill-name">${esc(s.name)}</span>
         </div>
-        <span class="skill-type type-${s.type}" title="${esc(typeLabel)}">${esc(typeLabel)}</span>
+        <div style="display:flex;gap:0.375rem;align-items:center;">
+          <span class="skill-category">${esc(s.category || 'general')}</span>
+          <span class="skill-type type-${s.type}" title="${esc(typeLabel)}">${esc(typeLabel)}</span>
+        </div>
       </div>
       <div class="skill-desc">${esc(s.description) || 'No description'}</div>
       <div class="skill-trigger">
@@ -575,9 +611,11 @@ async function installFromHub(name) {
   }
 }
 
-function openCreateModal() {
+async function openCreateModal() {
+  if (!categoriesLoaded) await loadCategories();
   document.getElementById('modal-title').textContent = 'Create New Skill';
   document.getElementById('skill-form').reset();
+  document.getElementById('skill-category').value = 'general';
   document.getElementById('modal').classList.add('show');
 }
 
@@ -586,6 +624,7 @@ function closeModal() {
 }
 
 async function viewSkill(name) {
+  if (!categoriesLoaded) await loadCategories();
   try {
     const resp = await fetch('/api/skills/' + name, {headers: authHeaders()});
     const skill = await resp.json();
@@ -594,6 +633,7 @@ async function viewSkill(name) {
     document.getElementById('skill-name').value = skill.name;
     document.getElementById('skill-type').value = skill.type;
     document.getElementById('skill-desc').value = skill.description || '';
+    document.getElementById('skill-category').value = skill.category || 'general';
     document.getElementById('skill-command').value = skill.trigger?.command || '';
     document.getElementById('skill-schedule').value = skill.trigger?.schedule || '';
     document.getElementById('skill-event').value = skill.trigger?.event || '';
@@ -628,6 +668,7 @@ async function saveSkill() {
     name: name,
     type: document.getElementById('skill-type').value,
     description: document.getElementById('skill-desc').value,
+    category: document.getElementById('skill-category').value,
     trigger: {
       command: document.getElementById('skill-command').value.trim() || undefined,
       schedule: document.getElementById('skill-schedule').value.trim() || undefined,
@@ -652,6 +693,7 @@ async function saveSkill() {
     closeModal();
     showStatus('Skill "' + name + '" saved successfully!', 'success');
     loadSkills();
+    loadCategories();
   } catch (e) {
     showStatus('Failed to save skill: ' + e.message, 'error');
   }
@@ -666,6 +708,7 @@ async function deleteSkill(name) {
 
     showStatus('Skill "' + name + '" deleted', 'success');
     loadSkills();
+    loadCategories();
   } catch (e) {
     showStatus('Failed to delete skill: ' + e.message, 'error');
   }
@@ -679,6 +722,7 @@ function showStatus(msg, type) {
 }
 
 // Load on startup
+loadCategories();
 loadSkills();
 </script>
 </body>

@@ -4,11 +4,44 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 )
 
 func testLogger() *slog.Logger {
 	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
+}
+
+func TestDefaultCategories_SortedAndContainsGeneral(t *testing.T) {
+	if len(DefaultCategories) == 0 {
+		t.Fatal("DefaultCategories must not be empty")
+	}
+
+	// Must be sorted for consistent dropdown ordering.
+	if !sort.StringsAreSorted(DefaultCategories) {
+		t.Error("DefaultCategories must be sorted alphabetically")
+	}
+
+	// Must contain "general" since it's the default fallback everywhere.
+	found := false
+	for _, c := range DefaultCategories {
+		if c == "general" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("DefaultCategories must contain 'general'")
+	}
+
+	// No duplicates.
+	seen := make(map[string]bool)
+	for _, c := range DefaultCategories {
+		if seen[c] {
+			t.Errorf("duplicate category: %q", c)
+		}
+		seen[c] = true
+	}
 }
 
 func TestLoadFromDir_SubfoldersOnly(t *testing.T) {
@@ -144,5 +177,112 @@ func TestRegister_DefaultCategory(t *testing.T) {
 	}
 	if skill.Category != "general" {
 		t.Errorf("expected category 'general', got %q", skill.Category)
+	}
+}
+
+func TestSaveAndLoad_RoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	reg := NewRegistry(testLogger())
+
+	original := &Skill{
+		Name:        "round_trip",
+		Version:     3,
+		Description: "A round-trip test skill",
+		Category:    "travel",
+		Type:        TypeWorkflow,
+		Prompt:      "Plan a trip to {{destination}}",
+		Trigger: Trigger{
+			Command:  "/trip",
+			Keywords: []string{"plan trip", "travel"},
+		},
+		Vars: map[string]string{"destination": "unknown"},
+	}
+
+	if err := reg.SaveToFile(original, dir); err != nil {
+		t.Fatalf("SaveToFile: %v", err)
+	}
+
+	// Load from the same directory.
+	reg2 := NewRegistry(testLogger())
+	if err := reg2.LoadFromDir(dir); err != nil {
+		t.Fatalf("LoadFromDir: %v", err)
+	}
+
+	loaded := reg2.Get("round_trip")
+	if loaded == nil {
+		t.Fatal("skill not found after round-trip")
+	}
+
+	if loaded.Category != "travel" {
+		t.Errorf("category: want 'travel', got %q", loaded.Category)
+	}
+	if loaded.Version != 3 {
+		t.Errorf("version: want 3, got %d", loaded.Version)
+	}
+	if loaded.Description != "A round-trip test skill" {
+		t.Errorf("description: want 'A round-trip test skill', got %q", loaded.Description)
+	}
+	if loaded.Type != TypeWorkflow {
+		t.Errorf("type: want 'workflow', got %q", loaded.Type)
+	}
+	if loaded.Trigger.Command != "/trip" {
+		t.Errorf("trigger.command: want '/trip', got %q", loaded.Trigger.Command)
+	}
+	if loaded.Prompt != "Plan a trip to {{destination}}" {
+		t.Errorf("prompt: want 'Plan a trip to {{destination}}', got %q", loaded.Prompt)
+	}
+}
+
+func TestLoadFromDir_InfersCategory(t *testing.T) {
+	dir := t.TempDir()
+
+	// Skill YAML with NO category field — should be inferred from subfolder name.
+	subDir := filepath.Join(dir, "faith")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	yamlData := "name: inferred_cat\ndescription: test\nprompt: hello\n"
+	if err := os.WriteFile(filepath.Join(subDir, "inferred_cat.yaml"), []byte(yamlData), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := NewRegistry(testLogger())
+	if err := reg.LoadFromDir(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	s := reg.Get("inferred_cat")
+	if s == nil {
+		t.Fatal("skill not loaded")
+	}
+	if s.Category != "faith" {
+		t.Errorf("expected inferred category 'faith', got %q", s.Category)
+	}
+}
+
+func TestLoadFromDir_ExplicitCategoryPreserved(t *testing.T) {
+	dir := t.TempDir()
+
+	// Skill YAML with explicit category matching its subfolder.
+	subDir := filepath.Join(dir, "faith")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	yamlData := "name: explicit_cat\ncategory: faith\ndescription: test\nprompt: hello\n"
+	if err := os.WriteFile(filepath.Join(subDir, "explicit_cat.yaml"), []byte(yamlData), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	reg := NewRegistry(testLogger())
+	if err := reg.LoadFromDir(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	s := reg.Get("explicit_cat")
+	if s == nil {
+		t.Fatal("skill not loaded")
+	}
+	if s.Category != "faith" {
+		t.Errorf("expected category 'faith', got %q", s.Category)
 	}
 }

@@ -13,6 +13,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// DefaultCategories is the canonical set of skill categories shown in the dashboard.
+var DefaultCategories = []string{
+	"communication", "education", "entertainment", "faith",
+	"family", "finance", "fitness", "general", "health",
+	"home", "news", "productivity", "shopping", "travel",
+}
+
 // boolPtr returns a pointer to a bool value.
 func boolPtr(b bool) *bool { return &b }
 
