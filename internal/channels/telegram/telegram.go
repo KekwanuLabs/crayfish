@@ -525,10 +525,9 @@ func (a *Adapter) handleUpdate(ctx context.Context, update Update) {
 	}
 	a.operatorMu.Unlock()
 
-	// Handle special commands
+	// /start — route through the runtime so the assistant greets in its own voice.
 	if strings.HasPrefix(text, "/start") {
-		a.handleStartCommand(ctx, chatID, sessionID)
-		return
+		text = "Hi!"
 	}
 
 	// Show typing indicator while AI is thinking
@@ -556,20 +555,6 @@ func (a *Adapter) handleUpdate(ctx context.Context, update Update) {
 	}
 }
 
-// handleStartCommand sends a welcome message when user sends /start.
-func (a *Adapter) handleStartCommand(ctx context.Context, chatID int64, sessionID string) {
-	welcomeMsg := "Welcome to Crayfish! I'm here to help. Just send me a message to get started."
-
-	outbound := channels.OutboundMessage{
-		To:   strconv.FormatInt(chatID, 10),
-		Text: welcomeMsg,
-	}
-
-	// Send welcome message
-	if err := a.Send(ctx, outbound); err != nil {
-		a.logger.Error("Failed to send welcome message", "error", err, "chat_id", chatID)
-	}
-}
 
 // transcribeVoice downloads a voice message and transcribes it.
 func (a *Adapter) transcribeVoice(ctx context.Context, voice *Voice) (string, error) {
