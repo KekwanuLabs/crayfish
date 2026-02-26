@@ -1,0 +1,72 @@
+name: family_briefing
+version: 1
+description: "Morning family briefing — today's schedule, action items, and heads-up for the next few days"
+type: workflow
+min_tier: trusted
+
+trigger:
+  schedule: "0 6 * * *"
+  command: "/family"
+  keywords:
+    - "what's the family schedule"
+    - "what's everyone doing today"
+    - "family schedule"
+    - "today's plan"
+    - "what do we have today"
+    - "morning briefing"
+    - "daily briefing"
+
+steps:
+  - tool: calendar_today
+    params: {}
+    store_as: today_calendar
+    on_error: skip
+
+  - tool: calendar_upcoming
+    params:
+      days: 3
+    store_as: upcoming_calendar
+    on_error: skip
+
+  - tool: todo_list
+    params: {}
+    store_as: todos
+    on_error: skip
+
+  - tool: email_check
+    params: {}
+    store_as: recent_emails
+    on_error: skip
+
+  - tool: memory_search
+    params:
+      query: "family schedule routine activities"
+    store_as: family_context
+    on_error: skip
+
+prompt: |
+  Create a warm, scannable morning family briefing.
+
+  Today's calendar:
+  {{today_calendar}}
+
+  Next 3 days:
+  {{upcoming_calendar}}
+
+  Todo list:
+  {{todos}}
+
+  Recent emails (flag only important ones):
+  {{recent_emails}}
+
+  Family context:
+  {{family_context}}
+
+  Format the briefing as:
+  1. **Good morning greeting** — warm, brief
+  2. **Today at a glance** — schedule in chronological order, who needs to be where
+  3. **Heads up** — anything notable in the next 2-3 days to prep for
+  4. **Action items** — top 3-5 things to handle today (from todos + emails needing response)
+  5. **One encouraging note** — something to look forward to or a kind word
+
+  Keep it concise and scannable. Use bullet points. If something needs attention urgently, flag it clearly.

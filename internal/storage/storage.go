@@ -454,6 +454,13 @@ var migrations = []migration{
 		CREATE INDEX IF NOT EXISTS idx_snapshots_current ON session_snapshots(session_id, is_current);
 		`,
 	},
+	{
+		name: "todo list categories",
+		sql: `
+		ALTER TABLE todos ADD COLUMN list_name TEXT NOT NULL DEFAULT 'default';
+		CREATE INDEX IF NOT EXISTS idx_todos_list ON todos(list_name);
+		`,
+	},
 }
 
 // Now returns the current time formatted for SQLite storage.

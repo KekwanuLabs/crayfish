@@ -1,0 +1,75 @@
+name: trip_research
+version: 1
+description: "Family trip research — destination overview, hotels, flights, activities, and budget"
+type: workflow
+min_tier: trusted
+
+trigger:
+  command: "/trip"
+  keywords:
+    - "plan a trip"
+    - "vacation ideas"
+    - "family trip"
+    - "plan vacation"
+    - "travel to"
+    - "trip to"
+    - "family vacation"
+
+vars:
+  destination: ""
+
+steps:
+  - tool: memory_search
+    params:
+      query: "travel preferences budget family vacation"
+    store_as: travel_prefs
+    on_error: skip
+
+  - tool: web_search
+    params:
+      query: "family vacation {{destination}} things to do with kids"
+      count: 5
+    store_as: destination_info
+    on_error: skip
+
+  - tool: web_search
+    params:
+      query: "{{destination}} family-friendly hotel resort best rated"
+      count: 5
+    store_as: hotels
+    on_error: skip
+
+  - tool: web_search
+    params:
+      query: "flights to {{destination}} family deals"
+      count: 5
+    store_as: flights
+    on_error: skip
+
+prompt: |
+  Create a comprehensive family trip brief for {{destination}}.
+
+  Family travel preferences:
+  {{travel_prefs}}
+
+  Destination info:
+  {{destination_info}}
+
+  Hotel options:
+  {{hotels}}
+
+  Flight info:
+  {{flights}}
+
+  Format the trip brief as:
+  1. **Destination overview** — why this is great for families, best time to visit, weather
+  2. **Getting there** — flight options, drive time if applicable, airport tips with kids
+  3. **Where to stay** — 3 options at different price points (budget / mid-range / splurge) with booking links if available
+  4. **Top activities for families** — 5-7 things to do, mix of must-sees and hidden gems, note which are best for different ages
+  5. **Food scene** — kid-friendly restaurants, local specialties to try, allergy-friendly options if relevant
+  6. **Budget estimate** — rough per-day cost for a family (lodging + food + activities)
+  7. **Pro tips** — insider advice, what to pack, common mistakes to avoid
+
+  End with: "Want me to add this trip to the calendar and start a packing list?"
+
+  Use the family's actual preferences and dietary needs from memory when available.

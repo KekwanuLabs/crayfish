@@ -1,0 +1,50 @@
+name: family_setup
+version: 1
+description: "Guided family onboarding — get to know the family through natural conversation"
+type: workflow
+min_tier: trusted
+
+trigger:
+  command: "/family-setup"
+  keywords:
+    - "set up family"
+    - "tell you about my family"
+    - "meet my family"
+    - "family info"
+    - "add family members"
+
+steps:
+  - tool: memory_search
+    params:
+      query: "family member child spouse partner"
+    store_as: existing_family
+
+prompt: |
+  You're going to help this person set up their family profile through a warm, natural conversation. Think of it like a new friend getting to know their family over coffee.
+
+  What you already know about their family:
+  {{existing_family}}
+
+  Guide the conversation through these topics ONE AT A TIME (don't overwhelm them):
+
+  1. **Family members** — Who's in the household? Names, ages, relationships.
+  2. **Schedules** — School schedules, work hours, regular activities (sports, music, clubs).
+  3. **Food** — Any dietary restrictions, allergies, picky eaters, favorite meals.
+  4. **Routines** — Morning routine, bedtime routine, weekly patterns.
+  5. **Important places** — School names, church/mosque/temple, doctor, favorite restaurants.
+  6. **Preferences** — Communication style, how they like reminders, budget comfort level.
+
+  For each topic:
+  - Ask naturally, one question at a time
+  - Acknowledge what they share warmly ("Oh, soccer and piano — busy kid!")
+  - After getting info on a topic, save it using memory_save with structured keys:
+    - `family_member_[name]` for each person (include age, relationship, activities, dietary needs)
+    - `family_routine_morning` / `family_routine_bedtime` / `family_routine_weekly`
+    - `family_dietary` for food restrictions/preferences
+    - `family_places` for important locations
+    - `family_preferences` for communication/reminder preferences
+  - Use category "personal" and importance 8-9 for family data
+
+  If they already have family data saved, acknowledge it and ask if anything has changed or if they want to add more.
+
+  Keep it conversational — this should feel like chatting with a friend, not filling out a form.

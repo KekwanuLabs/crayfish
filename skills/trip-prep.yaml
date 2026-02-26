@@ -1,0 +1,71 @@
+name: trip_prep
+version: 1
+description: "Trip preparation — packing lists, timelines, and logistics checklists"
+type: workflow
+min_tier: trusted
+
+trigger:
+  command: "/tripprep"
+  keywords:
+    - "packing list"
+    - "trip prep"
+    - "get ready for the trip"
+    - "pack for the trip"
+    - "what to pack"
+    - "travel checklist"
+
+steps:
+  - tool: memory_search
+    params:
+      query: "trip vacation upcoming travel family members"
+    store_as: trip_info
+    on_error: skip
+
+  - tool: calendar_search
+    params:
+      query: "trip flight hotel travel"
+    store_as: trip_calendar
+    on_error: skip
+
+  - tool: todo_list
+    params:
+      list: "packing"
+    store_as: existing_packing
+    on_error: skip
+
+prompt: |
+  Create a trip preparation checklist with packing lists.
+
+  Trip details from memory:
+  {{trip_info}}
+
+  Trip dates and bookings:
+  {{trip_calendar}}
+
+  Existing packing list:
+  {{existing_packing}}
+
+  Create:
+
+  1. **Timeline checklist:**
+     - 2 weeks before: [bookings, reservations, pet sitter, etc.]
+     - 1 week before: [laundry, shopping, prescriptions, etc.]
+     - Day before: [packing, charging, house prep, etc.]
+     - Day of: [final checks, lock up, snacks for travel]
+
+  2. **Packing lists by family member** (use actual names from memory if available):
+     - Each person gets their own section
+     - Clothes (based on weather + days)
+     - Toiletries
+     - Entertainment (especially for kids — tablets, books, toys)
+     - Special items (medications, comfort items, sports gear)
+
+  3. **Documents checklist:**
+     - IDs, tickets, confirmations, insurance cards, medical info
+
+  4. **Don't forget:**
+     - Chargers, adapters, snacks, car entertainment, first aid kit
+
+  End with: "Want me to save these as a checkable packing list? I'll create a 'packing' todo list you can check off as you go."
+
+  If they say yes, use todo_add with list="packing" for each item.

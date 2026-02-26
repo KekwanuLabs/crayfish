@@ -1,0 +1,54 @@
+name: weekly_planner
+version: 1
+description: "Sunday evening weekly overview — the week at a glance with prep notes"
+type: workflow
+min_tier: trusted
+
+trigger:
+  schedule: "0 20 * * 0"
+  command: "/weekly"
+  keywords:
+    - "plan the week"
+    - "week ahead"
+    - "weekly plan"
+    - "this week"
+    - "what's this week look like"
+
+steps:
+  - tool: calendar_upcoming
+    params:
+      days: 7
+    store_as: week_calendar
+    on_error: skip
+
+  - tool: todo_list
+    params: {}
+    store_as: todos
+    on_error: skip
+
+  - tool: memory_search
+    params:
+      query: "recurring routine weekly schedule activities"
+    store_as: routines
+    on_error: skip
+
+prompt: |
+  Create a weekly family overview — the kind of thing you'd jot on a whiteboard Sunday evening.
+
+  This week's calendar:
+  {{week_calendar}}
+
+  Open todos:
+  {{todos}}
+
+  Family routines:
+  {{routines}}
+
+  Format:
+  1. **Week at a glance** — Mon through Sun, one line per day with key events
+  2. **Busy days** — flag the packed days so they can plan simpler meals / less errands
+  3. **Quiet windows** — good times for errands, appointments, or self-care
+  4. **Prep needed** — anything that needs advance planning (permission slips, supplies, gifts, etc.)
+  5. **Open tasks** — carry-over todos that should get done this week
+
+  Keep it organized and actionable. This is their weekly command center.

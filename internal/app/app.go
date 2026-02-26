@@ -56,6 +56,7 @@ type App struct {
 	pairing        *security.PairingService
 	skillRegistry  *skills.Registry
 	skillScheduler *skills.Scheduler
+	hubSyncer      *skills.HubSyncer
 	autoUpdater    *updater.Updater
 	voiceInstaller *voice.Installer
 
@@ -522,6 +523,11 @@ func (a *App) Start(ctx context.Context) error {
 		Hub:       hubClient,
 	})
 
+	// 10b. Hub syncer — auto-sync skills from hub on startup + every 6 hours
+	a.hubSyncer = skills.NewHubSyncer(hubClient, a.skillRegistry, skillsDir,
+		a.Logger.With("component", "hub-syncer"))
+	a.hubSyncer.Start(ctx)
+
 	// 11. Skill scheduler
 	a.skillScheduler = skills.NewScheduler(a.skillRegistry, func(ctx context.Context, skill *skills.Skill) {
 		a.Logger.Info("scheduled skill triggered", "skill", skill.Name)
@@ -636,9 +642,12 @@ func (a *App) Start(ctx context.Context) error {
 	a.emailMu.RUnlock()
 	rtCfg.EmailViaApp = emailViaApp
 
+	// Create skill engine for prompt augmentations.
+	skillEngine := skills.NewEngine(a.skillRegistry, a.Logger.With("component", "skill-engine"))
+
 	rt := runtime.New(rtCfg, a.bus, db.Inner(), llm, a.sessions, toolReg,
 		a.offlineQueue, a.pairing, memExtractor, memRetriever,
-		snapshotMgr, a.identityStore, a.Config.SessionResumeMinutes,
+		snapshotMgr, a.identityStore, skillEngine, a.Config.SessionResumeMinutes,
 		a.Logger.With("component", "runtime"))
 	a.rt = rt
 
@@ -775,6 +784,10 @@ func (a *App) Stop() error {
 
 	if a.skillScheduler != nil {
 		a.skillScheduler.Stop()
+	}
+
+	if a.hubSyncer != nil {
+		a.hubSyncer.Stop()
 	}
 
 	if a.autoUpdater != nil {

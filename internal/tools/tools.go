@@ -334,18 +334,20 @@ func RegisterBuiltins(reg *Registry, adapters map[string]channels.ChannelAdapter
 	// todo.add — add an item to the todo list.
 	reg.Register(&Tool{
 		Name:        "todo_add",
-		Description: "Add an item to the todo list. Specify 'text' for the todo item content.",
+		Description: "Add an item to a todo list. Specify 'text' for the content and optionally 'list' for the list name (default: 'default'). Use lists like 'shopping', 'packing', 'school', etc.",
 		MinTier:     security.TierTrusted,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
-				"text": {"type": "string", "description": "Todo item text"}
+				"text": {"type": "string", "description": "Todo item text"},
+				"list": {"type": "string", "description": "List name (e.g., 'shopping', 'packing', 'school'). Default: 'default'"}
 			},
 			"required": ["text"]
 		}`),
 		Execute: func(ctx context.Context, sess *security.Session, input json.RawMessage) (string, error) {
 			var params struct {
 				Text string `json:"text"`
+				List string `json:"list"`
 			}
 			if err := json.Unmarshal(input, &params); err != nil {
 				return "", fmt.Errorf("todo.add: parse input: %w", err)
@@ -354,10 +356,13 @@ func RegisterBuiltins(reg *Registry, adapters map[string]channels.ChannelAdapter
 			if params.Text == "" {
 				return "", fmt.Errorf("todo.add: text is required")
 			}
+			if params.List == "" {
+				params.List = "default"
+			}
 
 			result, err := db.ExecContext(ctx,
-				"INSERT INTO todos (text, completed, created_at) VALUES (?, 0, datetime('now'))",
-				params.Text)
+				"INSERT INTO todos (text, completed, list_name, created_at) VALUES (?, 0, ?, datetime('now'))",
+				params.Text, params.List)
 			if err != nil {
 				return "", fmt.Errorf("todo.add: insert: %w", err)
 			}
@@ -367,53 +372,221 @@ func RegisterBuiltins(reg *Registry, adapters map[string]channels.ChannelAdapter
 				return "", fmt.Errorf("todo.add: get id: %w", err)
 			}
 
-			return fmt.Sprintf("Added todo #%d: %s", id, params.Text), nil
+			if params.List == "default" {
+				return fmt.Sprintf("Added todo #%d: %s", id, params.Text), nil
+			}
+			return fmt.Sprintf("Added todo #%d to '%s' list: %s", id, params.List, params.Text), nil
 		},
 	})
 
-	// todo.list — list all todo items.
+	// todo.list — list todo items, optionally filtered by list.
 	reg.Register(&Tool{
 		Name:        "todo_list",
-		Description: "List all todo items from the todo list.",
+		Description: "List todo items. Optionally filter by 'list' name. When no list is specified, groups items by list.",
 		MinTier:     security.TierTrusted,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
-			"properties": {}
+			"properties": {
+				"list": {"type": "string", "description": "Filter by list name (e.g., 'shopping', 'packing'). Omit to see all lists."}
+			}
 		}`),
 		Execute: func(ctx context.Context, sess *security.Session, input json.RawMessage) (string, error) {
-			rows, err := db.QueryContext(ctx,
-				"SELECT id, text, completed FROM todos ORDER BY created_at ASC")
+			var params struct {
+				List string `json:"list"`
+			}
+			if err := json.Unmarshal(input, &params); err != nil {
+				return "", fmt.Errorf("todo.list: parse input: %w", err)
+			}
+
+			var rows *sql.Rows
+			var err error
+			if params.List != "" {
+				rows, err = db.QueryContext(ctx,
+					"SELECT id, text, completed, list_name FROM todos WHERE list_name = ? ORDER BY created_at ASC",
+					params.List)
+			} else {
+				rows, err = db.QueryContext(ctx,
+					"SELECT id, text, completed, list_name FROM todos ORDER BY list_name, created_at ASC")
+			}
 			if err != nil {
 				return "", fmt.Errorf("todo.list: query: %w", err)
 			}
 			defer rows.Close()
 
-			var items []string
+			// Group items by list name.
+			type todoItem struct {
+				id        int64
+				text      string
+				completed int
+				listName  string
+			}
+			var allItems []todoItem
 			for rows.Next() {
-				var id int64
-				var text string
-				var completed int
-
-				if err := rows.Scan(&id, &text, &completed); err != nil {
+				var item todoItem
+				if err := rows.Scan(&item.id, &item.text, &item.completed, &item.listName); err != nil {
 					return "", fmt.Errorf("todo.list: scan: %w", err)
 				}
-
-				status := "[ ]"
-				if completed == 1 {
-					status = "[x]"
-				}
-				items = append(items, fmt.Sprintf("%s #%d: %s", status, id, text))
+				allItems = append(allItems, item)
 			}
-
 			if err := rows.Err(); err != nil {
 				return "", fmt.Errorf("todo.list: rows: %w", err)
 			}
 
-			if len(items) == 0 {
+			if len(allItems) == 0 {
+				if params.List != "" {
+					return fmt.Sprintf("No todos found in '%s' list", params.List), nil
+				}
 				return "No todos found", nil
 			}
 
-			return "Todo list:\n" + strings.Join(items, "\n"), nil
+			// If filtering by list, simple flat output.
+			if params.List != "" {
+				var items []string
+				for _, item := range allItems {
+					status := "[ ]"
+					if item.completed == 1 {
+						status = "[x]"
+					}
+					items = append(items, fmt.Sprintf("%s #%d: %s", status, item.id, item.text))
+				}
+				return fmt.Sprintf("%s list:\n%s", params.List, strings.Join(items, "\n")), nil
+			}
+
+			// Group by list name.
+			grouped := make(map[string][]string)
+			var listOrder []string
+			for _, item := range allItems {
+				status := "[ ]"
+				if item.completed == 1 {
+					status = "[x]"
+				}
+				line := fmt.Sprintf("%s #%d: %s", status, item.id, item.text)
+				if _, exists := grouped[item.listName]; !exists {
+					listOrder = append(listOrder, item.listName)
+				}
+				grouped[item.listName] = append(grouped[item.listName], line)
+			}
+
+			var output []string
+			for _, listName := range listOrder {
+				output = append(output, fmt.Sprintf("## %s", listName))
+				output = append(output, grouped[listName]...)
+				output = append(output, "")
+			}
+
+			return "Todo lists:\n" + strings.Join(output, "\n"), nil
+		},
+	})
+
+	// todo.complete — mark a todo item as done.
+	reg.Register(&Tool{
+		Name:        "todo_complete",
+		Description: "Mark a todo item as completed by its ID.",
+		MinTier:     security.TierTrusted,
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"id": {"type": "integer", "description": "The todo item ID to mark as completed"}
+			},
+			"required": ["id"]
+		}`),
+		Execute: func(ctx context.Context, sess *security.Session, input json.RawMessage) (string, error) {
+			var params struct {
+				ID int64 `json:"id"`
+			}
+			if err := json.Unmarshal(input, &params); err != nil {
+				return "", fmt.Errorf("todo.complete: parse input: %w", err)
+			}
+			if params.ID <= 0 {
+				return "", fmt.Errorf("todo.complete: valid id is required")
+			}
+
+			result, err := db.ExecContext(ctx,
+				"UPDATE todos SET completed = 1 WHERE id = ?", params.ID)
+			if err != nil {
+				return "", fmt.Errorf("todo.complete: update: %w", err)
+			}
+			affected, _ := result.RowsAffected()
+			if affected == 0 {
+				return fmt.Sprintf("Todo #%d not found", params.ID), nil
+			}
+			return fmt.Sprintf("Completed todo #%d", params.ID), nil
+		},
+	})
+
+	// todo.delete — remove a todo item.
+	reg.Register(&Tool{
+		Name:        "todo_delete",
+		Description: "Delete a todo item by its ID.",
+		MinTier:     security.TierTrusted,
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"id": {"type": "integer", "description": "The todo item ID to delete"}
+			},
+			"required": ["id"]
+		}`),
+		Execute: func(ctx context.Context, sess *security.Session, input json.RawMessage) (string, error) {
+			var params struct {
+				ID int64 `json:"id"`
+			}
+			if err := json.Unmarshal(input, &params); err != nil {
+				return "", fmt.Errorf("todo.delete: parse input: %w", err)
+			}
+			if params.ID <= 0 {
+				return "", fmt.Errorf("todo.delete: valid id is required")
+			}
+
+			result, err := db.ExecContext(ctx,
+				"DELETE FROM todos WHERE id = ?", params.ID)
+			if err != nil {
+				return "", fmt.Errorf("todo.delete: delete: %w", err)
+			}
+			affected, _ := result.RowsAffected()
+			if affected == 0 {
+				return fmt.Sprintf("Todo #%d not found", params.ID), nil
+			}
+			return fmt.Sprintf("Deleted todo #%d", params.ID), nil
+		},
+	})
+
+	// todo.clear — clear completed items from a list (or all lists).
+	reg.Register(&Tool{
+		Name:        "todo_clear",
+		Description: "Clear all completed todo items. Optionally specify 'list' to clear only that list's completed items.",
+		MinTier:     security.TierTrusted,
+		InputSchema: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"list": {"type": "string", "description": "List name to clear completed items from. Omit to clear all completed items."}
+			}
+		}`),
+		Execute: func(ctx context.Context, sess *security.Session, input json.RawMessage) (string, error) {
+			var params struct {
+				List string `json:"list"`
+			}
+			if err := json.Unmarshal(input, &params); err != nil {
+				return "", fmt.Errorf("todo.clear: parse input: %w", err)
+			}
+
+			var result sql.Result
+			var err error
+			if params.List != "" {
+				result, err = db.ExecContext(ctx,
+					"DELETE FROM todos WHERE completed = 1 AND list_name = ?", params.List)
+			} else {
+				result, err = db.ExecContext(ctx,
+					"DELETE FROM todos WHERE completed = 1")
+			}
+			if err != nil {
+				return "", fmt.Errorf("todo.clear: delete: %w", err)
+			}
+
+			affected, _ := result.RowsAffected()
+			if params.List != "" {
+				return fmt.Sprintf("Cleared %d completed items from '%s' list", affected, params.List), nil
+			}
+			return fmt.Sprintf("Cleared %d completed items", affected), nil
 		},
 	})
 
@@ -920,10 +1093,11 @@ func initializeTables(db *sql.DB, logger *slog.Logger) {
 
 	_, err := db.ExecContext(ctx, `
 		CREATE TABLE IF NOT EXISTS todos (
-			id        INTEGER PRIMARY KEY AUTOINCREMENT,
-			text      TEXT    NOT NULL,
-			completed INTEGER NOT NULL DEFAULT 0,
-			created_at TEXT   NOT NULL DEFAULT (datetime('now'))
+			id         INTEGER PRIMARY KEY AUTOINCREMENT,
+			text       TEXT    NOT NULL,
+			completed  INTEGER NOT NULL DEFAULT 0,
+			list_name  TEXT    NOT NULL DEFAULT 'default',
+			created_at TEXT    NOT NULL DEFAULT (datetime('now'))
 		)
 	`)
 	if err != nil {
