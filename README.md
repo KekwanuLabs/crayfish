@@ -277,6 +277,7 @@ PRs welcome! The codebase is intentionally simple — no frameworks, minimal dep
 
 ## Quick Links
 
+- **Website:** [crayfish-ai.com](https://crayfish-ai.com/)
 - **Install on device:** `curl -fsSL https://raw.githubusercontent.com/KekwanuLabs/crayfish/main/scripts/install.sh | bash`
 - **Install from laptop:** `git clone ... && make deploy`
 - **Issues:** [GitHub Issues](https://github.com/KekwanuLabs/crayfish/issues)
