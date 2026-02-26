@@ -154,7 +154,6 @@ func RegisterSearchTools(reg *Registry, cfg BraveSearchConfig) {
 				return "", fmt.Errorf("web_search: create request: %w", err)
 			}
 			req.Header.Set("Accept", "application/json")
-			req.Header.Set("Accept-Encoding", "gzip")
 			req.Header.Set("X-Subscription-Token", cfg.APIKey)
 
 			resp, err := httpClient.Do(req)
