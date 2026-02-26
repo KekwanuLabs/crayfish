@@ -29,7 +29,8 @@ func (m *mockProvider) Complete(_ context.Context, _ provider.CompletionRequest)
 	return m.response, m.err
 }
 
-func (m *mockProvider) Name() string { return "mock" }
+func (m *mockProvider) Name() string  { return "mock" }
+func (m *mockProvider) Model() string { return "mock-model" }
 
 // setupSnapshotDB creates an in-memory SQLite database with the tables needed for snapshot tests.
 func setupSnapshotDB(t *testing.T) *sql.DB {
@@ -1144,4 +1145,5 @@ func (sp *switchingProvider) Complete(ctx context.Context, req provider.Completi
 	return sp.callFunc(ctx, req)
 }
 
-func (sp *switchingProvider) Name() string { return "switching-mock" }
+func (sp *switchingProvider) Name() string  { return "switching-mock" }
+func (sp *switchingProvider) Model() string { return "switching-mock-model" }
