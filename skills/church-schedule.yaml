@@ -1,0 +1,49 @@
+name: church_schedule
+version: 1
+description: "Church and faith community schedule — services, groups, and events"
+type: workflow
+min_tier: trusted
+
+trigger:
+  command: "/church"
+  keywords:
+    - "church schedule"
+    - "church this week"
+    - "service times"
+    - "bible study"
+    - "youth group"
+
+steps:
+  - tool: memory_search
+    params:
+      query: "church service youth group bible study worship volunteer ministry"
+    store_as: church_info
+    on_error: skip
+
+  - tool: calendar_search
+    params:
+      query: "church service worship group study"
+    store_as: church_calendar
+    on_error: skip
+
+prompt: |
+  Provide a helpful church/faith community schedule overview.
+
+  Church info from memory:
+  {{church_info}}
+
+  Church events on calendar:
+  {{church_calendar}}
+
+  If church info exists, organize as:
+
+  1. **This week's services** — times and any special notes (guest speaker, theme, etc.)
+  2. **Groups & classes** — youth group, bible study, small groups, kids programs with times
+  3. **Volunteering** — any commitments this week (nursery, greeting, music, etc.)
+  4. **Upcoming special events** — potlucks, retreats, holiday services, etc.
+
+  If NO church info is saved in memory:
+  - Warmly acknowledge you don't have their church details yet
+  - Guide them conversationally: "I'd love to help keep track of your church schedule! What church does your family attend? What are the regular service times?"
+  - Offer to save the info: "Once you tell me, I'll remember it so I can always keep you updated."
+  - Don't assume denomination — be welcoming of any faith community (church, mosque, temple, synagogue, etc.)

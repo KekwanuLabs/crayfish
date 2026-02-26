@@ -346,6 +346,9 @@ push_and_restart() {
     step "Pushing binary to ${PI_HOST}..."
     scp "${BINARY}-${PI_ARCH}" "${PI_USER}@${PI_HOST}:/tmp/${BINARY}-new"
 
+    step "Syncing skills..."
+    scp skills/*.yaml "${PI_USER}@${PI_HOST}:~/.crayfish/skills/" 2>/dev/null || true
+
     step "Swapping binary and restarting..."
     ssh "${PI_USER}@${PI_HOST}" bash -s << 'RESTART_SCRIPT'
 set -e

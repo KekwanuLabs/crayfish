@@ -191,6 +191,12 @@ type IdentityReader interface {
 	HasUser() bool
 }
 
+// PromptAugmenter provides prompt augmentations from prompt-type skills.
+// Implemented by skills.Engine to avoid import cycles.
+type PromptAugmenter interface {
+	GetPromptAugmentations() []string
+}
+
 // Runtime is the agent processing loop.
 type Runtime struct {
 	config          Config
@@ -203,6 +209,7 @@ type Runtime struct {
 	summarizer      *Summarizer
 	snapshotMgr     *SnapshotManager
 	identity        IdentityReader
+	promptAugmenter PromptAugmenter
 	memoryExtractor *MemoryExtractor
 	memoryRetriever *MemoryRetriever
 	queue           *queue.OfflineQueue
@@ -224,7 +231,7 @@ type Response struct {
 }
 
 // New creates a new agent runtime.
-func New(cfg Config, b bus.Bus, db *sql.DB, prov provider.Provider, sessions *security.SessionStore, toolReg *tools.Registry, q *queue.OfflineQueue, pairing *security.PairingService, memExtractor *MemoryExtractor, memRetriever *MemoryRetriever, snapshotMgr *SnapshotManager, identityStore IdentityReader, sessionResumeMinutes int, logger *slog.Logger) *Runtime {
+func New(cfg Config, b bus.Bus, db *sql.DB, prov provider.Provider, sessions *security.SessionStore, toolReg *tools.Registry, q *queue.OfflineQueue, pairing *security.PairingService, memExtractor *MemoryExtractor, memRetriever *MemoryRetriever, snapshotMgr *SnapshotManager, identityStore IdentityReader, promptAug PromptAugmenter, sessionResumeMinutes int, logger *slog.Logger) *Runtime {
 	summarizer := NewSummarizer(db, prov, logger.With("component", "summarizer"))
 	if snapshotMgr != nil {
 		summarizer.SetSnapshotManager(snapshotMgr)
@@ -244,6 +251,7 @@ func New(cfg Config, b bus.Bus, db *sql.DB, prov provider.Provider, sessions *se
 		summarizer:             summarizer,
 		snapshotMgr:            snapshotMgr,
 		identity:               identityStore,
+		promptAugmenter:        promptAug,
 		memoryExtractor:        memExtractor,
 		memoryRetriever:        memRetriever,
 		queue:                  q,
@@ -562,6 +570,13 @@ func (r *Runtime) assembleContext(ctx context.Context, sess *security.Session, c
 	r.configMu.RLock()
 	systemPrompt := r.config.BuildSystemPrompt(soulMD, userMD)
 	r.configMu.RUnlock()
+
+	// Inject prompt augmentations from prompt-type skills.
+	if r.promptAugmenter != nil {
+		for _, aug := range r.promptAugmenter.GetPromptAugmentations() {
+			systemPrompt += "\n\n" + aug
+		}
+	}
 
 	// Inject interview prompt when we don't know the user yet.
 	if r.identity != nil && !r.identity.HasUser() {

@@ -104,6 +104,21 @@ func (e *Engine) ExecuteWorkflow(ctx context.Context, skill *Skill, executor Too
 	return result, nil
 }
 
+// GetPromptAugmentations returns all prompt augmentations from enabled prompt-type skills.
+// This implements the runtime.PromptAugmenter interface.
+func (e *Engine) GetPromptAugmentations() []string {
+	var augmentations []string
+	for _, skill := range e.registry.All() {
+		if skill.Type == TypePrompt && isEnabled(skill) && skill.Prompt != "" {
+			aug := e.BuildPromptAugmentation(skill, nil)
+			if aug != "" {
+				augmentations = append(augmentations, aug)
+			}
+		}
+	}
+	return augmentations
+}
+
 // BuildPromptAugmentation returns the prompt text for a prompt-type skill.
 func (e *Engine) BuildPromptAugmentation(skill *Skill, vars map[string]string) string {
 	mergedVars := make(map[string]string)

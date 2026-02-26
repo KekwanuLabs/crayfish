@@ -13,6 +13,10 @@ import (
 )
 
 const (
+	hubSyncInterval = 1 * time.Hour
+)
+
+const (
 	hubCacheTTL    = 15 * time.Minute
 	hubIndexLimit  = 256 * 1024 // 256KB max index size
 	hubSkillLimit  = 64 * 1024  // 64KB max skill YAML size
@@ -176,4 +180,118 @@ func (h *HubClient) FetchSkill(ctx context.Context, skillURL string) (*Skill, er
 	}
 
 	return skill, nil
+}
+
+// SyncAll fetches the hub index and installs all skills that are new or have
+// a newer version than the locally registered copy. Skills are saved to
+// skillsDir for offline use.
+func (h *HubClient) SyncAll(ctx context.Context, registry *Registry, skillsDir string) (int, error) {
+	index, err := h.FetchIndex(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("hub sync: %w", err)
+	}
+
+	installed := 0
+	for _, hs := range index.Skills {
+		// Skip if local copy exists with same or newer version.
+		if existing := registry.Get(hs.Name); existing != nil && existing.Version >= hs.Version {
+			continue
+		}
+
+		skill, err := h.FetchSkill(ctx, hs.URL)
+		if err != nil {
+			h.logger.Warn("hub sync: failed to fetch skill", "name", hs.Name, "error", err)
+			continue
+		}
+
+		if err := validateSkillSecurity(skill); err != nil {
+			h.logger.Warn("hub sync: skill failed security check", "name", hs.Name, "error", err)
+			continue
+		}
+
+		skill.Source = "hub"
+		if err := registry.Register(skill); err != nil {
+			h.logger.Warn("hub sync: failed to register skill", "name", hs.Name, "error", err)
+			continue
+		}
+
+		if err := registry.SaveToFile(skill, skillsDir); err != nil {
+			h.logger.Warn("hub sync: failed to save skill to disk", "name", hs.Name, "error", err)
+			// Skill is still registered in memory, just won't persist offline.
+		}
+
+		installed++
+		h.logger.Info("hub sync: installed skill", "name", hs.Name, "version", hs.Version)
+	}
+
+	return installed, nil
+}
+
+// HubSyncer runs SyncAll on startup and periodically in the background.
+type HubSyncer struct {
+	hub       *HubClient
+	registry  *Registry
+	skillsDir string
+	interval  time.Duration
+	logger    *slog.Logger
+	stopCh    chan struct{}
+	wg        sync.WaitGroup
+}
+
+// NewHubSyncer creates a new background hub syncer.
+func NewHubSyncer(hub *HubClient, registry *Registry, skillsDir string, logger *slog.Logger) *HubSyncer {
+	return &HubSyncer{
+		hub:       hub,
+		registry:  registry,
+		skillsDir: skillsDir,
+		interval:  hubSyncInterval,
+		logger:    logger,
+		stopCh:    make(chan struct{}),
+	}
+}
+
+// Start runs an initial sync and starts the periodic background loop.
+func (s *HubSyncer) Start(ctx context.Context) {
+	// Initial sync — non-blocking, don't fail startup if hub is unreachable.
+	installed, err := s.hub.SyncAll(ctx, s.registry, s.skillsDir)
+	if err != nil {
+		s.logger.Warn("hub sync: initial sync failed (will retry later)", "error", err)
+	} else if installed > 0 {
+		s.logger.Info("hub sync: initial sync complete", "installed", installed, "total", s.registry.Count())
+	}
+
+	s.wg.Add(1)
+	go s.loop(ctx)
+	s.logger.Info("hub syncer started", "interval", s.interval)
+}
+
+// Stop signals the background loop to exit and waits for it.
+func (s *HubSyncer) Stop() {
+	close(s.stopCh)
+	s.wg.Wait()
+	s.logger.Info("hub syncer stopped")
+}
+
+func (s *HubSyncer) loop(ctx context.Context) {
+	defer s.wg.Done()
+	ticker := time.NewTicker(s.interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-s.stopCh:
+			return
+		case <-ticker.C:
+			syncCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+			installed, err := s.hub.SyncAll(syncCtx, s.registry, s.skillsDir)
+			cancel()
+			if err != nil {
+				s.logger.Warn("hub sync: periodic sync failed", "error", err)
+			} else if installed > 0 {
+				s.logger.Info("hub sync: periodic sync complete", "installed", installed, "total", s.registry.Count())
+			}
+		}
+	}
 }

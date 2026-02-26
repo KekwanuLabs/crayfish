@@ -1,0 +1,52 @@
+name: bedtime_routine
+version: 1
+description: "Tomorrow preview — quick prep list and tomorrow at a glance for bedtime"
+type: workflow
+min_tier: trusted
+
+trigger:
+  schedule: "0 21 * * 0-4"
+  command: "/tomorrow"
+  keywords:
+    - "what's tomorrow"
+    - "tomorrow's schedule"
+    - "what do we have tomorrow"
+    - "tomorrow"
+    - "prep for tomorrow"
+
+steps:
+  - tool: calendar_upcoming
+    params:
+      days: 1
+    store_as: tomorrow_calendar
+    on_error: skip
+
+  - tool: todo_list
+    params: {}
+    store_as: todos
+    on_error: skip
+
+  - tool: memory_search
+    params:
+      query: "morning routine school lunch prep"
+    store_as: morning_routine
+    on_error: skip
+
+prompt: |
+  Create a quick bedtime preview for tomorrow. Keep it SHORT — it's late and they need sleep.
+
+  Tomorrow's calendar:
+  {{tomorrow_calendar}}
+
+  Open todos:
+  {{todos}}
+
+  Morning routine info:
+  {{morning_routine}}
+
+  Format:
+  1. **Tonight prep** (2-4 bullets max) — things to do NOW to make tomorrow smoother (pack lunches, lay out clothes, sign forms, charge devices)
+  2. **Tomorrow at a glance** — key events in order, nothing extra
+  3. **One kind note** — "You've got this" energy, keep it brief
+
+  This should take 15 seconds to read. No fluff. Bedtime mode.

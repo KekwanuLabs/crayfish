@@ -1,0 +1,73 @@
+name: meal_planner
+version: 1
+description: "Weekly meal planning with grocery list — family-friendly, schedule-aware"
+type: workflow
+min_tier: trusted
+
+trigger:
+  command: "/meals"
+  keywords:
+    - "meal plan"
+    - "what should we eat"
+    - "grocery list"
+    - "dinner ideas"
+    - "weekly meals"
+    - "what's for dinner"
+    - "plan meals"
+
+steps:
+  - tool: memory_search
+    params:
+      query: "dietary allergies food preferences picky eater favorite meals"
+    store_as: food_prefs
+    on_error: skip
+
+  - tool: calendar_upcoming
+    params:
+      days: 7
+    store_as: week_schedule
+    on_error: skip
+
+  - tool: web_search
+    params:
+      query: "easy family dinner recipes kid-friendly quick weeknight 2025"
+      count: 5
+    store_as: recipe_ideas
+    on_error: skip
+
+prompt: |
+  Create a weekly meal plan tailored to this family.
+
+  Dietary info and preferences:
+  {{food_prefs}}
+
+  This week's schedule (for matching meal complexity to busyness):
+  {{week_schedule}}
+
+  Recipe inspiration:
+  {{recipe_ideas}}
+
+  Create:
+
+  1. **Weeknight dinners (Mon-Fri)** — quick meals (30 min or less)
+     - Match busy days with crockpot / instant pot / leftovers
+     - Match lighter days with slightly more involved cooking
+     - Note which meals are kid-approved crowd pleasers
+
+  2. **Weekend meals (Sat-Sun)** — more fun, family cooking projects
+     - One can be a try-something-new adventure
+     - Brunch idea for one morning
+
+  3. **Batch cook tip** — one thing to prep on Sunday that saves time all week
+
+  4. **Grocery list** organized by store section:
+     - Produce
+     - Protein
+     - Dairy
+     - Pantry
+     - Frozen
+     - Other
+
+  Respect all dietary restrictions and allergies from memory. If no dietary info is saved, mention common allergens and ask if anyone has restrictions.
+
+  End with: "Want me to save this grocery list as a checkable shopping list?"

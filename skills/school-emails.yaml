@@ -1,0 +1,54 @@
+name: school_emails
+version: 1
+description: "School communication filter — surfaces action items from school emails"
+type: workflow
+min_tier: trusted
+
+trigger:
+  command: "/school"
+  keywords:
+    - "school emails"
+    - "anything from school"
+    - "school updates"
+    - "teacher emails"
+    - "school notices"
+
+steps:
+  - tool: email_search
+    params:
+      query: "school teacher homework permission field trip PTA conference report card grade"
+    store_as: school_emails
+    on_error: skip
+
+  - tool: memory_search
+    params:
+      query: "school teacher children kids grade class"
+    store_as: school_context
+    on_error: skip
+
+prompt: |
+  Filter and organize school-related emails into an actionable summary.
+
+  School emails found:
+  {{school_emails}}
+
+  Family school context:
+  {{school_context}}
+
+  Organize into three sections:
+
+  1. **Action Required** (needs a response or signature)
+     - What it is, deadline, and what to do
+     - Flag anything overdue or due soon
+
+  2. **Upcoming Events**
+     - School events, field trips, conferences, performances
+     - Include dates and any prep needed
+
+  3. **FYI** (informational only)
+     - Newsletters, announcements, general updates
+     - One-line summary each
+
+  If there are no school emails, say so warmly and suggest setting up a filter or checking if school email addresses are in the system.
+
+  Use the kids' actual names from memory when referencing which child an email relates to.
