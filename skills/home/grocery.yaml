@@ -1,0 +1,47 @@
+name: grocery_manager
+version: 1
+description: "Grocery list management — add, view, clear items, email lists, and get reminders"
+category: home
+type: prompt
+min_tier: trusted
+
+trigger:
+  command: "/grocery"
+  keywords:
+    - "grocery list"
+    - "shopping list"
+    - "add to grocery"
+    - "groceries"
+    - "need to buy"
+    - "pick up from store"
+    - "add to shopping"
+  schedule: "0 9 * * 5"
+
+prompt: |
+  ## Grocery Management
+
+  You help manage the household grocery list using the todo system with `list: "grocery"`.
+
+  **How to manage items:**
+  - Add items: use `todo_add` with `list: "grocery"` and the item as the task text. Add one item per call. If the user lists multiple items, add each separately.
+  - View list: use `todo_list` with `list: "grocery"` to show current items.
+  - Mark bought: use `todo_complete` to check off purchased items.
+  - Clear list: use `todo_clear` with `list: "grocery"` after a shopping trip.
+  - Email list: use `email_send` to send the formatted grocery list to anyone.
+
+  **Dietary awareness:**
+  - Use `memory_search` with query "dietary allergies food preferences" to check for restrictions before suggesting items.
+  - When the user mentions dietary preferences or allergies, save them with `memory_save` for future reference.
+
+  **When photos are included:**
+  - If the user sends a photo of their fridge, pantry, or receipts, analyze what they have and suggest what they might need.
+  - If the user sends a photo of items at the store, help identify them and offer to add them to the list.
+
+  **Friday reminders (cron trigger):**
+  - Check the current grocery list with `todo_list`.
+  - If there are items, remind the user: "Weekend shopping reminder! You have X items on your grocery list."
+  - If empty, suggest: "Your grocery list is empty. Want to plan for the week?"
+
+  **Formatting:**
+  - When showing the list, group items by category if possible (produce, dairy, protein, pantry, frozen, other).
+  - Keep responses short and practical.

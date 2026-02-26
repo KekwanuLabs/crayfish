@@ -43,7 +43,7 @@ func (b *mockBus) Subscribe(_ context.Context, _ []string) (<-chan bus.Event, er
 }
 func (b *mockBus) Replay(_ context.Context, _ int64) ([]bus.Event, error) { return nil, nil }
 func (b *mockBus) LastID(_ context.Context) (int64, error)                { return b.lastID, nil }
-func (b *mockBus) Close() error                                          { return nil }
+func (b *mockBus) Close() error                                           { return nil }
 
 // mockAppAccessor implements AppAccessor for testing.
 type mockAppAccessor struct {
@@ -66,8 +66,8 @@ func (m *mockAppAccessor) UpdateConfig(updates map[string]any) (bool, error) {
 	}
 	return false, nil
 }
-func (m *mockAppAccessor) Uptime() time.Duration              { return m.uptime }
-func (m *mockAppAccessor) AppVersion() string                  { return m.version }
+func (m *mockAppAccessor) Uptime() time.Duration                { return m.uptime }
+func (m *mockAppAccessor) AppVersion() string                   { return m.version }
 func (m *mockAppAccessor) VoiceInstallProgress() map[string]any { return nil }
 
 func testAPI(t *testing.T) (*DashboardAPI, *storage.DB) {

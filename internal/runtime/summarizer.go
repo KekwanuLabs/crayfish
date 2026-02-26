@@ -40,10 +40,10 @@ type Summarizer struct {
 
 // CachedSummary represents a cached summary with its metadata
 type CachedSummary struct {
-	Summary      string
-	MessageCount int
+	Summary       string
+	MessageCount  int
 	LastMessageID int
-	CreatedAt    time.Time
+	CreatedAt     time.Time
 }
 
 // NewSummarizer creates a new Summarizer instance.

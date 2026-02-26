@@ -64,14 +64,14 @@ type queueRecord struct {
 
 // OfflineQueue manages a persistent, offline message queue with exponential backoff retry
 type OfflineQueue struct {
-	db              *sql.DB
-	logger          *slog.Logger
-	mu              sync.RWMutex
-	stopChan        chan struct{}
-	wg              sync.WaitGroup
-	workerInterval  time.Duration
-	maxConcurrency  int
-	processFn       ProcessFunc
+	db             *sql.DB
+	logger         *slog.Logger
+	mu             sync.RWMutex
+	stopChan       chan struct{}
+	wg             sync.WaitGroup
+	workerInterval time.Duration
+	maxConcurrency int
+	processFn      ProcessFunc
 }
 
 // ProcessFunc is the callback function that processes queue items
@@ -406,4 +406,3 @@ func (q *OfflineQueue) markFailed(ctx context.Context, id int64, errMsg string) 
 
 	return nil
 }
-

@@ -549,13 +549,13 @@ func RegisterEmailTools(reg *Registry, poller gmail.EmailProvider, db ...*sql.DB
 
 // EmailConnectDeps holds dependencies for the email_connect tool.
 type EmailConnectDeps struct {
-	IsConfigured  func() bool                                                      // Check if email is already configured.
-	SaveCreds     func(email, appPassword string)                                  // Persist credentials to config.
-	StartProvider func(provider gmail.EmailProvider)                               // Start provider with app lifecycle context.
-	Registry      *Registry                                                        // Tool registry for dynamic registration.
-	DB            *sql.DB                                                          // Database for the IMAP provider.
-	Logger        *slog.Logger                                                     // Logger.
-	OnConnected   func(provider gmail.EmailProvider)                               // Called after successful connection.
+	IsConfigured  func() bool                        // Check if email is already configured.
+	SaveCreds     func(email, appPassword string)    // Persist credentials to config.
+	StartProvider func(provider gmail.EmailProvider) // Start provider with app lifecycle context.
+	Registry      *Registry                          // Tool registry for dynamic registration.
+	DB            *sql.DB                            // Database for the IMAP provider.
+	Logger        *slog.Logger                       // Logger.
+	OnConnected   func(provider gmail.EmailProvider) // Called after successful connection.
 }
 
 // RegisterEmailConnectTool adds the email_connect tool so users can set up

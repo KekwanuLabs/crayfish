@@ -20,9 +20,9 @@ type BraveSearchConfig struct {
 
 // BraveConnectDeps holds dependencies for the brave_connect tool.
 type BraveConnectDeps struct {
-	IsConfigured func() bool          // Check if Brave is already configured.
-	SaveKey      func(key string)     // Persist key to config and update in-memory state.
-	Registry     *Registry            // Tool registry for dynamic registration.
+	IsConfigured func() bool      // Check if Brave is already configured.
+	SaveKey      func(key string) // Persist key to config and update in-memory state.
+	Registry     *Registry        // Tool registry for dynamic registration.
 }
 
 // RegisterBraveConnectTool adds the brave_connect tool so users can set up

@@ -108,10 +108,10 @@ type ScheduledRun struct {
 
 // SkillResult holds the output of a skill execution.
 type SkillResult struct {
-	SkillName  string            `json:"skill_name"`
-	Success    bool              `json:"success"`
+	SkillName   string            `json:"skill_name"`
+	Success     bool              `json:"success"`
 	StepResults map[string]string `json:"step_results,omitempty"` // store_as → result
-	FinalPrompt string           `json:"final_prompt,omitempty"`
-	Error       string           `json:"error,omitempty"`
+	FinalPrompt string            `json:"final_prompt,omitempty"`
+	Error       string            `json:"error,omitempty"`
 	Duration    time.Duration     `json:"duration_ms"`
 }

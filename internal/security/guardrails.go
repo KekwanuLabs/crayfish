@@ -72,14 +72,14 @@ func NewGuardrails() *Guardrails {
 
 	// Sensitive patterns — things that should never appear in responses.
 	sensitiveStrings := []string{
-		`(?i)sk-ant-[a-zA-Z0-9\-_]{20,}`,           // Anthropic API keys
-		`(?i)sk-[a-zA-Z0-9]{20,}`,                  // OpenAI API keys
-		`(?i)xai-[a-zA-Z0-9]{20,}`,                 // xAI API keys
-		`(?i)CRAYFISH_API_KEY\s*=\s*\S+`,           // Env var leaks
+		`(?i)sk-ant-[a-zA-Z0-9\-_]{20,}`, // Anthropic API keys
+		`(?i)sk-[a-zA-Z0-9]{20,}`,        // OpenAI API keys
+		`(?i)xai-[a-zA-Z0-9]{20,}`,       // xAI API keys
+		`(?i)CRAYFISH_API_KEY\s*=\s*\S+`, // Env var leaks
 		`(?i)CRAYFISH_TELEGRAM_TOKEN\s*=\s*\S+`,
 		`(?i)CRAYFISH_GMAIL_APP_PASSWORD\s*=\s*\S+`,
-		`(?i)BEGIN\s+(RSA\s+)?PRIVATE\s+KEY`,       // Private keys
-		`(?i)password\s*[:=]\s*['"]\S+['"]`,        // Inline passwords
+		`(?i)BEGIN\s+(RSA\s+)?PRIVATE\s+KEY`, // Private keys
+		`(?i)password\s*[:=]\s*['"]\S+['"]`,  // Inline passwords
 	}
 
 	for _, pattern := range sensitiveStrings {
@@ -246,18 +246,18 @@ func ValidateSkill(name, prompt string, steps []struct{ Tool string }) SkillVali
 
 	// Validate tool references.
 	allowedTools := map[string]bool{
-		"email_search":   true,
-		"email_read":     true,
-		"email_send":     true,
-		"email_check":    true,
-		"web_search":     true,
-		"memory_store":   true,
-		"memory_recall":  true,
-		"memory_search":  true,
-		"calendar_list":  true,
-		"calendar_add":   true,
-		"reminder_set":   true,
-		"reminder_list":  true,
+		"email_search":  true,
+		"email_read":    true,
+		"email_send":    true,
+		"email_check":   true,
+		"web_search":    true,
+		"memory_store":  true,
+		"memory_recall": true,
+		"memory_search": true,
+		"calendar_list": true,
+		"calendar_add":  true,
+		"reminder_set":  true,
+		"reminder_list": true,
 		// MCP tools are validated separately
 	}
 

@@ -90,10 +90,20 @@ type oaiRequest struct {
 }
 
 type oaiMessage struct {
-	Role       string       `json:"role"`
-	Content    string       `json:"content,omitempty"`
+	Role       string        `json:"role"`
+	Content    any           `json:"content,omitempty"` // string or []oaiContentPart for vision
 	ToolCalls  []oaiToolCall `json:"tool_calls,omitempty"`
-	ToolCallID string       `json:"tool_call_id,omitempty"`
+	ToolCallID string        `json:"tool_call_id,omitempty"`
+}
+
+type oaiContentPart struct {
+	Type     string       `json:"type"`
+	Text     string       `json:"text,omitempty"`
+	ImageURL *oaiImageURL `json:"image_url,omitempty"`
+}
+
+type oaiImageURL struct {
+	URL string `json:"url"` // "data:image/jpeg;base64,..."
 }
 
 type oaiTool struct {
@@ -168,7 +178,23 @@ func (p *OpenAICompatProvider) Complete(ctx context.Context, req CompletionReque
 			}
 			msgs = append(msgs, msg)
 		default:
-			msgs = append(msgs, oaiMessage{Role: m.Role, Content: m.Content})
+			if m.Role == RoleUser && len(m.Images) > 0 {
+				var parts []oaiContentPart
+				for _, img := range m.Images {
+					parts = append(parts, oaiContentPart{
+						Type: "image_url",
+						ImageURL: &oaiImageURL{
+							URL: fmt.Sprintf("data:%s;base64,%s", img.MediaType, img.Data),
+						},
+					})
+				}
+				if m.Content != "" {
+					parts = append(parts, oaiContentPart{Type: "text", Text: m.Content})
+				}
+				msgs = append(msgs, oaiMessage{Role: m.Role, Content: parts})
+			} else {
+				msgs = append(msgs, oaiMessage{Role: m.Role, Content: m.Content})
+			}
 		}
 	}
 

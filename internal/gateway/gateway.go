@@ -34,7 +34,7 @@ type Config struct {
 	ListenAddr string `json:"listen_addr" yaml:"listen_addr"`
 	DBMaxMB    int64  `json:"db_max_mb" yaml:"db_max_mb"`
 	SkillsDir  string `json:"skills_dir" yaml:"skills_dir"` // Directory for user skills
-	APIKey     string `json:"-" yaml:"-"`                    // Dashboard API key for authentication
+	APIKey     string `json:"-" yaml:"-"`                   // Dashboard API key for authentication
 }
 
 // DefaultConfig returns sensible gateway defaults.

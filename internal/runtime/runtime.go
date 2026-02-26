@@ -56,16 +56,16 @@ Guidelines:
 
 // Config holds runtime configuration.
 type Config struct {
-	Name           string `json:"name" yaml:"name"`                   // The Crayfish's given name
-	Personality    string `json:"personality" yaml:"personality"`     // friendly, professional, casual, minimal
-	SystemPrompt   string `json:"system_prompt" yaml:"system_prompt"` // Custom override (optional)
-	Model          string `json:"model" yaml:"model"`
-	MaxTokens      int    `json:"max_tokens" yaml:"max_tokens"`
-	GoogleConnected      bool `json:"-" yaml:"-"` // Whether Google OAuth is active (injected at startup)
-	WebSearchEnabled     bool `json:"-" yaml:"-"` // Whether Brave Search is configured (injected at startup)
-	EmailEnabled         bool `json:"-" yaml:"-"` // Whether email is configured (OAuth or App Password)
-	EmailViaApp          bool `json:"-" yaml:"-"` // True if email is via App Password (not OAuth)
-	TravelSearchEnabled  bool `json:"-" yaml:"-"` // Whether Amadeus flight search is configured
+	Name                string `json:"name" yaml:"name"`                   // The Crayfish's given name
+	Personality         string `json:"personality" yaml:"personality"`     // friendly, professional, casual, minimal
+	SystemPrompt        string `json:"system_prompt" yaml:"system_prompt"` // Custom override (optional)
+	Model               string `json:"model" yaml:"model"`
+	MaxTokens           int    `json:"max_tokens" yaml:"max_tokens"`
+	GoogleConnected     bool   `json:"-" yaml:"-"` // Whether Google OAuth is active (injected at startup)
+	WebSearchEnabled    bool   `json:"-" yaml:"-"` // Whether Brave Search is configured (injected at startup)
+	EmailEnabled        bool   `json:"-" yaml:"-"` // Whether email is configured (OAuth or App Password)
+	EmailViaApp         bool   `json:"-" yaml:"-"` // True if email is via App Password (not OAuth)
+	TravelSearchEnabled bool   `json:"-" yaml:"-"` // Whether Amadeus flight search is configured
 }
 
 // DefaultConfig returns sensible defaults for the runtime.
@@ -374,9 +374,15 @@ func (r *Runtime) handleInbound(ctx context.Context, event bus.Event) error {
 		return fmt.Errorf("parse inbound: %w", err)
 	}
 
+	// Default text for image-only messages.
+	if len(msg.Images) > 0 && msg.Text == "" {
+		msg.Text = "What's in this image?"
+	}
+
 	r.logger.Info("processing message",
 		"event_id", event.ID, "channel", event.Channel,
-		"session_id", event.SessionID, "from", msg.From)
+		"session_id", event.SessionID, "from", msg.From,
+		"images", len(msg.Images))
 
 	// Guardrail: Check for prompt injection attempts.
 	if attempt := r.guardrails.CheckInput(msg.Text); attempt != nil {
@@ -439,7 +445,7 @@ func (r *Runtime) handleInbound(ctx context.Context, event bus.Event) error {
 	r.persistMessage(ctx, sess.ID, provider.RoleUser, msg.Text)
 
 	// Context assembly.
-	messages, err := r.assembleContext(ctx, sess, msg.Text)
+	messages, err := r.assembleContext(ctx, sess, msg.Text, msg.Images)
 	if err != nil {
 		return fmt.Errorf("assemble context: %w", err)
 	}
@@ -624,7 +630,7 @@ func (r *Runtime) executeTool(ctx context.Context, sess *security.Session, tc pr
 
 // assembleContext builds the message array for the LLM call.
 // It loads conversation history and applies summarization when the history exceeds the threshold.
-func (r *Runtime) assembleContext(ctx context.Context, sess *security.Session, currentMessage string) ([]provider.Message, error) {
+func (r *Runtime) assembleContext(ctx context.Context, sess *security.Session, currentMessage string, images []bus.ImageAttachment) ([]provider.Message, error) {
 	var messages []provider.Message
 
 	// Read identity content for system prompt.
@@ -734,10 +740,17 @@ func (r *Runtime) assembleContext(ctx context.Context, sess *security.Session, c
 		messages = append(messages, history...)
 	}
 
-	messages = append(messages, provider.Message{
+	userMsg := provider.Message{
 		Role:    provider.RoleUser,
 		Content: security.WrapUserMessage(currentMessage),
-	})
+	}
+	for _, img := range images {
+		userMsg.Images = append(userMsg.Images, provider.Image{
+			Data:      img.Data,
+			MediaType: img.MediaType,
+		})
+	}
+	messages = append(messages, userMsg)
 
 	return messages, nil
 }

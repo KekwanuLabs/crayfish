@@ -13,10 +13,10 @@ import (
 // GoogleToolsDeps holds the dependencies for Google OAuth tools.
 type GoogleToolsDeps struct {
 	OAuthClient     *oauth.Client
-	GetToken        func() *oauth.Token        // Returns current token (may be nil)
-	OnTokenReceived func(oauth.Token)           // Called when device flow completes
-	IsConnected     func() bool                 // Check if Google is connected
-	GetScopes       func() []string             // Get currently granted scopes
+	GetToken        func() *oauth.Token // Returns current token (may be nil)
+	OnTokenReceived func(oauth.Token)   // Called when device flow completes
+	IsConnected     func() bool         // Check if Google is connected
+	GetScopes       func() []string     // Get currently granted scopes
 }
 
 // RegisterGoogleTools adds google_connect and google_status tools to the registry.

@@ -47,9 +47,9 @@ type Updater struct {
 	logger *slog.Logger
 	client *http.Client
 
-	mu      sync.Mutex
-	stopCh  chan struct{}
-	wg      sync.WaitGroup
+	mu        sync.Mutex
+	stopCh    chan struct{}
+	wg        sync.WaitGroup
 	lastCheck time.Time
 }
 

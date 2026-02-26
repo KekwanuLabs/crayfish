@@ -70,11 +70,11 @@ func (p *AnthropicProvider) Model() string { return p.model }
 // --- Wire format types for the Anthropic Messages API ---
 
 type anthropicRequest struct {
-	Model     string              `json:"model"`
-	MaxTokens int                 `json:"max_tokens"`
-	System    string              `json:"system,omitempty"`
-	Messages  []anthropicMessage  `json:"messages"`
-	Tools     []anthropicToolDef  `json:"tools,omitempty"`
+	Model     string             `json:"model"`
+	MaxTokens int                `json:"max_tokens"`
+	System    string             `json:"system,omitempty"`
+	Messages  []anthropicMessage `json:"messages"`
+	Tools     []anthropicToolDef `json:"tools,omitempty"`
 }
 
 // anthropicMessage supports both simple string content and structured content blocks.
@@ -92,6 +92,13 @@ type contentBlock struct {
 	ToolUseID string          `json:"tool_use_id,omitempty"`
 	Content   string          `json:"content,omitempty"`
 	IsError   bool            `json:"is_error,omitempty"`
+	Source    *imageSource    `json:"source,omitempty"`
+}
+
+type imageSource struct {
+	Type      string `json:"type"`       // "base64"
+	MediaType string `json:"media_type"` // e.g. "image/jpeg"
+	Data      string `json:"data"`       // base64-encoded image bytes
 }
 
 type anthropicToolDef struct {
@@ -101,11 +108,11 @@ type anthropicToolDef struct {
 }
 
 type anthropicResponse struct {
-	ID      string         `json:"id"`
-	Type    string         `json:"type"`
-	Role    string         `json:"role"`
-	Content []contentBlock `json:"content"`
-	StopReason string     `json:"stop_reason"`
+	ID         string         `json:"id"`
+	Type       string         `json:"type"`
+	Role       string         `json:"role"`
+	Content    []contentBlock `json:"content"`
+	StopReason string         `json:"stop_reason"`
 	Usage      struct {
 		InputTokens  int `json:"input_tokens"`
 		OutputTokens int `json:"output_tokens"`
@@ -169,10 +176,29 @@ func (p *AnthropicProvider) Complete(ctx context.Context, req CompletionRequest)
 			msgs = append(msgs, anthropicMessage{Role: "assistant", Content: blocks})
 			continue
 		}
-		msgs = append(msgs, anthropicMessage{
-			Role:    m.Role,
-			Content: m.Content,
-		})
+		if m.Role == RoleUser && len(m.Images) > 0 {
+			// Multi-part content: image blocks + text block.
+			var blocks []contentBlock
+			for _, img := range m.Images {
+				blocks = append(blocks, contentBlock{
+					Type: "image",
+					Source: &imageSource{
+						Type:      "base64",
+						MediaType: img.MediaType,
+						Data:      img.Data,
+					},
+				})
+			}
+			if m.Content != "" {
+				blocks = append(blocks, contentBlock{Type: "text", Text: m.Content})
+			}
+			msgs = append(msgs, anthropicMessage{Role: "user", Content: blocks})
+		} else {
+			msgs = append(msgs, anthropicMessage{
+				Role:    m.Role,
+				Content: m.Content,
+			})
+		}
 	}
 
 	if len(msgs) == 0 {

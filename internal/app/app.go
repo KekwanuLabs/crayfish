@@ -21,8 +21,8 @@ import (
 	"github.com/KekwanuLabs/crayfish/internal/gateway"
 	"github.com/KekwanuLabs/crayfish/internal/gmail"
 	"github.com/KekwanuLabs/crayfish/internal/heartbeat"
-	"github.com/KekwanuLabs/crayfish/internal/mcp"
 	"github.com/KekwanuLabs/crayfish/internal/identity"
+	"github.com/KekwanuLabs/crayfish/internal/mcp"
 	"github.com/KekwanuLabs/crayfish/internal/oauth"
 	"github.com/KekwanuLabs/crayfish/internal/provider"
 	"github.com/KekwanuLabs/crayfish/internal/queue"
@@ -51,7 +51,7 @@ type App struct {
 	gateway        *gateway.Gateway
 	gmailPoller    *gmail.Poller
 	emailProvider  gmail.EmailProvider // Active email provider (OAuth poller or IMAP)
-	emailMu        sync.RWMutex       // Protects emailProvider
+	emailMu        sync.RWMutex        // Protects emailProvider
 	heartbeatSvc   *heartbeat.Service
 	offlineQueue   *queue.OfflineQueue
 	pairing        *security.PairingService
@@ -571,9 +571,9 @@ func (a *App) Start(ctx context.Context) error {
 
 	// Load skills from standard directories.
 	skillDirs := []string{
-		"skills",                      // relative to working directory
-		"/var/lib/crayfish/skills",    // system install location
-		"/etc/crayfish/skills",        // config location
+		"skills",                   // relative to working directory
+		"/var/lib/crayfish/skills", // system install location
+		"/etc/crayfish/skills",     // config location
 	}
 	for _, dir := range skillDirs {
 		a.skillRegistry.LoadFromDir(dir)
