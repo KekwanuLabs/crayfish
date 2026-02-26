@@ -30,6 +30,15 @@
 
 ### Trust Tiers
 
+Crayfish uses four permission levels to control what people can do with your AI. Think of it like keys to a house — the owner has a master key, trusted family members have their own keys, and strangers can only ring the doorbell.
+
+| Tier | Who is this? | What can they do? |
+|------|-------------|-------------------|
+| **Operator** | You — the person who set up Crayfish | Everything: send emails, save memories, manage skills, pair new users, connect external tools |
+| **Trusted** | Someone you've approved (e.g. a family member) | Read emails, search the web, ask questions, view memories — but can't send emails or change settings on your behalf |
+| **Group** | Someone in a group chat with your bot | Read-only access — can ask questions but can't touch your email or memories |
+| **Unknown** | A stranger who found your bot | Can only request to be paired — nothing else works until you approve them |
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                     TRUST HIERARCHY                          │
