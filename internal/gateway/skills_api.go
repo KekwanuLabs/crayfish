@@ -3,6 +3,7 @@ package gateway
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/KekwanuLabs/crayfish/internal/security"
@@ -30,6 +31,7 @@ func NewSkillsAPI(registry *skills.Registry, skillsDir string, hub *skills.HubCl
 func (api *SkillsAPI) RegisterRoutes(mux *http.ServeMux, wrap func(http.HandlerFunc) http.HandlerFunc) {
 	mux.HandleFunc("/api/skills/hub", wrap(api.handleHub))
 	mux.HandleFunc("/api/skills/hub/install", wrap(api.handleHubInstall))
+	mux.HandleFunc("/api/skills/categories", wrap(api.handleCategories))
 	mux.HandleFunc("/api/skills", wrap(api.handleSkills))
 	mux.HandleFunc("/api/skills/", wrap(api.handleSkill))
 }
@@ -76,8 +78,10 @@ func (api *SkillsAPI) handleSkill(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// listSkills returns all registered skills.
+// listSkills returns all registered skills, optionally filtered by category.
 func (api *SkillsAPI) listSkills(w http.ResponseWriter, r *http.Request) {
+	categoryFilter := r.URL.Query().Get("category")
+
 	allSkills := api.registry.All()
 
 	// Convert to a simpler JSON format.
@@ -85,24 +89,35 @@ func (api *SkillsAPI) listSkills(w http.ResponseWriter, r *http.Request) {
 		Name        string `json:"name"`
 		Description string `json:"description"`
 		Type        string `json:"type"`
+		Category    string `json:"category"`
 		Source      string `json:"source"`
 		Enabled     bool   `json:"enabled"`
 		Trigger     struct {
-			Command         string   `json:"command,omitempty"`
-			Schedule        string   `json:"schedule,omitempty"`
-			ScheduleHuman   string   `json:"schedule_human,omitempty"`
-			Event           string   `json:"event,omitempty"`
-			Keywords        []string `json:"keywords,omitempty"`
+			Command       string   `json:"command,omitempty"`
+			Schedule      string   `json:"schedule,omitempty"`
+			ScheduleHuman string   `json:"schedule_human,omitempty"`
+			Event         string   `json:"event,omitempty"`
+			Keywords      []string `json:"keywords,omitempty"`
 		} `json:"trigger"`
 	}
 
 	summaries := make([]skillSummary, 0, len(allSkills))
 	for _, s := range allSkills {
+		// Apply category filter.
+		if categoryFilter != "" && s.Category != categoryFilter {
+			continue
+		}
+
 		enabled := s.Enabled == nil || *s.Enabled
+		cat := s.Category
+		if cat == "" {
+			cat = "general"
+		}
 		sum := skillSummary{
 			Name:        s.Name,
 			Description: s.Description,
 			Type:        string(s.Type),
+			Category:    cat,
 			Source:      s.Source,
 			Enabled:     enabled,
 		}
@@ -120,6 +135,50 @@ func (api *SkillsAPI) listSkills(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"skills": summaries,
 		"count":  len(summaries),
+	})
+}
+
+// handleCategories returns all categories with skill counts.
+func (api *SkillsAPI) handleCategories(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Seed with default categories so the dropdown always shows the full set.
+	counts := make(map[string]int)
+	for _, c := range skills.DefaultCategories {
+		counts[c] = 0
+	}
+
+	allSkills := api.registry.All()
+	for _, s := range allSkills {
+		cat := s.Category
+		if cat == "" {
+			cat = "general"
+		}
+		counts[cat]++
+	}
+
+	type categoryInfo struct {
+		Name  string `json:"name"`
+		Count int    `json:"count"`
+	}
+
+	cats := make([]string, 0, len(counts))
+	for c := range counts {
+		cats = append(cats, c)
+	}
+	sort.Strings(cats)
+
+	result := make([]categoryInfo, 0, len(cats))
+	for _, c := range cats {
+		result = append(result, categoryInfo{Name: c, Count: counts[c]})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"categories": result,
 	})
 }
 
@@ -323,6 +382,11 @@ func (api *SkillsAPI) handleHubInstall(w http.ResponseWriter, r *http.Request) {
 	if !validation.Safe {
 		http.Error(w, "Skill rejected: "+strings.Join(validation.Errors, "; "), http.StatusBadRequest)
 		return
+	}
+
+	// Propagate category from hub index if the skill YAML doesn't set one.
+	if hubSkill.Category != "" && (skill.Category == "" || skill.Category == "general") {
+		skill.Category = hubSkill.Category
 	}
 
 	// Register.
