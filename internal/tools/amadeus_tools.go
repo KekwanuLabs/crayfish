@@ -517,7 +517,7 @@ func formatPriceAnalysis(body json.RawMessage, origin, dest, date string) (strin
 	var resp struct {
 		Data []struct {
 			PriceMetrics []struct {
-				Amount       string `json:"amount"`
+				Amount          string `json:"amount"`
 				QuartileRanking string `json:"quartileRanking"`
 			} `json:"priceMetrics"`
 		} `json:"data"`

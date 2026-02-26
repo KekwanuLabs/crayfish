@@ -34,7 +34,7 @@ type Snapshot struct {
 	SessionID          string
 	Trigger            string
 	ActiveTask         string
-	ActiveTaskContext   string
+	ActiveTaskContext  string
 	LastExchanges      string // JSON array
 	PendingProposals   string // JSON array
 	DecisionsInFlight  string // JSON array
@@ -48,7 +48,7 @@ type Snapshot struct {
 // snapshotResponse is the JSON schema returned by the LLM.
 type snapshotResponse struct {
 	ActiveTask         string              `json:"active_task"`
-	ActiveTaskContext   string              `json:"active_task_context"`
+	ActiveTaskContext  string              `json:"active_task_context"`
 	LastExchanges      []map[string]string `json:"last_exchanges"`
 	PendingProposals   []string            `json:"pending_proposals"`
 	DecisionsInFlight  []string            `json:"decisions_in_flight"`

@@ -22,10 +22,10 @@ import (
 
 // Tool represents a built-in tool that the agent can invoke.
 type Tool struct {
-	Name        string                                                                    `json:"name"`
-	Description string                                                                    `json:"description"`
-	MinTier     security.TrustTier                                                        `json:"-"`
-	InputSchema json.RawMessage                                                           `json:"input_schema"`
+	Name        string                                                                                   `json:"name"`
+	Description string                                                                                   `json:"description"`
+	MinTier     security.TrustTier                                                                       `json:"-"`
+	InputSchema json.RawMessage                                                                          `json:"input_schema"`
 	Execute     func(ctx context.Context, sess *security.Session, input json.RawMessage) (string, error) `json:"-"`
 }
 
@@ -893,10 +893,10 @@ func RegisterBuiltins(reg *Registry, adapters map[string]channels.ChannelAdapter
 		}`),
 		Execute: func(ctx context.Context, sess *security.Session, input json.RawMessage) (string, error) {
 			var params struct {
-				Key            string `json:"key"`
-				NewContent     string `json:"new_content"`
-				NewImportance  int    `json:"new_importance"`
-				NewCategory    string `json:"new_category"`
+				Key           string `json:"key"`
+				NewContent    string `json:"new_content"`
+				NewImportance int    `json:"new_importance"`
+				NewCategory   string `json:"new_category"`
 			}
 			if err := json.Unmarshal(input, &params); err != nil {
 				return "", fmt.Errorf("memory.update: parse input: %w", err)
@@ -1084,7 +1084,6 @@ func RegisterBuiltins(reg *Registry, adapters map[string]channels.ChannelAdapter
 		},
 	})
 }
-
 
 // initializeTables creates the todos table if it doesn't exist.
 func initializeTables(db *sql.DB, logger *slog.Logger) {

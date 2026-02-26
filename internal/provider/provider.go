@@ -15,11 +15,18 @@ const (
 	RoleToolResult = "tool_result"
 )
 
+// Image holds a base64-encoded image for vision-capable models.
+type Image struct {
+	Data      string `json:"data"`       // base64-encoded image bytes
+	MediaType string `json:"media_type"` // e.g. "image/jpeg"
+}
+
 // Message represents a single turn in a conversation.
 // For tool-bearing messages, ToolCalls and ToolUseID carry the structured data.
 type Message struct {
 	Role      string     `json:"role"`
 	Content   string     `json:"content"`
+	Images    []Image    `json:"images,omitempty"`      // Attached images for vision (user messages only).
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`  // Set on assistant messages with tool use.
 	ToolUseID string     `json:"tool_use_id,omitempty"` // Set on tool_result messages.
 	IsError   bool       `json:"is_error,omitempty"`    // Set on tool_result messages if the tool failed.

@@ -21,16 +21,16 @@ var (
 
 // Scopes for Google APIs.
 const (
-	CalendarScope = "https://www.googleapis.com/auth/calendar"
-	GmailReadonly = "https://www.googleapis.com/auth/gmail.readonly"
-	GmailSend     = "https://www.googleapis.com/auth/gmail.send"
-	GmailModify   = "https://www.googleapis.com/auth/gmail.modify"
-	UserInfoEmail = "https://www.googleapis.com/auth/userinfo.email"
-	DriveScope    = "https://www.googleapis.com/auth/drive"
-	DriveReadonly = "https://www.googleapis.com/auth/drive.readonly"
-	DocsScope     = "https://www.googleapis.com/auth/documents"
-	DocsReadonly  = "https://www.googleapis.com/auth/documents.readonly"
-	SheetsScope   = "https://www.googleapis.com/auth/spreadsheets"
+	CalendarScope  = "https://www.googleapis.com/auth/calendar"
+	GmailReadonly  = "https://www.googleapis.com/auth/gmail.readonly"
+	GmailSend      = "https://www.googleapis.com/auth/gmail.send"
+	GmailModify    = "https://www.googleapis.com/auth/gmail.modify"
+	UserInfoEmail  = "https://www.googleapis.com/auth/userinfo.email"
+	DriveScope     = "https://www.googleapis.com/auth/drive"
+	DriveReadonly  = "https://www.googleapis.com/auth/drive.readonly"
+	DocsScope      = "https://www.googleapis.com/auth/documents"
+	DocsReadonly   = "https://www.googleapis.com/auth/documents.readonly"
+	SheetsScope    = "https://www.googleapis.com/auth/spreadsheets"
 	SheetsReadonly = "https://www.googleapis.com/auth/spreadsheets.readonly"
 )
 
@@ -89,12 +89,12 @@ var (
 // Token holds OAuth 2.0 token data. Fields are tagged for both JSON (API responses)
 // and YAML (config file persistence).
 type Token struct {
-	AccessToken  string   `json:"access_token" yaml:"access_token"`
-	RefreshToken string   `json:"refresh_token" yaml:"refresh_token"`
-	TokenType    string   `json:"token_type" yaml:"-"`
-	ExpiresIn    int      `json:"expires_in" yaml:"-"`
+	AccessToken  string    `json:"access_token" yaml:"access_token"`
+	RefreshToken string    `json:"refresh_token" yaml:"refresh_token"`
+	TokenType    string    `json:"token_type" yaml:"-"`
+	ExpiresIn    int       `json:"expires_in" yaml:"-"`
 	Expiry       time.Time `json:"-" yaml:"expiry"`
-	Scopes       []string `json:"-" yaml:"scopes"`
+	Scopes       []string  `json:"-" yaml:"scopes"`
 }
 
 // Valid reports whether the token has an access token that won't expire

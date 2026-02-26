@@ -48,28 +48,28 @@ type SetupData struct {
 	Model         string `json:"model,omitempty" yaml:"model,omitempty"`
 	TelegramToken string `json:"telegram_token,omitempty" yaml:"telegram_token,omitempty"`
 	BraveAPIKey   string `json:"brave_api_key,omitempty" yaml:"brave_api_key,omitempty"`
-	AutoUpdate       bool   `json:"auto_update" yaml:"auto_update"`
+	AutoUpdate    bool   `json:"auto_update" yaml:"auto_update"`
 }
 
 // HardwareInfo contains detected device capabilities.
 type HardwareInfo struct {
-	TotalRAMGB     float64  `json:"total_ram_gb"`
-	AvailableRAMGB float64  `json:"available_ram_gb"`
-	CPUArch        string   `json:"cpu_arch"`
-	Is64Bit        bool     `json:"is_64bit"`
-	CanRunOllama   bool     `json:"can_run_ollama"`
+	TotalRAMGB        float64               `json:"total_ram_gb"`
+	AvailableRAMGB    float64               `json:"available_ram_gb"`
+	CPUArch           string                `json:"cpu_arch"`
+	Is64Bit           bool                  `json:"is_64bit"`
+	CanRunOllama      bool                  `json:"can_run_ollama"`
 	RecommendedModels []ModelRecommendation `json:"recommended_models"`
-	Message        string   `json:"message"`
+	Message           string                `json:"message"`
 }
 
 // ModelRecommendation suggests a model based on hardware.
 type ModelRecommendation struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Description string `json:"description"`
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Description string  `json:"description"`
 	RAMRequired float64 `json:"ram_required_gb"`
-	Fits        bool   `json:"fits"`
-	Recommended bool   `json:"recommended"`
+	Fits        bool    `json:"fits"`
+	Recommended bool    `json:"recommended"`
 }
 
 // Wizard serves the setup web UI.
@@ -826,12 +826,12 @@ func (w *Wizard) writeJSON(rw http.ResponseWriter, data interface{}) {
 
 // VoiceStatus contains info about voice recognition capabilities.
 type VoiceStatus struct {
-	Supported       bool   `json:"supported"`        // Device can run whisper
-	Installed       bool   `json:"installed"`        // Whisper is installed
+	Supported        bool   `json:"supported"`         // Device can run whisper
+	Installed        bool   `json:"installed"`         // Whisper is installed
 	RecommendedModel string `json:"recommended_model"` // Best model for this device
-	DeviceRAMMB     int    `json:"device_ram_mb"`
-	DeviceArch      string `json:"device_arch"`
-	Message         string `json:"message"`
+	DeviceRAMMB      int    `json:"device_ram_mb"`
+	DeviceArch       string `json:"device_arch"`
+	Message          string `json:"message"`
 }
 
 // handleVoiceStatus checks if voice recognition is available/supported.
@@ -1012,7 +1012,7 @@ func (w *Wizard) handleVoiceInstall(rw http.ResponseWriter, r *http.Request) {
 				downloaded += int64(n)
 
 				if totalSize > 0 {
-					pct := int(float64(downloaded) / float64(totalSize) * 30) + 60 // 60-90%
+					pct := int(float64(downloaded)/float64(totalSize)*30) + 60 // 60-90%
 					sizeMB := downloaded / 1024 / 1024
 					totalMB := totalSize / 1024 / 1024
 					sendEvent("progress", fmt.Sprintf(`{"status": "downloading_model", "percent": %d, "message": "Downloading model... %dMB / %dMB"}`, pct, sizeMB, totalMB))

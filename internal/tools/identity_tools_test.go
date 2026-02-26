@@ -20,9 +20,9 @@ type mockIdentityStore struct {
 	writeCalls  int
 }
 
-func (m *mockIdentityStore) Soul() string    { return m.soulContent }
-func (m *mockIdentityStore) User() string    { return m.userContent }
-func (m *mockIdentityStore) HasUser() bool   { return len(m.userContent) > 10 }
+func (m *mockIdentityStore) Soul() string  { return m.soulContent }
+func (m *mockIdentityStore) User() string  { return m.userContent }
+func (m *mockIdentityStore) HasUser() bool { return len(m.userContent) > 10 }
 
 func (m *mockIdentityStore) WriteSoul(content string) error {
 	m.writeCalls++

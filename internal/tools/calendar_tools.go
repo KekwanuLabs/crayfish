@@ -81,7 +81,7 @@ func RegisterCalendarTools(reg *Registry, client *calendar.Client) {
 
 			// Group by day for readability
 			type dayEvents struct {
-				Date   string                   `json:"date"`
+				Date   string                  `json:"date"`
 				Events []calendar.EventSummary `json:"events"`
 			}
 

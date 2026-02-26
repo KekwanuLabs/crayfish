@@ -6,6 +6,7 @@ package telegram
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -31,9 +32,9 @@ const (
 
 // Telegram API response types
 type getUpdatesResponse struct {
-	OK     bool      `json:"ok"`
-	Result []Update  `json:"result"`
-	Error  string    `json:"description"`
+	OK     bool     `json:"ok"`
+	Result []Update `json:"result"`
+	Error  string   `json:"description"`
 }
 
 type Update struct {
@@ -42,11 +43,20 @@ type Update struct {
 }
 
 type Message struct {
-	MessageID int64  `json:"message_id"`
-	Chat      Chat   `json:"chat"`
-	Text      string `json:"text,omitempty"`
-	From      User   `json:"from"`
-	Voice     *Voice `json:"voice,omitempty"`
+	MessageID int64       `json:"message_id"`
+	Chat      Chat        `json:"chat"`
+	Text      string      `json:"text,omitempty"`
+	From      User        `json:"from"`
+	Voice     *Voice      `json:"voice,omitempty"`
+	Photo     []PhotoSize `json:"photo,omitempty"`
+	Caption   string      `json:"caption,omitempty"`
+}
+
+type PhotoSize struct {
+	FileID   string `json:"file_id"`
+	Width    int    `json:"width"`
+	Height   int    `json:"height"`
+	FileSize int    `json:"file_size,omitempty"`
 }
 
 type Voice struct {
@@ -71,8 +81,8 @@ type sendMessageResponse struct {
 }
 
 type Result struct {
-	MessageID int64 `json:"message_id"`
-	Chat      Chat  `json:"chat"`
+	MessageID int64  `json:"message_id"`
+	Chat      Chat   `json:"chat"`
 	Text      string `json:"text"`
 }
 
@@ -90,22 +100,22 @@ type limiter struct {
 
 // Adapter implements channels.ChannelAdapter for Telegram Bot API.
 type Adapter struct {
-	botToken        string
-	logger          *slog.Logger
-	eventBus        bus.Bus
-	httpClient      *http.Client
-	rateLimiter     *rateLimiter
-	stopChan        chan struct{}
-	pollWg          sync.WaitGroup
-	sendMu          sync.Mutex // protects sends during shutdown
-	shutdownOnce    sync.Once
-	isShutdown      bool
-	lastUpdateID    int64
-	operatorChatID  int64      // First user to interact becomes operator
-	operatorMu      sync.Mutex // protects operatorChatID
-	sttEngine       STTTranscriber // Optional: for voice message transcription
-	typingMu        sync.Mutex
-	typingCancel    map[int64]context.CancelFunc // chatID -> cancel typing ticker
+	botToken       string
+	logger         *slog.Logger
+	eventBus       bus.Bus
+	httpClient     *http.Client
+	rateLimiter    *rateLimiter
+	stopChan       chan struct{}
+	pollWg         sync.WaitGroup
+	sendMu         sync.Mutex // protects sends during shutdown
+	shutdownOnce   sync.Once
+	isShutdown     bool
+	lastUpdateID   int64
+	operatorChatID int64          // First user to interact becomes operator
+	operatorMu     sync.Mutex     // protects operatorChatID
+	sttEngine      STTTranscriber // Optional: for voice message transcription
+	typingMu       sync.Mutex
+	typingCancel   map[int64]context.CancelFunc // chatID -> cancel typing ticker
 }
 
 // STTTranscriber is the interface for speech-to-text engines.
@@ -531,6 +541,8 @@ func (a *Adapter) handleUpdate(ctx context.Context, update Update) {
 	sessionID := fmt.Sprintf("telegram:%d", chatID)
 	var text string
 
+	var images []bus.ImageAttachment
+
 	// Handle voice messages
 	if update.Message.Voice != nil {
 		if a.sttEngine == nil || !a.sttEngine.STTEnabled() {
@@ -556,10 +568,31 @@ func (a *Adapter) handleUpdate(ctx context.Context, update Update) {
 		}
 
 		a.logger.Info("voice message transcribed", "chat_id", chatID, "text", text)
+	} else if len(update.Message.Photo) > 0 {
+		// Photos: pick the largest size (last in Telegram's array).
+		largest := update.Message.Photo[len(update.Message.Photo)-1]
+		photoData, err := a.downloadFile(ctx, largest.FileID)
+		if err != nil {
+			a.logger.Warn("photo download failed", "error", err)
+			a.sendMessageWithRetry(ctx, chatID, "Sorry, I couldn't download that photo. Try again?")
+			return
+		}
+
+		images = append(images, bus.ImageAttachment{
+			Data:      base64.StdEncoding.EncodeToString(photoData),
+			MediaType: "image/jpeg", // Telegram always serves photos as JPEG
+		})
+
+		text = strings.TrimSpace(update.Message.Caption)
+		if text == "" {
+			text = "What's in this image?"
+		}
+
+		a.logger.Info("photo received", "chat_id", chatID, "size_bytes", len(photoData))
 	} else if update.Message.Text != "" {
 		text = strings.TrimSpace(update.Message.Text)
 	} else {
-		// Ignore updates without text or voice
+		// Ignore updates without text, voice, or photo
 		return
 	}
 
@@ -581,8 +614,9 @@ func (a *Adapter) handleUpdate(ctx context.Context, update Update) {
 
 	// Publish inbound message to the bus
 	inboundMsg := bus.InboundMessage{
-		From: strconv.FormatInt(chatID, 10),
-		Text: text,
+		From:   strconv.FormatInt(chatID, 10),
+		Text:   text,
+		Images: images,
 	}
 
 	event := bus.Event{
@@ -599,14 +633,17 @@ func (a *Adapter) handleUpdate(ctx context.Context, update Update) {
 	}
 }
 
-
-// transcribeVoice downloads a voice message and transcribes it.
-func (a *Adapter) transcribeVoice(ctx context.Context, voice *Voice) (string, error) {
-	// Get file path from Telegram
-	fileURL := fmt.Sprintf("%s/bot%s/getFile?file_id=%s", telegramAPIBase, a.botToken, voice.FileID)
-	resp, err := a.httpClient.Get(fileURL)
+// downloadFile downloads a file from Telegram by file_id.
+// Returns the raw bytes, capped at 10MB to protect Pi memory.
+func (a *Adapter) downloadFile(ctx context.Context, fileID string) ([]byte, error) {
+	fileURL := fmt.Sprintf("%s/bot%s/getFile?file_id=%s", telegramAPIBase, a.botToken, fileID)
+	req, err := http.NewRequestWithContext(ctx, "GET", fileURL, nil)
 	if err != nil {
-		return "", fmt.Errorf("get file info: %w", err)
+		return nil, fmt.Errorf("create getFile request: %w", err)
+	}
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("get file info: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -617,23 +654,37 @@ func (a *Adapter) transcribeVoice(ctx context.Context, voice *Voice) (string, er
 		} `json:"result"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&fileResp); err != nil {
-		return "", fmt.Errorf("parse file info: %w", err)
+		return nil, fmt.Errorf("parse file info: %w", err)
 	}
 	if !fileResp.OK || fileResp.Result.FilePath == "" {
-		return "", fmt.Errorf("no file path returned")
+		return nil, fmt.Errorf("no file path returned")
 	}
 
-	// Download the voice file
 	downloadURL := fmt.Sprintf("%s/file/bot%s/%s", telegramAPIBase, a.botToken, fileResp.Result.FilePath)
-	dlResp, err := a.httpClient.Get(downloadURL)
+	dlReq, err := http.NewRequestWithContext(ctx, "GET", downloadURL, nil)
 	if err != nil {
-		return "", fmt.Errorf("download voice: %w", err)
+		return nil, fmt.Errorf("create download request: %w", err)
+	}
+	dlResp, err := a.httpClient.Do(dlReq)
+	if err != nil {
+		return nil, fmt.Errorf("download file: %w", err)
 	}
 	defer dlResp.Body.Close()
 
-	audioData, err := io.ReadAll(dlResp.Body)
+	const maxFileSize = 10 << 20 // 10MB
+	data, err := io.ReadAll(io.LimitReader(dlResp.Body, maxFileSize))
 	if err != nil {
-		return "", fmt.Errorf("read voice data: %w", err)
+		return nil, fmt.Errorf("read file data: %w", err)
+	}
+
+	return data, nil
+}
+
+// transcribeVoice downloads a voice message and transcribes it.
+func (a *Adapter) transcribeVoice(ctx context.Context, voice *Voice) (string, error) {
+	audioData, err := a.downloadFile(ctx, voice.FileID)
+	if err != nil {
+		return "", fmt.Errorf("download voice: %w", err)
 	}
 
 	// Telegram voice messages are OGG/Opus format
@@ -647,7 +698,6 @@ func (a *Adapter) transcribeVoice(ctx context.Context, voice *Voice) (string, er
 		}
 	}
 
-	// Transcribe
 	return a.sttEngine.Transcribe(ctx, audioData, format)
 }
 

@@ -8,20 +8,20 @@ import (
 )
 
 const (
-	maxAutoReplies       = 3
-	autoReplyCooldown    = 30 * time.Minute
-	autoReplyMaxTokens   = 512
+	maxAutoReplies     = 3
+	autoReplyCooldown  = 30 * time.Minute
+	autoReplyMaxTokens = 512
 )
 
 // trackedThread represents a thread Crayfish initiated or replied to.
 type trackedThread struct {
-	ThreadID       string
-	LastEmailID    string
-	ToAddr         string
-	Subject        string
-	ReplyCount     int
-	LastAutoReply  *time.Time
-	Active         bool
+	ThreadID      string
+	LastEmailID   string
+	ToAddr        string
+	Subject       string
+	ReplyCount    int
+	LastAutoReply *time.Time
+	Active        bool
 }
 
 // CheckAutoReply is called by the sync callback to detect replies to threads

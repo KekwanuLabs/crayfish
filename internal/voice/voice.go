@@ -4,10 +4,12 @@
 // neural TTS that runs on Raspberry Pi and other small devices.
 //
 // Piper is now maintained by Open Home Foundation and installed via pip:
-//   pip install piper-tts
+//
+//	pip install piper-tts
 //
 // Voice models are downloaded via:
-//   python3 -m piper.download_voices en_US-lessac-medium
+//
+//	python3 -m piper.download_voices en_US-lessac-medium
 package voice
 
 import (

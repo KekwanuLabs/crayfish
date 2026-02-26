@@ -65,12 +65,12 @@ Use this tool when the user asks to change check-in frequency, work hours, urgen
 		}`),
 		Execute: func(ctx context.Context, sess *security.Session, input json.RawMessage) (string, error) {
 			var params struct {
-				HeartbeatIntervalMins  *int      `json:"heartbeat_interval_minutes"`
-				HeartbeatWorkHourStart *int      `json:"heartbeat_work_hour_start"`
-				HeartbeatWorkHourEnd   *int      `json:"heartbeat_work_hour_end"`
-				HeartbeatWeekdaysOnly  *bool     `json:"heartbeat_weekdays_only"`
-				UrgencyKeywords        []string  `json:"urgency_keywords"`
-				AutoReplyEnabled       *bool     `json:"auto_reply_enabled"`
+				HeartbeatIntervalMins  *int     `json:"heartbeat_interval_minutes"`
+				HeartbeatWorkHourStart *int     `json:"heartbeat_work_hour_start"`
+				HeartbeatWorkHourEnd   *int     `json:"heartbeat_work_hour_end"`
+				HeartbeatWeekdaysOnly  *bool    `json:"heartbeat_weekdays_only"`
+				UrgencyKeywords        []string `json:"urgency_keywords"`
+				AutoReplyEnabled       *bool    `json:"auto_reply_enabled"`
 			}
 			if err := json.Unmarshal(input, &params); err != nil {
 				return "", fmt.Errorf("settings_update: parse input: %w", err)

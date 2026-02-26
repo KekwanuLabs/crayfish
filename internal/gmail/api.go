@@ -65,11 +65,11 @@ type gmailPayload struct {
 }
 
 type gmailPart struct {
-	MimeType string      `json:"mimeType"`
+	MimeType string        `json:"mimeType"`
 	Headers  []gmailHeader `json:"headers"`
-	Body     gmailBody   `json:"body"`
-	Parts    []gmailPart `json:"parts"`
-	Filename string      `json:"filename"`
+	Body     gmailBody     `json:"body"`
+	Parts    []gmailPart   `json:"parts"`
+	Filename string        `json:"filename"`
 }
 
 type gmailHeader struct {

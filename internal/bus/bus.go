@@ -212,11 +212,18 @@ func MustJSON(v any) []byte {
 	return data
 }
 
+// ImageAttachment holds a base64-encoded image for vision support.
+type ImageAttachment struct {
+	Data      string `json:"data"`       // base64-encoded image bytes
+	MediaType string `json:"media_type"` // e.g. "image/jpeg"
+}
+
 // InboundMessage is the payload for message.inbound events.
 type InboundMessage struct {
-	From    string `json:"from"`
-	Text    string `json:"text"`
-	ReplyTo string `json:"reply_to,omitempty"`
+	From    string            `json:"from"`
+	Text    string            `json:"text"`
+	ReplyTo string            `json:"reply_to,omitempty"`
+	Images  []ImageAttachment `json:"images,omitempty"`
 }
 
 // OutboundMessage is the payload for message.outbound events.

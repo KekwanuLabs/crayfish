@@ -245,11 +245,11 @@ func TestTruncateBytesRoundTrip(t *testing.T) {
 		limit int
 	}{
 		{"ascii", "hello world", 5},
-		{"multibyte_exact", "\u4e16\u754c", 6},   // 2 runes, 6 bytes, limit exactly at boundary
-		{"multibyte_mid", "\u4e16\u754c", 4},       // limit in middle of 2nd rune
-		{"multibyte_mid2", "\u4e16\u754c", 5},      // limit at 2nd byte of 2nd rune
-		{"emoji", "hello \U0001f600 world", 8},      // 4-byte emoji
-		{"empty_after_trunc", "\u4e16", 1},          // 3-byte rune, limit 1 = empty
+		{"multibyte_exact", "\u4e16\u754c", 6}, // 2 runes, 6 bytes, limit exactly at boundary
+		{"multibyte_mid", "\u4e16\u754c", 4},   // limit in middle of 2nd rune
+		{"multibyte_mid2", "\u4e16\u754c", 5},  // limit at 2nd byte of 2nd rune
+		{"emoji", "hello \U0001f600 world", 8}, // 4-byte emoji
+		{"empty_after_trunc", "\u4e16", 1},     // 3-byte rune, limit 1 = empty
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

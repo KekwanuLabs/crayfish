@@ -112,7 +112,7 @@ func TestSnapshotSaveAndLoad(t *testing.T) {
 
 	snap := &snapshotResponse{
 		ActiveTask:         "Building the login page",
-		ActiveTaskContext:   "User asked for OAuth integration with Google",
+		ActiveTaskContext:  "User asked for OAuth integration with Google",
 		LastExchanges:      []map[string]string{{"role": "user", "summary": "Asked about OAuth"}},
 		PendingProposals:   []string{"Should we also add GitHub OAuth?"},
 		DecisionsInFlight:  []string{"Which OAuth library to use"},
@@ -249,7 +249,7 @@ func TestSnapshotFormatForContext(t *testing.T) {
 
 	snap := &Snapshot{
 		ActiveTask:         "Fixing the login bug",
-		ActiveTaskContext:   "User reported 500 errors on POST /login",
+		ActiveTaskContext:  "User reported 500 errors on POST /login",
 		LastExchanges:      `[{"role":"user","summary":"Reported login failure"},{"role":"assistant","summary":"Found null pointer in auth handler"}]`,
 		PendingProposals:   `["Add rate limiting to login endpoint"]`,
 		DecisionsInFlight:  `["Whether to switch to JWT from sessions"]`,
@@ -801,7 +801,7 @@ func TestAssembleContextNoSnapshotNormally(t *testing.T) {
 	mgr.saveSnapshot(context.Background(), "sess_rt", "auto", snap, 5)
 
 	sess := &security.Session{ID: "sess_rt", Trust: security.TierOperator}
-	messages, err := rt.assembleContext(context.Background(), sess, "new message")
+	messages, err := rt.assembleContext(context.Background(), sess, "new message", nil)
 	if err != nil {
 		t.Fatalf("assembleContext failed: %v", err)
 	}
@@ -831,7 +831,7 @@ func TestAssembleContextInjectsSnapshotOnResume(t *testing.T) {
 	mgr.saveSnapshot(context.Background(), "sess_rt", "auto", snap, 10)
 
 	sess := &security.Session{ID: "sess_rt", Trust: security.TierOperator}
-	messages, err := rt.assembleContext(context.Background(), sess, "I'm back")
+	messages, err := rt.assembleContext(context.Background(), sess, "I'm back", nil)
 	if err != nil {
 		t.Fatalf("assembleContext failed: %v", err)
 	}
@@ -862,7 +862,7 @@ func TestAssembleContextNoSnapshotMgrIsNoop(t *testing.T) {
 	db.Exec("INSERT INTO messages (session_id, role, content, created_at) VALUES ('sess_rt', 'user', 'old message', datetime('now', '-1 hour'))")
 
 	sess := &security.Session{ID: "sess_rt", Trust: security.TierOperator}
-	messages, err := rt.assembleContext(context.Background(), sess, "hello")
+	messages, err := rt.assembleContext(context.Background(), sess, "hello", nil)
 	if err != nil {
 		t.Fatalf("assembleContext without snapshotMgr failed: %v", err)
 	}
@@ -886,7 +886,7 @@ func TestAssembleContextMessageOrder(t *testing.T) {
 	mgr.saveSnapshot(context.Background(), "sess_rt", "auto", snap, 2)
 
 	sess := &security.Session{ID: "sess_rt", Trust: security.TierOperator}
-	messages, err := rt.assembleContext(context.Background(), sess, "test order")
+	messages, err := rt.assembleContext(context.Background(), sess, "test order", nil)
 	if err != nil {
 		t.Fatalf("assembleContext failed: %v", err)
 	}
@@ -1032,7 +1032,7 @@ func TestAssembleContextInjectsInterviewWhenNoUser(t *testing.T) {
 		logger:   logger,
 	}
 
-	messages, err := rt.assembleContext(context.Background(), sess, "hello")
+	messages, err := rt.assembleContext(context.Background(), sess, "hello", nil)
 	if err != nil {
 		t.Fatalf("assembleContext error: %v", err)
 	}
@@ -1069,7 +1069,7 @@ func TestAssembleContextNoInterviewWhenUserExists(t *testing.T) {
 		logger:   logger,
 	}
 
-	messages, err := rt.assembleContext(context.Background(), sess, "hello")
+	messages, err := rt.assembleContext(context.Background(), sess, "hello", nil)
 	if err != nil {
 		t.Fatalf("assembleContext error: %v", err)
 	}
@@ -1103,7 +1103,7 @@ func TestAssembleContextNoIdentityStore(t *testing.T) {
 		logger:   logger,
 	}
 
-	messages, err := rt.assembleContext(context.Background(), sess, "hello")
+	messages, err := rt.assembleContext(context.Background(), sess, "hello", nil)
 	if err != nil {
 		t.Fatalf("assembleContext error: %v", err)
 	}

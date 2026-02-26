@@ -20,16 +20,16 @@ type Info struct {
 	ArmModel string // For ARM: "v6", "v7", "v8" (empty on non-ARM)
 
 	// Resources
-	TotalRAMMB   int // Total system RAM in MB
-	AvailRAMMB   int // Available RAM in MB
-	CPUCores     int // Number of CPU cores
+	TotalRAMMB   int  // Total system RAM in MB
+	AvailRAMMB   int  // Available RAM in MB
+	CPUCores     int  // Number of CPU cores
 	IsLowMemory  bool // < 1GB RAM
 	IsVeryLowMem bool // < 512MB RAM
 
 	// Device hints
-	IsRaspberryPi bool
-	PiModel       string // "Pi 2", "Pi 3", "Pi 4", "Pi 5", "Pi Zero", etc.
-	IsMac         bool
+	IsRaspberryPi  bool
+	PiModel        string // "Pi 2", "Pi 3", "Pi 4", "Pi 5", "Pi Zero", etc.
+	IsMac          bool
 	IsAppleSilicon bool
 }
 

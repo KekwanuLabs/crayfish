@@ -18,10 +18,10 @@ type Scheduler struct {
 	callback ScheduleCallback
 	logger   *slog.Logger
 
-	mu       sync.Mutex
-	entries  []schedEntry
-	stopCh   chan struct{}
-	wg       sync.WaitGroup
+	mu      sync.Mutex
+	entries []schedEntry
+	stopCh  chan struct{}
+	wg      sync.WaitGroup
 }
 
 // ScheduleCallback is called when a scheduled skill should fire.
