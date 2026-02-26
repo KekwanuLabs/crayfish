@@ -1,6 +1,7 @@
 name: email_triage
 version: 1
 description: "Triage and prioritize unread emails"
+category: communication
 type: workflow
 min_tier: trusted
 

@@ -1,6 +1,7 @@
 name: family_setup
 version: 1
 description: "Guided family onboarding — get to know the family through natural conversation"
+category: family
 type: workflow
 min_tier: trusted
 

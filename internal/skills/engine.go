@@ -104,8 +104,118 @@ func (e *Engine) ExecuteWorkflow(ctx context.Context, skill *Skill, executor Too
 	return result, nil
 }
 
+// MatchAndExecute checks if the message matches a workflow skill (by command or keyword),
+// executes the workflow, and returns the assembled result. Returns nil if no skill matches.
+// This implements the runtime.SkillRunner interface.
+func (e *Engine) MatchAndExecute(ctx context.Context, text string, executor ToolExecutor) (*MatchResult, error) {
+	trimmed := strings.TrimSpace(text)
+
+	var skill *Skill
+
+	// 1. Check for /command triggers.
+	if strings.HasPrefix(trimmed, "/") {
+		parts := strings.SplitN(trimmed, " ", 2)
+		cmd := parts[0]
+		skill = e.registry.FindByCommand(cmd)
+	}
+
+	// 2. Fall back to keyword matching (first match wins).
+	if skill == nil {
+		matches := e.registry.FindByKeyword(trimmed)
+		for _, m := range matches {
+			if m.Type == TypeWorkflow {
+				skill = m
+				break
+			}
+		}
+	}
+
+	// No workflow skill matched.
+	if skill == nil || skill.Type != TypeWorkflow {
+		return nil, nil
+	}
+
+	// Extract variables from the message text.
+	vars := extractVars(trimmed, skill)
+
+	e.logger.Info("executing matched skill",
+		"skill", skill.Name, "destination", vars["destination"])
+
+	result, err := e.ExecuteWorkflow(ctx, skill, executor, vars)
+	if err != nil {
+		return nil, fmt.Errorf("execute skill %s: %w", skill.Name, err)
+	}
+
+	return &MatchResult{
+		SkillName:   result.SkillName,
+		FinalPrompt: result.FinalPrompt,
+		Success:     result.Success,
+	}, nil
+}
+
+// MatchResult is returned by MatchAndExecute with the skill execution outcome.
+type MatchResult struct {
+	SkillName   string
+	FinalPrompt string
+	Success     bool
+}
+
+// extractVars pulls variable values from the message text for a given skill.
+func extractVars(text string, skill *Skill) map[string]string {
+	vars := make(map[string]string)
+
+	// Extract destination for trip-related skills.
+	if _, hasDest := skill.Vars["destination"]; hasDest {
+		if dest := extractDestination(text); dest != "" {
+			vars["destination"] = dest
+		}
+	}
+
+	return vars
+}
+
+// extractDestination parses destination from patterns like "trip to Hawaii",
+// "travel to Japan", "visit Paris", "/trip Hawaii".
+func extractDestination(text string) string {
+	lower := strings.ToLower(strings.TrimSpace(text))
+
+	// Handle /command form: "/trip Hawaii" or "/itinerary Paris".
+	if strings.HasPrefix(lower, "/") {
+		parts := strings.SplitN(lower, " ", 2)
+		if len(parts) == 2 {
+			return strings.TrimSpace(parts[1])
+		}
+		return ""
+	}
+
+	// Match patterns: "trip to X", "travel to X", "visit X", "vacation in X", "vacation to X".
+	patterns := []string{
+		"trip to ", "travel to ", "visit ", "vacation to ",
+		"vacation in ", "fly to ", "going to ",
+	}
+	for _, p := range patterns {
+		if idx := strings.Index(lower, p); idx != -1 {
+			dest := text[idx+len(p):]
+			// Trim trailing punctuation and common suffixes.
+			dest = strings.TrimRight(dest, ".!?,;")
+			dest = strings.TrimSpace(dest)
+			// Take only the meaningful portion (stop at common filler words).
+			for _, stop := range []string{" for ", " with ", " this ", " next ", " in the "} {
+				if si := strings.Index(strings.ToLower(dest), stop); si != -1 {
+					dest = dest[:si]
+				}
+			}
+			if dest != "" {
+				return strings.TrimSpace(dest)
+			}
+		}
+	}
+
+	return ""
+}
+
 // GetPromptAugmentations returns all prompt augmentations from enabled prompt-type skills.
-// This implements the runtime.PromptAugmenter interface.
+// This implements the runtime.SkillRunner interface.
 func (e *Engine) GetPromptAugmentations() []string {
 	var augmentations []string
 	for _, skill := range e.registry.All() {

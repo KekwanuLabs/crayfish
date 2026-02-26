@@ -1,6 +1,7 @@
 name: morning_briefing
 version: 1
 description: "Daily morning briefing with email summary and tasks"
+category: productivity
 type: workflow
 min_tier: trusted
 

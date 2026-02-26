@@ -30,6 +30,11 @@ type Skill struct {
 	Version     int    `yaml:"version" json:"version"`
 	Description string `yaml:"description" json:"description"`
 	Author      string `yaml:"author,omitempty" json:"author,omitempty"`
+	Category    string `yaml:"category,omitempty" json:"category,omitempty"`
+
+	// Marketplace (future-proofing — inert fields, no logic yet).
+	License string `yaml:"license,omitempty" json:"license,omitempty"` // "free" (default), "premium", "trial"
+	Price   string `yaml:"price,omitempty" json:"price,omitempty"`     // Display price, e.g., "$2.99/mo"
 
 	// Enabled controls whether this skill is active. nil = true (default enabled).
 	Enabled *bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`

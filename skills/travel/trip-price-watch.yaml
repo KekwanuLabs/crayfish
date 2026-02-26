@@ -1,0 +1,96 @@
+name: trip_price_watch
+version: 1
+description: "Watch flight prices for a route — searches current prices, analyzes if they're high/low, finds cheapest dates, and saves a baseline for daily monitoring"
+category: travel
+type: workflow
+min_tier: trusted
+
+trigger:
+  command: "/pricewatch"
+  keywords:
+    - "watch prices"
+    - "track prices"
+    - "monitor prices"
+    - "price alert"
+    - "watch flights"
+    - "track flights"
+    - "notify me when"
+    - "let me know when prices"
+
+vars:
+  destination: ""
+
+steps:
+  # Get home location for origin
+  - tool: memory_search
+    params:
+      query: "home location city airport where we live"
+    store_as: home_location
+    on_error: skip
+
+  # Search current prices
+  - tool: flight_search
+    params:
+      origin: "{{home_location}}"
+      destination: "{{destination}}"
+      departure_date: "{{departure_date}}"
+      adults: 1
+      max_results: 5
+    store_as: current_prices
+    on_error: skip
+
+  # Analyze if prices are high or low
+  - tool: flight_price_analysis
+    params:
+      origin: "{{home_location}}"
+      destination: "{{destination}}"
+      departure_date: "{{departure_date}}"
+    store_as: price_analysis
+    on_error: skip
+
+  # Find cheapest dates nearby
+  - tool: flight_cheapest_dates
+    params:
+      origin: "{{home_location}}"
+      destination: "{{destination}}"
+    store_as: cheapest_dates
+    on_error: skip
+
+  # Save baseline for monitoring
+  - tool: memory_save
+    params:
+      content: "price_watch:{{destination}} | origin:{{home_location}} | baseline_date:{{departure_date}} | current_prices:{{current_prices}} | price_level:{{price_analysis}}"
+      category: "price_watch"
+    store_as: saved_watch
+    on_error: skip
+
+prompt: |
+  The user wants to watch flight prices. Here's what we found:
+
+  ## Context
+
+  Home location: {{home_location}}
+  Destination: {{destination}}
+
+  ## Current Prices
+  {{current_prices}}
+
+  ## Price Analysis (is this a good time to buy?)
+  {{price_analysis}}
+
+  ## Cheapest Travel Dates
+  {{cheapest_dates}}
+
+  ## Instructions
+
+  If the flight tools returned results:
+  - Present the current prices clearly
+  - Explain the price analysis (is it HIGH, TYPICAL, or LOW right now?)
+  - Highlight the cheapest dates if the user is flexible
+  - Confirm you've saved this as a price watch and will check daily
+  - Mention they can run /pricecheck anytime to see updates
+
+  If the flight tools failed or returned errors (tool not configured):
+  - Let the user know flight search needs to be set up first
+  - Offer to help them set it up: "I can help you set up flight search — it takes about a minute and it's free. Want me to walk you through it?"
+  - Use the amadeus_connect tool if they say yes

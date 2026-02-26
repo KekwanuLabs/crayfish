@@ -1,6 +1,7 @@
 name: family_briefing
 version: 1
 description: "Morning family briefing — today's schedule, action items, and heads-up for the next few days"
+category: family
 type: workflow
 min_tier: trusted
 

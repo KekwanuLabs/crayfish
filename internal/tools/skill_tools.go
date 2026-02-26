@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/KekwanuLabs/crayfish/internal/security"
@@ -22,15 +23,19 @@ type SkillToolDeps struct {
 func RegisterSkillTools(reg *Registry, deps SkillToolDeps) {
 	reg.logger.Info("registering skill management tools")
 
-	// skill_list — list installed skills with plain-language descriptions.
+	// skill_list — list installed skills grouped by category.
 	reg.Register(&Tool{
 		Name:        "skill_list",
-		Description: "List all installed skills with descriptions and triggers. Optionally filter by category (type). Present the results conversationally.",
+		Description: "List all installed skills grouped by category, with descriptions and triggers. Optionally filter by category or type.",
 		MinTier:     security.TierTrusted,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
 				"category": {
+					"type": "string",
+					"description": "Optional filter by category: 'travel', 'productivity', 'family', etc."
+				},
+				"type": {
 					"type": "string",
 					"description": "Optional filter by skill type: 'workflow', 'prompt', or 'reactive'"
 				}
@@ -39,6 +44,7 @@ func RegisterSkillTools(reg *Registry, deps SkillToolDeps) {
 		Execute: func(ctx context.Context, sess *security.Session, input json.RawMessage) (string, error) {
 			var params struct {
 				Category string `json:"category"`
+				Type     string `json:"type"`
 			}
 			if err := json.Unmarshal(input, &params); err != nil {
 				return "", fmt.Errorf("skill_list: parse input: %w", err)
@@ -49,46 +55,79 @@ func RegisterSkillTools(reg *Registry, deps SkillToolDeps) {
 				return "No skills are installed yet. You can browse the Skill Hub to discover new ones — just ask me to show you what's available.", nil
 			}
 
+			// Filter skills.
 			var filtered []*skills.Skill
 			for _, s := range allSkills {
-				if params.Category != "" && string(s.Type) != params.Category {
+				if params.Category != "" && s.Category != params.Category {
+					continue
+				}
+				if params.Type != "" && string(s.Type) != params.Type {
 					continue
 				}
 				filtered = append(filtered, s)
 			}
 
 			if len(filtered) == 0 {
-				return fmt.Sprintf("No skills found with type %q. You have %d skills of other types.", params.Category, len(allSkills)), nil
+				msg := "No skills found"
+				if params.Category != "" {
+					msg += fmt.Sprintf(" in category %q", params.Category)
+				}
+				if params.Type != "" {
+					msg += fmt.Sprintf(" with type %q", params.Type)
+				}
+				return msg + fmt.Sprintf(". You have %d skills total.", len(allSkills)), nil
 			}
+
+			// Group by category.
+			grouped := make(map[string][]*skills.Skill)
+			for _, s := range filtered {
+				cat := s.Category
+				if cat == "" {
+					cat = "general"
+				}
+				grouped[cat] = append(grouped[cat], s)
+			}
+
+			// Sort category names for stable output.
+			cats := make([]string, 0, len(grouped))
+			for c := range grouped {
+				cats = append(cats, c)
+			}
+			sort.Strings(cats)
 
 			var sb strings.Builder
 			sb.WriteString(fmt.Sprintf("You have %d skill(s) installed:\n\n", len(filtered)))
 
-			for _, s := range filtered {
-				enabled := "enabled"
-				if s.Enabled != nil && !*s.Enabled {
-					enabled = "DISABLED"
-				}
+			for _, cat := range cats {
+				catSkills := grouped[cat]
+				sb.WriteString(fmt.Sprintf("**%s** (%d skills)\n", titleCase(cat), len(catSkills)))
 
-				sb.WriteString(fmt.Sprintf("- **%s** (%s, %s)", s.Name, s.Type, enabled))
-				if s.Description != "" {
-					sb.WriteString(": " + s.Description)
+				for _, s := range catSkills {
+					enabled := "enabled"
+					if s.Enabled != nil && !*s.Enabled {
+						enabled = "DISABLED"
+					}
+
+					sb.WriteString(fmt.Sprintf("  - **%s** (%s, %s)", s.Name, s.Type, enabled))
+					if s.Description != "" {
+						sb.WriteString(": " + s.Description)
+					}
+					sb.WriteString("\n")
+
+					if s.Trigger.Command != "" {
+						sb.WriteString(fmt.Sprintf("    Trigger: command `%s`\n", s.Trigger.Command))
+					}
+					if s.Trigger.Schedule != "" {
+						sb.WriteString(fmt.Sprintf("    Trigger: %s\n", skills.CronToHuman(s.Trigger.Schedule)))
+					}
+					if s.Trigger.Event != "" {
+						sb.WriteString(fmt.Sprintf("    Trigger: on event `%s`\n", s.Trigger.Event))
+					}
+					if len(s.Trigger.Keywords) > 0 {
+						sb.WriteString(fmt.Sprintf("    Keywords: %s\n", strings.Join(s.Trigger.Keywords, ", ")))
+					}
 				}
 				sb.WriteString("\n")
-
-				// Human-readable trigger info.
-				if s.Trigger.Command != "" {
-					sb.WriteString(fmt.Sprintf("  Trigger: command `%s`\n", s.Trigger.Command))
-				}
-				if s.Trigger.Schedule != "" {
-					sb.WriteString(fmt.Sprintf("  Trigger: %s\n", skills.CronToHuman(s.Trigger.Schedule)))
-				}
-				if s.Trigger.Event != "" {
-					sb.WriteString(fmt.Sprintf("  Trigger: on event `%s`\n", s.Trigger.Event))
-				}
-				if len(s.Trigger.Keywords) > 0 {
-					sb.WriteString(fmt.Sprintf("  Keywords: %s\n", strings.Join(s.Trigger.Keywords, ", ")))
-				}
 			}
 
 			return sb.String(), nil
@@ -131,6 +170,11 @@ func RegisterSkillTools(reg *Registry, deps SkillToolDeps) {
 			if skill.Author != "" {
 				sb.WriteString(fmt.Sprintf("Author: %s\n", skill.Author))
 			}
+			cat := skill.Category
+			if cat == "" {
+				cat = "general"
+			}
+			sb.WriteString(fmt.Sprintf("Category: %s\n", cat))
 			sb.WriteString(fmt.Sprintf("Type: %s\n", skill.Type))
 
 			enabled := "Yes"
@@ -238,6 +282,10 @@ func RegisterSkillTools(reg *Registry, deps SkillToolDeps) {
 				skill, err = deps.Hub.FetchSkill(ctx, hubSkill.URL)
 				if err != nil {
 					return fmt.Sprintf("Failed to download skill %q: %v", params.Name, err), nil
+				}
+				// Propagate category from hub index if the skill YAML doesn't set one.
+				if hubSkill.Category != "" && (skill.Category == "" || skill.Category == "general") {
+					skill.Category = hubSkill.Category
 				}
 			}
 
@@ -359,6 +407,22 @@ func RegisterSkillTools(reg *Registry, deps SkillToolDeps) {
 				installed[strings.ToLower(s.Name)] = true
 			}
 
+			// Group by category.
+			grouped := make(map[string][]skills.HubSkill)
+			for _, s := range results {
+				cat := s.Category
+				if cat == "" {
+					cat = "general"
+				}
+				grouped[cat] = append(grouped[cat], s)
+			}
+
+			cats := make([]string, 0, len(grouped))
+			for c := range grouped {
+				cats = append(cats, c)
+			}
+			sort.Strings(cats)
+
 			var sb strings.Builder
 			if params.Search != "" {
 				sb.WriteString(fmt.Sprintf("Found %d skill(s) in the Skill Hub matching %q:\n\n", len(results), params.Search))
@@ -366,23 +430,33 @@ func RegisterSkillTools(reg *Registry, deps SkillToolDeps) {
 				sb.WriteString(fmt.Sprintf("The Skill Hub has %d skill(s) available:\n\n", len(results)))
 			}
 
-			for _, s := range results {
-				status := ""
-				if installed[strings.ToLower(s.Name)] {
-					status = " [installed]"
+			for _, cat := range cats {
+				catSkills := grouped[cat]
+				sb.WriteString(fmt.Sprintf("**%s** (%d skills)\n", titleCase(cat), len(catSkills)))
+				for _, s := range catSkills {
+					status := ""
+					if installed[strings.ToLower(s.Name)] {
+						status = " [installed]"
+					}
+					sb.WriteString(fmt.Sprintf("  - **%s**%s: %s\n", s.Name, status, s.Description))
+					if len(s.Tags) > 0 {
+						sb.WriteString(fmt.Sprintf("    Tags: %s\n", strings.Join(s.Tags, ", ")))
+					}
 				}
-				sb.WriteString(fmt.Sprintf("- **%s**%s: %s\n", s.Name, status, s.Description))
-				if len(s.Tags) > 0 {
-					sb.WriteString(fmt.Sprintf("  Tags: %s\n", strings.Join(s.Tags, ", ")))
-				}
-				if len(s.Requires) > 0 {
-					sb.WriteString(fmt.Sprintf("  Requires: %s\n", strings.Join(s.Requires, ", ")))
-				}
+				sb.WriteString("\n")
 			}
 
-			sb.WriteString("\nTo install a skill, just say \"install [skill name]\" and I'll set it up for you.")
+			sb.WriteString("To install a skill, just say \"install [skill name]\" and I'll set it up for you.")
 
 			return sb.String(), nil
 		},
 	})
+}
+
+// titleCase capitalizes the first letter of a string.
+func titleCase(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }

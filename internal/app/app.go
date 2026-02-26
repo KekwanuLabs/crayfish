@@ -21,6 +21,7 @@ import (
 	"github.com/KekwanuLabs/crayfish/internal/gateway"
 	"github.com/KekwanuLabs/crayfish/internal/gmail"
 	"github.com/KekwanuLabs/crayfish/internal/heartbeat"
+	"github.com/KekwanuLabs/crayfish/internal/mcp"
 	"github.com/KekwanuLabs/crayfish/internal/identity"
 	"github.com/KekwanuLabs/crayfish/internal/oauth"
 	"github.com/KekwanuLabs/crayfish/internal/provider"
@@ -62,6 +63,9 @@ type App struct {
 
 	// Identity system
 	identityStore *identity.Store
+
+	// MCP
+	mcpMgr *mcp.Manager
 
 	// Google OAuth
 	oauthClient *oauth.Client
@@ -176,6 +180,35 @@ func (a *App) Start(ctx context.Context) error {
 				a.Logger.Warn("failed to save Brave API key to config", "error", err)
 			}
 			a.Logger.Info("Brave Search API key saved and activated")
+		},
+		Registry: toolReg,
+	})
+
+	// 6b. Amadeus flight tools
+	if a.Config.AmadeusClientID != "" && a.Config.AmadeusClientSecret != "" {
+		auth := tools.NewAmadeusAuth(a.Config.AmadeusClientID, a.Config.AmadeusClientSecret)
+		tools.RegisterAmadeusTools(toolReg, auth)
+	}
+
+	// Always register amadeus_connect so users can set up flight search conversationally.
+	tools.RegisterAmadeusConnectTool(toolReg, tools.AmadeusConnectDeps{
+		IsConfigured: func() bool {
+			a.configMu.RLock()
+			defer a.configMu.RUnlock()
+			return a.Config.AmadeusClientID != "" && a.Config.AmadeusClientSecret != ""
+		},
+		SaveCreds: func(clientID, clientSecret string) {
+			a.configMu.Lock()
+			a.Config.AmadeusClientID = clientID
+			a.Config.AmadeusClientSecret = clientSecret
+			a.configMu.Unlock()
+			if err := a.Config.SaveConfig(); err != nil {
+				a.Logger.Warn("failed to save Amadeus credentials to config", "error", err)
+			}
+			if a.rt != nil {
+				a.rt.SetTravelSearchEnabled(true)
+			}
+			a.Logger.Info("Amadeus credentials saved and activated")
 		},
 		Registry: toolReg,
 	})
@@ -591,6 +624,27 @@ func (a *App) Start(ctx context.Context) error {
 	a.identityStore = identity.NewStore(configDir, a.Logger.With("component", "identity"))
 	tools.RegisterIdentityTools(toolReg, a.identityStore)
 
+	// 14b. MCP servers (power-user extension)
+	if len(a.Config.MCPServers) > 0 {
+		a.mcpMgr = mcp.NewManager(a.Logger.With("component", "mcp"))
+		for _, srv := range a.Config.MCPServers {
+			if !srv.Enabled {
+				continue
+			}
+			if err := a.mcpMgr.Connect(ctx, mcp.ServerConfig{
+				Name:    srv.Name,
+				Command: srv.Command,
+				Enabled: srv.Enabled,
+			}); err != nil {
+				a.Logger.Warn("failed to connect MCP server", "name", srv.Name, "error", err)
+			}
+		}
+		if len(a.mcpMgr.Servers()) > 0 {
+			tools.RegisterMCPTools(toolReg, a.mcpMgr)
+			a.Logger.Info("MCP servers connected", "count", len(a.mcpMgr.Servers()))
+		}
+	}
+
 	// 15. Memory components
 	memExtractor := runtime.NewMemoryExtractor(db.Inner(), llm,
 		a.Logger.With("component", "memory_extractor"))
@@ -637,6 +691,7 @@ func (a *App) Start(ctx context.Context) error {
 	}
 	rtCfg.GoogleConnected = a.googleToken != nil && a.googleToken.RefreshToken != ""
 	rtCfg.WebSearchEnabled = a.Config.BraveAPIKey != ""
+	rtCfg.TravelSearchEnabled = a.Config.AmadeusClientID != "" && a.Config.AmadeusClientSecret != ""
 	a.emailMu.RLock()
 	rtCfg.EmailEnabled = a.emailProvider != nil
 	a.emailMu.RUnlock()
@@ -794,6 +849,10 @@ func (a *App) Stop() error {
 		a.autoUpdater.Stop()
 	}
 
+	if a.mcpMgr != nil {
+		a.mcpMgr.Close()
+	}
+
 	// Cancel context first — signals goroutines to stop before we close the DB.
 	if a.cancel != nil {
 		a.cancel()
@@ -847,6 +906,7 @@ func (a *App) DashboardConfig() map[string]any {
 		"update_channel":         a.Config.UpdateChannel,
 		"google_connected":       a.Config.Google != nil && a.Config.Google.RefreshToken != "",
 		"google_scopes":          googleScopes(a.Config.Google),
+		"amadeus_connected":      a.Config.AmadeusClientID != "" && a.Config.AmadeusClientSecret != "",
 	}
 }
 

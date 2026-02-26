@@ -59,6 +59,13 @@ type Config struct {
 	// Search
 	BraveAPIKey string `yaml:"brave_api_key"`
 
+	// Travel (Amadeus)
+	AmadeusClientID     string `yaml:"amadeus_client_id"`
+	AmadeusClientSecret string `yaml:"amadeus_client_secret"`
+
+	// MCP Servers (power-user extension)
+	MCPServers []MCPServerConfig `yaml:"mcp_servers,omitempty"`
+
 	// Runtime
 	SystemPrompt string `yaml:"system_prompt"`
 
@@ -76,6 +83,13 @@ type Config struct {
 
 	// Internal — resolved config file path, not serialized to YAML.
 	ConfigPath string `yaml:"-" json:"-"`
+}
+
+// MCPServerConfig defines an external MCP tool server.
+type MCPServerConfig struct {
+	Name    string `yaml:"name"`
+	Command string `yaml:"command"`
+	Enabled bool   `yaml:"enabled"`
 }
 
 // GoogleConfig holds OAuth 2.0 tokens for Google API access.
@@ -187,6 +201,8 @@ func LoadConfig(logger *slog.Logger) Config {
 	envStr("CRAYFISH_GMAIL_USER", &cfg.GmailUser)
 	envInt("CRAYFISH_GMAIL_POLL_MINUTES", &cfg.GmailPollMinutes)
 	envStr("CRAYFISH_BRAVE_API_KEY", &cfg.BraveAPIKey)
+	envStr("CRAYFISH_AMADEUS_CLIENT_ID", &cfg.AmadeusClientID)
+	envStr("CRAYFISH_AMADEUS_CLIENT_SECRET", &cfg.AmadeusClientSecret)
 	envBool("CRAYFISH_CONTINUITY_ENABLED", &cfg.ContinuityEnabled)
 	envInt("CRAYFISH_SESSION_RESUME_MINUTES", &cfg.SessionResumeMinutes)
 	envInt("CRAYFISH_SNAPSHOTS_PER_SESSION", &cfg.SnapshotsPerSession)
