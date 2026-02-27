@@ -72,6 +72,7 @@ type ProactiveAgent struct {
 	memory      *runtime.MemoryRetriever
 	db          *sql.DB
 	llmComplete func(ctx context.Context, system, user string) (string, error)
+	notify      func(ctx context.Context, message string) error
 	logger      *slog.Logger
 }
 
@@ -80,6 +81,7 @@ type ProactiveAgentDeps struct {
 	Memory      *runtime.MemoryRetriever
 	DB          *sql.DB
 	LLMComplete func(ctx context.Context, system, user string) (string, error)
+	Notify      func(ctx context.Context, message string) error
 	Logger      *slog.Logger
 }
 
@@ -89,8 +91,89 @@ func NewProactiveAgent(deps ProactiveAgentDeps) *ProactiveAgent {
 		memory:      deps.Memory,
 		db:          deps.DB,
 		llmComplete: deps.LLMComplete,
+		notify:      deps.Notify,
 		logger:      deps.Logger,
 	}
+}
+
+// SetNotify sets the notification callback after construction.
+// This is needed when the notify function is created after the agent.
+func (a *ProactiveAgent) SetNotify(fn func(ctx context.Context, message string) error) {
+	a.notify = fn
+}
+
+// EvaluateAndNotify evaluates an opportunity and sends a notification if the verdict is "surface".
+// This is the entry point for background callers (e.g., email sync).
+func (a *ProactiveAgent) EvaluateAndNotify(ctx context.Context, sessionID string, opp *Opportunity) error {
+	payload, err := json.Marshal(map[string]any{"opportunity": opp})
+	if err != nil {
+		return fmt.Errorf("marshal opportunity: %w", err)
+	}
+
+	msg := &Message{
+		Type:      "evaluate_opportunity",
+		SessionID: sessionID,
+		Payload:   payload,
+	}
+
+	resp, err := a.HandleEvaluateOpportunity(ctx, msg)
+	if err != nil {
+		return fmt.Errorf("evaluate opportunity: %w", err)
+	}
+
+	verdict, _ := resp.State["verdict"].(string)
+	if verdict != "surface" {
+		a.logger.Debug("proactive evaluation skipped", "id", opp.ID, "verdict", verdict)
+		return nil
+	}
+
+	// Use suggested_message if available, otherwise format a default.
+	message, _ := resp.State["suggested_message"].(string)
+	if message == "" {
+		message = fmt.Sprintf("📬 %s: %s", opp.Title, opp.Description)
+	}
+
+	if a.notify == nil {
+		a.logger.Warn("proactive agent has no notify function, cannot send notification", "id", opp.ID)
+		return nil
+	}
+
+	return a.notify(ctx, message)
+}
+
+// EvaluateOpportunityRaw evaluates an opportunity from raw parameters and returns the response as JSON.
+// This satisfies the tools.OpportunityEvaluator interface without import cycles.
+func (a *ProactiveAgent) EvaluateOpportunityRaw(ctx context.Context, sessionID string, oppType, title, description, relatedTo string, confidence float64) (json.RawMessage, error) {
+	opp := &Opportunity{
+		Type:        oppType,
+		Title:       title,
+		Description: description,
+		RelatedTo:   relatedTo,
+		Confidence:  confidence,
+	}
+
+	payload, err := json.Marshal(map[string]any{"opportunity": opp})
+	if err != nil {
+		return nil, fmt.Errorf("marshal opportunity: %w", err)
+	}
+
+	msg := &Message{
+		Type:      "evaluate_opportunity",
+		SessionID: sessionID,
+		Payload:   payload,
+	}
+
+	resp, err := a.HandleEvaluateOpportunity(ctx, msg)
+	if err != nil {
+		return nil, err
+	}
+
+	result, err := json.Marshal(resp)
+	if err != nil {
+		return nil, fmt.Errorf("marshal response: %w", err)
+	}
+
+	return result, nil
 }
 
 // HandleEvaluateOpportunity evaluates a proactive opportunity using LLM assessment.

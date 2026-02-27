@@ -482,6 +482,21 @@ var migrations = []migration{
 		CREATE INDEX IF NOT EXISTS idx_tracked_active ON tracked_threads(active);
 		`,
 	},
+	{
+		name: "suggestions table for proactive agent",
+		sql: `
+		CREATE TABLE IF NOT EXISTS suggestions (
+			id         TEXT PRIMARY KEY,
+			user_id    TEXT NOT NULL,
+			type       TEXT NOT NULL,
+			content    TEXT NOT NULL,
+			confidence REAL NOT NULL DEFAULT 0.5,
+			created_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+		CREATE INDEX IF NOT EXISTS idx_suggestions_user ON suggestions(user_id);
+		CREATE INDEX IF NOT EXISTS idx_suggestions_type ON suggestions(type);
+		`,
+	},
 }
 
 // Now returns the current time formatted for SQLite storage.

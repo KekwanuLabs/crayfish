@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/KekwanuLabs/crayfish/internal/agents"
 	"github.com/KekwanuLabs/crayfish/internal/bus"
 	"github.com/KekwanuLabs/crayfish/internal/calendar"
 	"github.com/KekwanuLabs/crayfish/internal/channels"
@@ -53,6 +54,7 @@ type App struct {
 	emailProvider  gmail.EmailProvider // Active email provider (OAuth poller or IMAP)
 	emailMu        sync.RWMutex        // Protects emailProvider
 	heartbeatSvc   *heartbeat.Service
+	proactiveAgent *agents.ProactiveAgent
 	offlineQueue   *queue.OfflineQueue
 	pairing        *security.PairingService
 	skillRegistry  *skills.Registry
@@ -466,6 +468,9 @@ func (a *App) Start(ctx context.Context) error {
 	hasEmailProvider := a.emailProvider != nil
 	a.emailMu.RUnlock()
 
+	// Hoist notifyFunc so the proactive agent can reuse it outside the heartbeat block.
+	var proactiveNotify func(ctx context.Context, message string) error
+
 	if hasEmailProvider || calendarClient != nil {
 		var notifyFunc heartbeat.NotifyFunc
 		if tgAdapter != nil {
@@ -493,6 +498,7 @@ func (a *App) Start(ctx context.Context) error {
 				}
 				return tgAdapter.SendToOperator(ctx, message)
 			}
+			proactiveNotify = notifyFunc
 		}
 
 		a.emailMu.RLock()
@@ -529,11 +535,44 @@ func (a *App) Start(ctx context.Context) error {
 			a.Logger.Error("Heartbeat service failed to start", "error", err)
 		}
 
-		// Wire sync callbacks for real-time urgency detection and auto-reply.
+		// Wire sync callbacks for real-time urgency detection, auto-reply, and proactive evaluation.
 		syncCallback := func(ctx context.Context, newIDs []string) {
 			if a.heartbeatSvc != nil {
 				a.heartbeatSvc.CheckNewEmails(ctx, newIDs)
 				a.heartbeatSvc.CheckAutoReply(ctx, newIDs)
+			}
+
+			if a.proactiveAgent != nil && ep != nil {
+				for _, id := range newIDs {
+					email, err := ep.GetEmailByID(ctx, id)
+					if err != nil {
+						continue
+					}
+
+					opp := &agents.Opportunity{
+						ID:          email.ID,
+						Type:        "email_highlight",
+						Title:       email.Subject,
+						Description: fmt.Sprintf("From: %s\n\n%s", email.From, email.BodyPreview),
+						RelatedTo:   email.Subject,
+						Confidence:  0.5,
+					}
+
+					sessionID := ""
+					if tgAdapter != nil {
+						if chatID := tgAdapter.GetOperatorChatID(); chatID != 0 {
+							sessionID = fmt.Sprintf("telegram:%d", chatID)
+						}
+					}
+
+					go func(o *agents.Opportunity, sid string) {
+						evalCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+						defer cancel()
+						if err := a.proactiveAgent.EvaluateAndNotify(evalCtx, sid, o); err != nil {
+							a.Logger.Debug("proactive eval failed", "email", o.ID, "error", err)
+						}
+					}(opp, sessionID)
+				}
 			}
 		}
 		if a.gmailPoller != nil {
@@ -791,6 +830,29 @@ func (a *App) Start(ctx context.Context) error {
 		a.Logger.With("component", "memory_extractor"))
 	memRetriever := runtime.NewMemoryRetriever(db.Inner(),
 		a.Logger.With("component", "memory_retriever"))
+
+	// 15b. Proactive agent
+	proactiveLLM := func(ctx context.Context, system, user string) (string, error) {
+		resp, err := llm.Complete(ctx, provider.CompletionRequest{
+			Messages: []provider.Message{
+				{Role: provider.RoleSystem, Content: system},
+				{Role: provider.RoleUser, Content: user},
+			},
+			MaxTokens: 512,
+		})
+		if err != nil {
+			return "", err
+		}
+		return resp.Content, nil
+	}
+	a.proactiveAgent = agents.NewProactiveAgent(agents.ProactiveAgentDeps{
+		Memory:      memRetriever,
+		DB:          db.Inner(),
+		LLMComplete: proactiveLLM,
+		Notify:      proactiveNotify,
+		Logger:      a.Logger.With("component", "proactive-agent"),
+	})
+	tools.RegisterProactiveTools(toolReg, a.proactiveAgent)
 
 	// 16. Session continuity (snapshot manager)
 	var snapshotMgr *runtime.SnapshotManager
