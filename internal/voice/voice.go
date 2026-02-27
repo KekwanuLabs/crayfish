@@ -22,6 +22,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 // Engine provides text-to-speech synthesis.
@@ -306,6 +307,10 @@ func (e *STTEngine) Transcribe(ctx context.Context, audioData []byte, format str
 	if !e.enabled {
 		return "", fmt.Errorf("STT engine not enabled")
 	}
+
+	// Kill ffmpeg+whisper if they exceed 2 minutes (Pi can be slow)
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
 
 	e.mu.Lock()
 	defer e.mu.Unlock()

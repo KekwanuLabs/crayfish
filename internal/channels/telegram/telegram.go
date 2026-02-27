@@ -48,6 +48,8 @@ type Message struct {
 	Text      string      `json:"text,omitempty"`
 	From      User        `json:"from"`
 	Voice     *Voice      `json:"voice,omitempty"`
+	Audio     *Audio      `json:"audio,omitempty"`
+	VideoNote *VideoNote  `json:"video_note,omitempty"`
 	Photo     []PhotoSize `json:"photo,omitempty"`
 	Caption   string      `json:"caption,omitempty"`
 }
@@ -63,6 +65,20 @@ type Voice struct {
 	FileID   string `json:"file_id"`
 	Duration int    `json:"duration"`
 	MimeType string `json:"mime_type,omitempty"`
+	FileSize int    `json:"file_size,omitempty"`
+}
+
+type Audio struct {
+	FileID   string `json:"file_id"`
+	Duration int    `json:"duration"`
+	MimeType string `json:"mime_type,omitempty"`
+	FileSize int    `json:"file_size,omitempty"`
+}
+
+type VideoNote struct {
+	FileID   string `json:"file_id"`
+	Duration int    `json:"duration"`
+	Length   int    `json:"length"`
 	FileSize int    `json:"file_size,omitempty"`
 }
 
@@ -543,31 +559,38 @@ func (a *Adapter) handleUpdate(ctx context.Context, update Update) {
 
 	var images []bus.ImageAttachment
 
-	// Handle voice messages
+	// Handle voice messages — transcribe async so the poll loop stays unblocked
 	if update.Message.Voice != nil {
 		if a.sttEngine == nil || !a.sttEngine.STTEnabled() {
 			a.sendMessageWithRetry(ctx, chatID, "Voice messages aren't enabled yet. Send me text instead!")
 			return
 		}
-
-		// Show "recording audio" action
-		a.sendChatAction(ctx, chatID, "record_audio")
-
-		// Download and transcribe voice
-		transcript, err := a.transcribeVoice(ctx, update.Message.Voice)
-		if err != nil {
-			a.logger.Warn("voice transcription failed", "error", err)
-			a.sendMessageWithRetry(ctx, chatID, "Sorry, I couldn't understand that voice message. Try again?")
+		go a.transcribeAndPublish(ctx, chatID, sessionID, update.Message.Voice, "voice")
+		return
+	} else if update.Message.Audio != nil {
+		if a.sttEngine == nil || !a.sttEngine.STTEnabled() {
+			a.sendMessageWithRetry(ctx, chatID, "Voice messages aren't enabled yet. Send me text instead!")
 			return
 		}
-
-		text = strings.TrimSpace(transcript)
-		if text == "" {
-			a.sendMessageWithRetry(ctx, chatID, "I couldn't hear anything in that voice message.")
+		v := &Voice{
+			FileID:   update.Message.Audio.FileID,
+			Duration: update.Message.Audio.Duration,
+			MimeType: update.Message.Audio.MimeType,
+		}
+		go a.transcribeAndPublish(ctx, chatID, sessionID, v, "audio")
+		return
+	} else if update.Message.VideoNote != nil {
+		if a.sttEngine == nil || !a.sttEngine.STTEnabled() {
+			a.sendMessageWithRetry(ctx, chatID, "Voice messages aren't enabled yet. Send me text instead!")
 			return
 		}
-
-		a.logger.Info("voice message transcribed", "chat_id", chatID, "text", text)
+		v := &Voice{
+			FileID:   update.Message.VideoNote.FileID,
+			Duration: update.Message.VideoNote.Duration,
+			MimeType: "video/mp4",
+		}
+		go a.transcribeAndPublish(ctx, chatID, sessionID, v, "video")
+		return
 	} else if len(update.Message.Photo) > 0 {
 		// Photos: pick the largest size (last in Telegram's array).
 		largest := update.Message.Photo[len(update.Message.Photo)-1]
@@ -596,7 +619,12 @@ func (a *Adapter) handleUpdate(ctx context.Context, update Update) {
 		return
 	}
 
-	// Track the first user as the operator (for proactive messages)
+	a.publishInbound(ctx, chatID, sessionID, text, images)
+}
+
+// publishInbound handles the common post-processing for all inbound messages:
+// operator tracking, /start rewrite, typing indicator, and bus publish.
+func (a *Adapter) publishInbound(ctx context.Context, chatID int64, sessionID, text string, images []bus.ImageAttachment) {
 	a.operatorMu.Lock()
 	if a.operatorChatID == 0 {
 		a.operatorChatID = chatID
@@ -604,33 +632,53 @@ func (a *Adapter) handleUpdate(ctx context.Context, update Update) {
 	}
 	a.operatorMu.Unlock()
 
-	// /start — route through the runtime so the assistant greets in its own voice.
 	if strings.HasPrefix(text, "/start") {
 		text = "Hi!"
 	}
 
-	// Show typing indicator until the response is delivered
 	a.startTypingLoop(ctx, chatID)
 
-	// Publish inbound message to the bus
 	inboundMsg := bus.InboundMessage{
 		From:   strconv.FormatInt(chatID, 10),
 		Text:   text,
 		Images: images,
 	}
-
 	event := bus.Event{
 		Type:      bus.TypeMessageInbound,
 		Channel:   adapterName,
 		SessionID: sessionID,
 		Payload:   bus.MustJSON(inboundMsg),
 	}
-
 	if _, err := a.eventBus.Publish(ctx, event); err != nil {
+		a.stopTypingLoop(chatID)
 		a.logger.Error("Failed to publish inbound message", "error", err, "chat_id", chatID)
 	} else {
 		a.logger.Debug("Published inbound message", "chat_id", chatID, "session_id", sessionID)
 	}
+}
+
+// transcribeAndPublish downloads and transcribes a voice-like message in a goroutine,
+// showing a typing indicator throughout and publishing the result when done.
+func (a *Adapter) transcribeAndPublish(ctx context.Context, chatID int64, sessionID string, voice *Voice, mediaType string) {
+	a.startTypingLoop(ctx, chatID)
+
+	transcript, err := a.transcribeVoice(ctx, voice)
+	if err != nil {
+		a.stopTypingLoop(chatID)
+		a.logger.Warn(mediaType+" transcription failed", "error", err)
+		a.sendMessageWithRetry(ctx, chatID, "Sorry, I couldn't understand that "+mediaType+" message. Try again?")
+		return
+	}
+
+	text := strings.TrimSpace(transcript)
+	if text == "" {
+		a.stopTypingLoop(chatID)
+		a.sendMessageWithRetry(ctx, chatID, "I couldn't hear anything in that "+mediaType+" message.")
+		return
+	}
+
+	a.logger.Info(mediaType+" transcribed", "chat_id", chatID, "text", text)
+	a.publishInbound(ctx, chatID, sessionID, text, nil)
 }
 
 // downloadFile downloads a file from Telegram by file_id.
