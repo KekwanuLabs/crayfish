@@ -666,6 +666,133 @@ func TestEvaluateWithLLM_EmptyVerdictDefaultsToSurface(t *testing.T) {
 	}
 }
 
+// --- EvaluateAndNotify tests ---
+
+func TestEvaluateAndNotify_SurfaceVerdict_NotifyCalled(t *testing.T) {
+	resp := `{"verdict":"surface","confidence":0.9,"relevance":0.9,"timing":0.8,"quality":0.85,"reason":"Great match","suggested_message":"You should check this out"}`
+	var notified string
+	agent := NewProactiveAgent(ProactiveAgentDeps{
+		LLMComplete: mockLLM(resp, nil),
+		Notify: func(_ context.Context, msg string) error {
+			notified = msg
+			return nil
+		},
+		Logger: testLogger(),
+	})
+
+	opp := &Opportunity{ID: "opp-1", Type: "email_highlight", Title: "Important email", Description: "From Alice about ML"}
+	err := agent.EvaluateAndNotify(context.Background(), "session-1", opp)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if notified != "You should check this out" {
+		t.Errorf("notified = %q, want %q", notified, "You should check this out")
+	}
+}
+
+func TestEvaluateAndNotify_SkipVerdict_NotifyNotCalled(t *testing.T) {
+	resp := `{"verdict":"skip","confidence":0.2,"relevance":0.1,"timing":0.5,"quality":0.2,"reason":"Not relevant","suggested_message":""}`
+	notifyCalled := false
+	agent := NewProactiveAgent(ProactiveAgentDeps{
+		LLMComplete: mockLLM(resp, nil),
+		Notify: func(_ context.Context, _ string) error {
+			notifyCalled = true
+			return nil
+		},
+		Logger: testLogger(),
+	})
+
+	opp := &Opportunity{ID: "opp-2", Type: "test", Title: "Irrelevant", Description: "Nothing useful"}
+	err := agent.EvaluateAndNotify(context.Background(), "session-1", opp)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if notifyCalled {
+		t.Error("notify should not have been called for skip verdict")
+	}
+}
+
+func TestEvaluateAndNotify_NilNotify_NoPanic(t *testing.T) {
+	resp := `{"verdict":"surface","confidence":0.8,"relevance":0.8,"timing":0.8,"quality":0.8,"reason":"Worth it","suggested_message":"Check this"}`
+	agent := NewProactiveAgent(ProactiveAgentDeps{
+		LLMComplete: mockLLM(resp, nil),
+		// Notify is nil
+		Logger: testLogger(),
+	})
+
+	opp := &Opportunity{ID: "opp-3", Type: "test", Title: "Test", Description: "Test"}
+	err := agent.EvaluateAndNotify(context.Background(), "session-1", opp)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should not panic, just log a warning and return nil.
+}
+
+func TestEvaluateAndNotify_LLMError_FailOpen_Notifies(t *testing.T) {
+	var notified string
+	agent := NewProactiveAgent(ProactiveAgentDeps{
+		LLMComplete: mockLLM("", fmt.Errorf("rate limited")),
+		Notify: func(_ context.Context, msg string) error {
+			notified = msg
+			return nil
+		},
+		Logger: testLogger(),
+	})
+
+	opp := &Opportunity{ID: "opp-4", Type: "email_highlight", Title: "Urgent email", Description: "From Bob about deadline"}
+	err := agent.EvaluateAndNotify(context.Background(), "session-1", opp)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// LLM failure triggers fail-open (verdict=surface), so notify should be called.
+	if notified == "" {
+		t.Error("expected notification on LLM failure (fail-open), got empty")
+	}
+}
+
+func TestEvaluateAndNotify_SurfaceWithEmptySuggestedMessage_UsesDefault(t *testing.T) {
+	resp := `{"verdict":"surface","confidence":0.8,"relevance":0.8,"timing":0.8,"quality":0.8,"reason":"Good","suggested_message":""}`
+	var notified string
+	agent := NewProactiveAgent(ProactiveAgentDeps{
+		LLMComplete: mockLLM(resp, nil),
+		Notify: func(_ context.Context, msg string) error {
+			notified = msg
+			return nil
+		},
+		Logger: testLogger(),
+	})
+
+	opp := &Opportunity{ID: "opp-5", Type: "email_highlight", Title: "Meeting invite", Description: "Team standup"}
+	err := agent.EvaluateAndNotify(context.Background(), "session-1", opp)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Should use the formatted default since suggested_message is empty.
+	if !contains(notified, "Meeting invite") || !contains(notified, "Team standup") {
+		t.Errorf("notified = %q, expected to contain title and description", notified)
+	}
+}
+
+// --- EvaluateOpportunityRaw tests ---
+
+func TestEvaluateOpportunityRaw_ReturnsJSON(t *testing.T) {
+	resp := `{"verdict":"surface","confidence":0.8,"relevance":0.7,"timing":0.9,"quality":0.8,"reason":"Timely","suggested_message":"Check it"}`
+	agent := newTestAgent(mockLLM(resp, nil))
+
+	result, err := agent.EvaluateOpportunityRaw(context.Background(), "session-1", "email_highlight", "Test", "Description", "subject", 0.6)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(result, &parsed); err != nil {
+		t.Fatalf("result is not valid JSON: %v", err)
+	}
+	if parsed["success"] != true {
+		t.Errorf("expected success=true, got %v", parsed["success"])
+	}
+}
+
 // contains checks if s contains substr.
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && searchString(s, substr)
