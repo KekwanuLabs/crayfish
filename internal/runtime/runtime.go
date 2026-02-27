@@ -547,11 +547,31 @@ func (r *Runtime) handleInbound(ctx context.Context, event bus.Event) error {
 			messages = append(messages, toolMsg)
 		}
 
-		// Safety: if last iteration, use whatever text we have.
+		// Safety: if last iteration, give the model one final call to see
+		// tool results and compose a proper response. Without this, the model's
+		// pre-tool-execution text (e.g. "I've completed the requested actions")
+		// gets used as the final response, even though the tools just ran and
+		// the model never saw their results.
 		if iteration == maxToolIterations-1 {
-			finalContent = resp.Content
-			if finalContent == "" {
-				finalContent = "I've completed the requested actions."
+			finalResp, err := r.provider.Complete(ctx, provider.CompletionRequest{
+				Model:       r.config.Model,
+				Messages:    messages,
+				Tools:       toolDefs,
+				MaxTokens:   r.config.MaxTokens,
+				TokenBudget: maxTokenBudget,
+			})
+			if err != nil {
+				// Fall back to whatever text we had.
+				finalContent = resp.Content
+				if finalContent == "" {
+					finalContent = "I've completed the requested actions."
+				}
+			} else {
+				totalTokens += finalResp.TokensUsed
+				finalContent = finalResp.Content
+				if finalContent == "" {
+					finalContent = "I've completed the requested actions."
+				}
 			}
 		}
 	}
