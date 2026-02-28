@@ -543,36 +543,38 @@ func (a *App) Start(ctx context.Context) error {
 			}
 
 			if a.proactiveAgent != nil && ep != nil {
-				for _, id := range newIDs {
-					email, err := ep.GetEmailByID(ctx, id)
-					if err != nil {
-						continue
+				sessionID := ""
+				if tgAdapter != nil {
+					if chatID := tgAdapter.GetOperatorChatID(); chatID != 0 {
+						sessionID = fmt.Sprintf("telegram:%d", chatID)
 					}
-
-					opp := &agents.Opportunity{
-						ID:          email.ID,
-						Type:        "email_highlight",
-						Title:       email.Subject,
-						Description: fmt.Sprintf("From: %s\n\n%s", email.From, email.BodyPreview),
-						RelatedTo:   email.Subject,
-						Confidence:  0.5,
-					}
-
-					sessionID := ""
-					if tgAdapter != nil {
-						if chatID := tgAdapter.GetOperatorChatID(); chatID != 0 {
-							sessionID = fmt.Sprintf("telegram:%d", chatID)
-						}
-					}
-
-					go func(o *agents.Opportunity, sid string) {
-						evalCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-						defer cancel()
-						if err := a.proactiveAgent.EvaluateAndNotify(evalCtx, sid, o); err != nil {
-							a.Logger.Debug("proactive eval failed", "email", o.ID, "error", err)
-						}
-					}(opp, sessionID)
 				}
+
+				// Process sequentially to avoid overwhelming the Pi with
+				// concurrent TLS handshakes to the Anthropic API.
+				go func(ids []string, sid string) {
+					for _, id := range ids {
+						email, err := ep.GetEmailByID(ctx, id)
+						if err != nil {
+							continue
+						}
+
+						opp := &agents.Opportunity{
+							ID:          email.ID,
+							Type:        "email_highlight",
+							Title:       email.Subject,
+							Description: fmt.Sprintf("From: %s\n\n%s", email.From, email.BodyPreview),
+							RelatedTo:   email.Subject,
+							Confidence:  0.5,
+						}
+
+						evalCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+						if err := a.proactiveAgent.EvaluateAndNotify(evalCtx, sid, opp); err != nil {
+							a.Logger.Debug("proactive eval failed", "email", opp.ID, "error", err)
+						}
+						cancel()
+					}
+				}(newIDs, sessionID)
 			}
 		}
 		if a.gmailPoller != nil {
