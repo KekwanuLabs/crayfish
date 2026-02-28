@@ -497,6 +497,15 @@ var migrations = []migration{
 		CREATE INDEX IF NOT EXISTS idx_suggestions_type ON suggestions(type);
 		`,
 	},
+	{
+		name: "proactive notification dedup",
+		sql: `
+		CREATE TABLE IF NOT EXISTS proactive_notified (
+			email_id    TEXT PRIMARY KEY,
+			notified_at TEXT NOT NULL DEFAULT (datetime('now'))
+		);
+		`,
+	},
 }
 
 // Now returns the current time formatted for SQLite storage.

@@ -283,8 +283,6 @@ func (s *Service) check(ctx context.Context) (*Update, error) {
 
 			if len(update.UrgentEmails) > 0 {
 				messages = append(messages, fmt.Sprintf("📧 %d urgent email(s) need your attention", len(update.UrgentEmails)))
-			} else if update.UnreadCount > 5 {
-				messages = append(messages, fmt.Sprintf("📬 You have %d unread emails", update.UnreadCount))
 			}
 		}
 	}

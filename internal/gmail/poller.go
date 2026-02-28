@@ -432,15 +432,99 @@ func boolToInt(b bool) int {
 	return 0
 }
 
-// cleanPreview strips excessive whitespace and truncates.
+// cleanPreview strips MIME artifacts, HTML tags, and quoted-printable encoding,
+// then collapses whitespace and truncates.
 func cleanPreview(s string) string {
-	// Collapse whitespace.
+	var lines []string
+	for _, line := range strings.Split(s, "\n") {
+		trimmed := strings.TrimSpace(line)
+		// Skip MIME boundaries (e.g. "--0000000000abcdef12345678")
+		if strings.HasPrefix(trimmed, "--") && len(trimmed) > 20 {
+			continue
+		}
+		// Skip MIME headers
+		lower := strings.ToLower(trimmed)
+		if strings.HasPrefix(lower, "content-type:") ||
+			strings.HasPrefix(lower, "content-transfer-encoding:") ||
+			strings.HasPrefix(lower, "content-id:") ||
+			strings.HasPrefix(lower, "content-disposition:") ||
+			strings.HasPrefix(lower, "mime-version:") {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	s = strings.Join(lines, "\n")
+
+	// Strip HTML tags.
+	s = stripHTMLTags(s)
+
+	// Decode common quoted-printable sequences.
+	s = decodeQP(s)
+
+	// Collapse whitespace and truncate.
 	fields := strings.Fields(s)
 	cleaned := strings.Join(fields, " ")
 	if len(cleaned) > 500 {
 		cleaned = cleaned[:500] + "..."
 	}
 	return cleaned
+}
+
+// stripHTMLTags removes HTML/XML tags from a string without regex.
+func stripHTMLTags(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	inTag := false
+	for _, r := range s {
+		switch {
+		case r == '<':
+			inTag = true
+		case r == '>':
+			inTag = false
+		case !inTag:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// decodeQP decodes common quoted-printable sequences (=XX hex pairs and soft line breaks).
+func decodeQP(s string) string {
+	// Remove soft line breaks (= at end of line).
+	s = strings.ReplaceAll(s, "=\r\n", "")
+	s = strings.ReplaceAll(s, "=\n", "")
+
+	var b strings.Builder
+	b.Grow(len(s))
+	i := 0
+	for i < len(s) {
+		if s[i] == '=' && i+2 < len(s) {
+			hi := unhex(s[i+1])
+			lo := unhex(s[i+2])
+			if hi >= 0 && lo >= 0 {
+				b.WriteByte(byte(hi<<4 | lo))
+				i += 3
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	return b.String()
+}
+
+// unhex returns the numeric value of a hex digit, or -1 if not a valid hex digit.
+func unhex(c byte) int {
+	switch {
+	case c >= '0' && c <= '9':
+		return int(c - '0')
+	case c >= 'a' && c <= 'f':
+		return int(c - 'a' + 10)
+	case c >= 'A' && c <= 'F':
+		return int(c - 'A' + 10)
+	default:
+		return -1
+	}
 }
 
 // maskEmail redacts the middle of an email for logging.

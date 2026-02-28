@@ -566,7 +566,7 @@ func (a *App) Start(ctx context.Context) error {
 					}
 
 					go func(o *agents.Opportunity, sid string) {
-						evalCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+						evalCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 						defer cancel()
 						if err := a.proactiveAgent.EvaluateAndNotify(evalCtx, sid, o); err != nil {
 							a.Logger.Debug("proactive eval failed", "email", o.ID, "error", err)

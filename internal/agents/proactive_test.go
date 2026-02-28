@@ -147,7 +147,7 @@ func TestEvaluateWithLLM_LLMError(t *testing.T) {
 	}
 }
 
-func TestEvaluateWithLLM_UnknownVerdictDefaultsToSurface(t *testing.T) {
+func TestEvaluateWithLLM_UnknownVerdictDefaultsToSkip(t *testing.T) {
 	resp := `{"verdict":"maybe","confidence":0.5,"relevance":0.5,"timing":0.5,"quality":0.5,"reason":"Uncertain","suggested_message":""}`
 	agent := newTestAgent(mockLLM(resp, nil))
 	opp := &Opportunity{Type: "test", Title: "Test"}
@@ -156,8 +156,8 @@ func TestEvaluateWithLLM_UnknownVerdictDefaultsToSurface(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if eval.Verdict != "surface" {
-		t.Errorf("verdict = %q, want %q (fail-open default)", eval.Verdict, "surface")
+	if eval.Verdict != "skip" {
+		t.Errorf("verdict = %q, want %q (fail-closed default)", eval.Verdict, "skip")
 	}
 }
 
@@ -305,7 +305,7 @@ func TestHandleEvaluateOpportunity_InvalidPayload(t *testing.T) {
 	}
 }
 
-func TestHandleEvaluateOpportunity_LLMFailure_FailsOpen(t *testing.T) {
+func TestHandleEvaluateOpportunity_LLMFailure_FailsClosed(t *testing.T) {
 	agent := newTestAgent(mockLLM("", fmt.Errorf("rate limited")))
 
 	msg := makeMessage(map[string]any{
@@ -322,16 +322,16 @@ func TestHandleEvaluateOpportunity_LLMFailure_FailsOpen(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !result.Success {
-		t.Fatalf("expected success (fail-open), got error: %s", result.Error)
+		t.Fatalf("expected success (fail-closed), got error: %s", result.Error)
 	}
-	if result.State["verdict"] != "surface" {
-		t.Errorf("verdict = %v, want %q (fail-open)", result.State["verdict"], "surface")
+	if result.State["verdict"] != "skip" {
+		t.Errorf("verdict = %v, want %q (fail-closed)", result.State["verdict"], "skip")
 	}
 	if result.State["confidence"] != 0.65 {
 		t.Errorf("confidence = %v, want 0.65 (original)", result.State["confidence"])
 	}
-	if result.State["reason"] != "evaluation failed, using original confidence" {
-		t.Errorf("reason = %v, want fail-open message", result.State["reason"])
+	if result.State["reason"] != "evaluation failed, skipping to avoid noise" {
+		t.Errorf("reason = %v, want fail-closed message", result.State["reason"])
 	}
 }
 
@@ -652,7 +652,7 @@ func TestHandleEvaluateOpportunity_InlineTakesPrecedenceOverID(t *testing.T) {
 	}
 }
 
-func TestEvaluateWithLLM_EmptyVerdictDefaultsToSurface(t *testing.T) {
+func TestEvaluateWithLLM_EmptyVerdictDefaultsToSkip(t *testing.T) {
 	resp := `{"verdict":"","confidence":0.5,"relevance":0.5,"timing":0.5,"quality":0.5,"reason":"Empty verdict","suggested_message":""}`
 	agent := newTestAgent(mockLLM(resp, nil))
 	opp := &Opportunity{Type: "test", Title: "Test"}
@@ -661,8 +661,8 @@ func TestEvaluateWithLLM_EmptyVerdictDefaultsToSurface(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if eval.Verdict != "surface" {
-		t.Errorf("verdict = %q, want %q (fail-open for empty)", eval.Verdict, "surface")
+	if eval.Verdict != "skip" {
+		t.Errorf("verdict = %q, want %q (fail-closed for empty)", eval.Verdict, "skip")
 	}
 }
 
@@ -728,7 +728,7 @@ func TestEvaluateAndNotify_NilNotify_NoPanic(t *testing.T) {
 	// Should not panic, just log a warning and return nil.
 }
 
-func TestEvaluateAndNotify_LLMError_FailOpen_Notifies(t *testing.T) {
+func TestEvaluateAndNotify_LLMError_FailClosed_NoNotify(t *testing.T) {
 	var notified string
 	agent := NewProactiveAgent(ProactiveAgentDeps{
 		LLMComplete: mockLLM("", fmt.Errorf("rate limited")),
@@ -744,9 +744,9 @@ func TestEvaluateAndNotify_LLMError_FailOpen_Notifies(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// LLM failure triggers fail-open (verdict=surface), so notify should be called.
-	if notified == "" {
-		t.Error("expected notification on LLM failure (fail-open), got empty")
+	// LLM failure triggers fail-closed (verdict=skip), so notify should NOT be called.
+	if notified != "" {
+		t.Errorf("expected no notification on LLM failure (fail-closed), got %q", notified)
 	}
 }
 

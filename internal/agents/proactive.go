@@ -116,6 +116,21 @@ func (a *ProactiveAgent) EvaluateAndNotify(ctx context.Context, sessionID string
 		Payload:   payload,
 	}
 
+	// Skip if already notified via any path (urgency or proactive).
+	if a.db != nil && opp.ID != "" {
+		var exists int
+		if err := a.db.QueryRowContext(ctx,
+			"SELECT 1 FROM proactive_notified WHERE email_id = ?", opp.ID).Scan(&exists); err == nil {
+			a.logger.Debug("proactive: already notified (proactive)", "id", opp.ID)
+			return nil
+		}
+		if err := a.db.QueryRowContext(ctx,
+			"SELECT 1 FROM urgency_notified WHERE email_id = ?", opp.ID).Scan(&exists); err == nil {
+			a.logger.Debug("proactive: already notified (urgency)", "id", opp.ID)
+			return nil
+		}
+	}
+
 	resp, err := a.HandleEvaluateOpportunity(ctx, msg)
 	if err != nil {
 		return fmt.Errorf("evaluate opportunity: %w", err)
@@ -138,7 +153,19 @@ func (a *ProactiveAgent) EvaluateAndNotify(ctx context.Context, sessionID string
 		return nil
 	}
 
-	return a.notify(ctx, message)
+	if err := a.notify(ctx, message); err != nil {
+		return err
+	}
+
+	// Record successful notification for dedup.
+	if a.db != nil && opp.ID != "" {
+		if _, dbErr := a.db.ExecContext(ctx,
+			"INSERT OR IGNORE INTO proactive_notified (email_id) VALUES (?)", opp.ID); dbErr != nil {
+			a.logger.Warn("failed to record proactive notification", "id", opp.ID, "error", dbErr)
+		}
+	}
+
+	return nil
 }
 
 // EvaluateOpportunityRaw evaluates an opportunity from raw parameters and returns the response as JSON.
@@ -225,14 +252,14 @@ func (a *ProactiveAgent) HandleEvaluateOpportunity(ctx context.Context, msg *Mes
 	evaluation, err := a.evaluateWithLLM(ctx, opp, userContext)
 	if err != nil {
 		a.logger.Warn("LLM evaluation failed for opportunity", "id", opp.ID, "error", err)
-		// Fail open — return the opportunity as-is with original confidence.
+		// Fail closed — don't notify when we can't evaluate properly.
 		return &Response{
 			Success: true,
 			State: map[string]any{
 				"evaluated":   true,
-				"verdict":     "surface",
+				"verdict":     "skip",
 				"confidence":  opp.Confidence,
-				"reason":      "evaluation failed, using original confidence",
+				"reason":      "evaluation failed, skipping to avoid noise",
 				"opportunity": opp,
 			},
 		}, nil
@@ -331,7 +358,7 @@ Return ONLY valid JSON:
 	case "surface", "skip", "delay":
 		// valid
 	default:
-		eval.Verdict = "surface" // fail open
+		eval.Verdict = "skip" // fail closed
 	}
 
 	return &eval, nil
