@@ -19,6 +19,8 @@ import (
 	"github.com/KekwanuLabs/crayfish/internal/channels"
 	"github.com/KekwanuLabs/crayfish/internal/channels/cli"
 	"github.com/KekwanuLabs/crayfish/internal/channels/telegram"
+	"github.com/KekwanuLabs/crayfish/internal/docs"
+	"github.com/KekwanuLabs/crayfish/internal/drive"
 	"github.com/KekwanuLabs/crayfish/internal/gateway"
 	"github.com/KekwanuLabs/crayfish/internal/gmail"
 	"github.com/KekwanuLabs/crayfish/internal/heartbeat"
@@ -387,6 +389,20 @@ func (a *App) Start(ctx context.Context) error {
 		tools.RegisterCalendarTools(toolReg, calendarClient)
 	}
 
+	// Wire Drive/Docs tools if scopes already present on the loaded token.
+	if a.oauthClient != nil && a.googleToken != nil && a.googleToken.RefreshToken != "" {
+		if hasScope(a.googleToken, oauth.DriveScope) || hasScope(a.googleToken, oauth.DocsScope) {
+			driveTP := func(ctx context.Context) (string, error) {
+				a.googleMu.RLock()
+				t := a.googleToken
+				a.googleMu.RUnlock()
+				return a.oauthClient.ValidAccessToken(ctx, t)
+			}
+			tools.RegisterDriveTools(toolReg, drive.NewClient(driveTP), docs.NewClient(driveTP))
+			a.Logger.Info("drive/docs tools registered")
+		}
+	}
+
 	// 7c. Google OAuth tools (registered only when credentials are available)
 	if a.oauthClient != nil {
 		tools.RegisterGoogleTools(toolReg, tools.GoogleToolsDeps{
@@ -440,9 +456,16 @@ func (a *App) Start(ctx context.Context) error {
 					a.Logger.Info("calendar tools hot-reloaded after OAuth", "email", gmailUser)
 				}
 
+				// Hot-reload Drive/Docs tools if those scopes were just granted.
+				if hasScope(&tok, oauth.DriveScope) || hasScope(&tok, oauth.DocsScope) {
+					tools.RegisterDriveTools(toolReg, drive.NewClient(tokenProvider), docs.NewClient(tokenProvider))
+					a.Logger.Info("drive/docs tools hot-reloaded after OAuth")
+				}
+
 				// Update runtime flags.
 				if a.rt != nil {
 					a.rt.SetGoogleConnected(true)
+					a.rt.SetGoogleGrantedScopes(tok.Scopes)
 				}
 
 				a.Logger.Info("Google account connected — calendar tools activated")
@@ -761,7 +784,9 @@ func (a *App) Start(ctx context.Context) error {
 			CurrentVersion: a.Version,
 		}, func(msg string) {
 			a.Logger.Info("updater", "message", msg)
-			// TODO: notify via Telegram when channel adapter supports it
+			if proactiveNotify != nil {
+				proactiveNotify(context.Background(), "🔄 "+msg)
+			}
 		}, a.Logger.With("component", "updater"))
 		a.autoUpdater.Start(ctx)
 	}
@@ -895,6 +920,9 @@ func (a *App) Start(ctx context.Context) error {
 		rtCfg.Personality = a.Config.Personality
 	}
 	rtCfg.GoogleConnected = a.googleToken != nil && a.googleToken.RefreshToken != ""
+	if a.googleToken != nil {
+		rtCfg.GoogleGrantedScopes = a.googleToken.Scopes
+	}
 	rtCfg.WebSearchEnabled = a.Config.BraveAPIKey != ""
 	rtCfg.TravelSearchEnabled = a.Config.AmadeusClientID != "" && a.Config.AmadeusClientSecret != ""
 	a.emailMu.RLock()
@@ -973,8 +1001,20 @@ func (a *App) Start(ctx context.Context) error {
 				tools.RegisterCalendarTools(toolReg, calClient)
 			}
 
+			// Hot-reload Drive/Docs tools if those scopes were granted via dashboard.
+			a.googleMu.RLock()
+			dashTok := a.googleToken
+			a.googleMu.RUnlock()
+			if hasScope(dashTok, oauth.DriveScope) || hasScope(dashTok, oauth.DocsScope) {
+				tools.RegisterDriveTools(toolReg, drive.NewClient(tokenProvider), docs.NewClient(tokenProvider))
+				a.Logger.Info("drive/docs tools hot-reloaded after dashboard OAuth")
+			}
+
 			if a.rt != nil {
 				a.rt.SetGoogleConnected(true)
+				if dashTok != nil {
+					a.rt.SetGoogleGrantedScopes(dashTok.Scopes)
+				}
 			}
 
 			a.Logger.Info("Google account connected via dashboard — calendar tools activated")
@@ -1338,6 +1378,19 @@ func (a *App) cleanExpiredOTPs(ctx context.Context) {
 			a.pairing.CleanExpired(context.Background())
 		}
 	}
+}
+
+// hasScope reports whether an OAuth token contains the given scope.
+func hasScope(tok *oauth.Token, scope string) bool {
+	if tok == nil {
+		return false
+	}
+	for _, s := range tok.Scopes {
+		if s == scope {
+			return true
+		}
+	}
+	return false
 }
 
 // cleanSnapshots periodically removes old session snapshots.

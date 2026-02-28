@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/KekwanuLabs/crayfish/internal/bus"
+	"github.com/KekwanuLabs/crayfish/internal/oauth"
 	"github.com/KekwanuLabs/crayfish/internal/provider"
 	"github.com/KekwanuLabs/crayfish/internal/queue"
 	"github.com/KekwanuLabs/crayfish/internal/security"
@@ -61,11 +62,12 @@ type Config struct {
 	SystemPrompt        string `json:"system_prompt" yaml:"system_prompt"` // Custom override (optional)
 	Model               string `json:"model" yaml:"model"`
 	MaxTokens           int    `json:"max_tokens" yaml:"max_tokens"`
-	GoogleConnected     bool   `json:"-" yaml:"-"` // Whether Google OAuth is active (injected at startup)
-	WebSearchEnabled    bool   `json:"-" yaml:"-"` // Whether Brave Search is configured (injected at startup)
-	EmailEnabled        bool   `json:"-" yaml:"-"` // Whether email is configured (OAuth or App Password)
-	EmailViaApp         bool   `json:"-" yaml:"-"` // True if email is via App Password (not OAuth)
-	TravelSearchEnabled bool   `json:"-" yaml:"-"` // Whether Amadeus flight search is configured
+	GoogleConnected     bool     `json:"-" yaml:"-"` // Whether Google OAuth is active (injected at startup)
+	GoogleGrantedScopes []string `json:"-" yaml:"-"` // OAuth scopes actually on the token (drives system prompt)
+	WebSearchEnabled    bool     `json:"-" yaml:"-"` // Whether Brave Search is configured (injected at startup)
+	EmailEnabled        bool     `json:"-" yaml:"-"` // Whether email is configured (OAuth or App Password)
+	EmailViaApp         bool     `json:"-" yaml:"-"` // True if email is via App Password (not OAuth)
+	TravelSearchEnabled bool     `json:"-" yaml:"-"` // Whether Amadeus flight search is configured
 }
 
 // DefaultConfig returns sensible defaults for the runtime.
@@ -121,22 +123,82 @@ If someone asks your name: "I'm %s."
 You are resourceful, practical, and accessible — like crayfish itself. Found everywhere, affordable, and makes everything better.
 
 ## Session Continuity
-You have a checkpoint tool. When session state is recovered, it will appear as [Session State] in your context. Use it to continue seamlessly — never say "I don't remember" without checking the session state first. If you notice gaps, briefly acknowledge them. The user should never need to re-explain context.`, name, name, name, personalityGuide, name)
+You have a checkpoint tool. When session state is recovered, it will appear as [Session State] in your context. Use it to continue seamlessly — never say "I don't remember" without checking the session state first. If you notice gaps, briefly acknowledge them. The user should never need to re-explain context.
+
+## Core Principle: Just Do It
+Never tell the user a capability is unavailable, unsupported, or not set up. If something requires authorization or setup — Google, email, web search, a skill — go through the setup process immediately, then complete the original request. The user asked for an outcome, not an explanation of what's missing. Unlock what's needed, then deliver.`, name, name, name, personalityGuide, name)
 	}
 
-	// Google integration context.
+	// Google integration context — built from actual granted scopes so the prompt
+	// never lists tools that aren't registered or omits ones that are.
 	if c.GoogleConnected {
-		base += `
+		hasScope := func(scope string) bool {
+			for _, s := range c.GoogleGrantedScopes {
+				if s == scope {
+					return true
+				}
+			}
+			return false
+		}
 
-## Google Integration
-The user's Google account is connected with calendar access. You can check their calendar and help manage their schedule.
+		// Build the list of what's actually available.
+		var available []string
+		if hasScope(oauth.CalendarScope) {
+			available = append(available, "calendar_today / calendar_upcoming / calendar_add / calendar_search / calendar_free / calendar_update / calendar_delete")
+		}
+		if hasScope(oauth.DriveScope) {
+			available = append(available, "drive_create_folder / drive_list_files / drive_share")
+		}
+		if hasScope(oauth.DocsScope) {
+			available = append(available, "docs_create / docs_append / docs_get")
+		}
+		// SheetsScope: tools not yet implemented — omit from prompt until they exist
 
-If they ask about Google Drive, Docs, or Sheets, you can add those capabilities without disconnecting — call google_connect with a purpose parameter (e.g., purpose="drive"). Same quick code-on-phone process, and Google only asks for the new permission.`
+		// Build the list of what can still be added.
+		var missing []string
+		if !hasScope(oauth.DriveScope) {
+			missing = append(missing, `Drive folders/files → call google_connect with purpose="drive"`)
+		}
+		if !hasScope(oauth.DocsScope) {
+			missing = append(missing, `Docs → call google_connect with purpose="docs"`)
+		}
+		// Sheets: not yet implemented — omit from missing list until tools exist
+
+		base += "\n\n## Google Integration\nGoogle account connected."
+
+		if len(available) > 0 {
+			base += " Available tools:\n"
+			for _, a := range available {
+				base += "- " + a + "\n"
+			}
+			base += "\nWhen asked to use any of these — just do it. No confirmation needed."
+		}
+
+		if len(missing) > 0 {
+			base += "\n\nThe following capabilities are NOT yet authorized:\n"
+			for _, m := range missing {
+				base += "- " + m + "\n"
+			}
+			base += `
+When the user asks for one of the above, call google_connect with the appropriate purpose immediately.
+The tool returns JSON with "user_code" and "verification_url" fields.
+Tell the user: "Go to [verification_url] and enter the code: [user_code]" using the actual values.
+Once they complete it, proceed with the original request automatically.
+Never say a capability is unavailable or suggest manual workarounds.`
+		}
 	} else {
 		base += `
 
 ## Google Integration
-You can help the user connect their Google account for calendar features. If they ask about their calendar or schedule, call google_connect immediately — do not describe the process first. The tool returns the actual code the user needs. Present it clearly: tell them to go to google.com/device and enter the code shown. Never mention a code or link before calling the tool, because you don't have the code yet.`
+You can connect the user's Google account for calendar, Drive, Docs, and Sheets.
+
+**Critical rule: never tell the user a feature is unavailable or suggest workarounds.** If they ask for anything requiring Drive, Docs, Sheets, or calendar and it's not connected yet — connect it first, then do the thing.
+
+- User asks to create a Drive folder → call google_connect with purpose="drive", give them the code, wait for connection, then create the folder.
+- User asks for a Google Doc → call google_connect with purpose="docs", give them the code, wait, then create the doc.
+- For calendar: call google_connect with no purpose.
+
+Always call google_connect immediately — never describe the process before calling it, because you don't have the code yet. The tool returns the actual code. Tell the user: go to google.com/device and enter the code shown. Once they complete it, proceed with the original request automatically.`
 	}
 
 	// Email context.
@@ -158,7 +220,7 @@ When you send or reply to an email for the user, let them know: "If they reply, 
 		base += `
 
 ## Email
-Email is not set up yet. If the user asks about email, offer to set it up using the email_connect tool — they'll need a Gmail app password. Explain that Google doesn't allow email access through the quick device-code method, so a separate app password is needed. Give them the direct link: https://myaccount.google.com/apppasswords — they just create an app password there and paste the code back to you. Walk them through it step by step, keep it simple.`
+Email is not connected yet. If the user asks about email, call email_connect immediately to start setup — don't just describe the process. They'll need a Gmail app password (Google doesn't allow email via device code). Tell them to go to https://myaccount.google.com/apppasswords, create an app password, and paste it back. Once connected, complete their original request.`
 	}
 
 	// Web search context.
@@ -166,7 +228,7 @@ Email is not set up yet. If the user asks about email, offer to set it up using 
 		base += `
 
 ## Web Search
-Web search is not set up yet. If the user asks you to search the web or look something up online, let them know you can enable it with a free Brave Search API key. Use the brave_connect tool to walk them through it — it only takes a minute. The free tier gives 2,000 searches per month.`
+Web search is not connected yet. If the user asks you to search the web, call brave_connect immediately to start setup — don't explain that it's missing. Walk them through getting a free Brave Search API key (2,000 searches/month free), then run the search they asked for.`
 	}
 
 	// Travel search context.
@@ -186,8 +248,8 @@ You can watch prices and check daily — offer this when travel planning comes u
 	base += `
 
 ## Skills
-You can teach me new tricks through Skills — automations that extend what I can do.
-Use skill_list to see installed skills, skill_hub_browse to discover new ones, and skill_install to add them. If the user wants to automate something, suggest relevant skills from the hub.`
+Skills extend what you can do — automations, workflows, and integrations. Use skill_list to see what's installed, skill_hub_browse to discover new ones, skill_install to add them.
+If the user asks for something that could be served by a skill in the hub, install it first then use it — don't ask permission, just do it.`
 
 	// Settings context.
 	base += `
@@ -316,6 +378,14 @@ func (r *Runtime) SetGoogleConnected(connected bool) {
 	r.configMu.Lock()
 	defer r.configMu.Unlock()
 	r.config.GoogleConnected = connected
+}
+
+// SetGoogleGrantedScopes updates the set of OAuth scopes active on the Google token.
+// Called at startup and on hot-reload after each OAuth flow completes.
+func (r *Runtime) SetGoogleGrantedScopes(scopes []string) {
+	r.configMu.Lock()
+	defer r.configMu.Unlock()
+	r.config.GoogleGrantedScopes = scopes
 }
 
 // SetEmailEnabled updates the email availability state at runtime.

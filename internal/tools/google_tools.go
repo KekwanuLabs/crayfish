@@ -68,7 +68,7 @@ func RegisterGoogleTools(reg *Registry, deps GoogleToolsDeps) {
 
 	// google_connect — initiate the device authorization flow.
 	// Supports both initial connection and scope upgrades.
-	// When called with a "purpose" (e.g. "drive", "docs", "sheets"), it re-runs
+	// When called with a "purpose" (e.g. "drive", "docs"), it re-runs
 	// the device flow with expanded scopes. Google's consent screen shows only
 	// the new permissions the user hasn't yet granted.
 	reg.Register(&Tool{
@@ -76,14 +76,14 @@ func RegisterGoogleTools(reg *Registry, deps GoogleToolsDeps) {
 		Description: `Connect or upgrade a Google account using a device code. The user visits google.com/device on their phone and enters the code shown.
 
 Without a purpose: enables calendar and email (base scopes).
-With a purpose ("drive", "docs", "sheets"): adds that capability to the existing connection. Same quick code process — Google only asks for the new permissions.`,
+With a purpose ("drive" or "docs"): adds that capability to the existing connection. Same quick code process — Google only asks for the new permissions.`,
 		MinTier: security.TierOperator,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
 				"purpose": {
 					"type": "string",
-					"description": "Optional: what capability to add. One of: drive, docs, sheets. Omit for initial connection (calendar + email)."
+					"description": "Optional: what capability to add. One of: drive, docs. Omit for initial connection (calendar + email)."
 				}
 			}
 		}`),
@@ -107,7 +107,7 @@ With a purpose ("drive", "docs", "sheets"): adds that capability to the existing
 			if params.Purpose != "" {
 				extraScopes, ok := oauth.ScopesByPurpose[params.Purpose]
 				if !ok {
-					return "", fmt.Errorf("google_connect: unknown purpose %q — valid options: drive, docs, sheets", params.Purpose)
+					return "", fmt.Errorf("google_connect: unknown purpose %q — valid options: drive, docs", params.Purpose)
 				}
 
 				// Check if the requested scopes are already granted.
@@ -128,7 +128,7 @@ With a purpose ("drive", "docs", "sheets"): adds that capability to the existing
 				for i, s := range currentScopes {
 					friendly[i] = oauth.FriendlyScope(s)
 				}
-				return fmt.Sprintf(`{"status":"already_connected","scopes":%s,"hint":"To add more capabilities, call google_connect with a purpose like 'drive', 'docs', or 'sheets'."}`,
+				return fmt.Sprintf(`{"status":"already_connected","scopes":%s,"hint":"To add more capabilities, call google_connect with a purpose like 'drive' or 'docs'."}`,
 					mustJSON(friendly)), nil
 			}
 

@@ -43,9 +43,9 @@ var ScopesBase = []string{CalendarScope, UserInfoEmail}
 // Used by the google_connect tool to determine which scopes to request
 // when a user asks for a specific capability.
 var ScopesByPurpose = map[string][]string{
-	"drive":  {DriveScope},
-	"docs":   {DocsScope},
-	"sheets": {SheetsScope},
+	"drive": {DriveScope},
+	"docs":  {DocsScope},
+	// "sheets": not yet implemented — add when sheets tools are built
 }
 
 // FriendlyScope returns a human-readable name for a scope URI.
