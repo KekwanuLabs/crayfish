@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/KekwanuLabs/crayfish/internal/heartbeat"
@@ -230,6 +231,9 @@ func LoadConfig(logger *slog.Logger) Config {
 		cfg.APIKey = v
 	}
 
+	// Google app passwords are displayed with spaces but must be used without.
+	cfg.GmailAppPassword = strings.ReplaceAll(cfg.GmailAppPassword, " ", "")
+
 	return cfg
 }
 
@@ -271,7 +275,8 @@ func (c Config) IsAutoReplyEnabled() bool {
 	return *c.AutoReplyEnabled
 }
 
-// SaveConfig writes the current config to its YAML file.
+// SaveConfig writes the current config to its YAML file, then syncs any
+// matching CRAYFISH_* keys in the env file so env vars don't override the save.
 func (c Config) SaveConfig() error {
 	if c.ConfigPath == "" {
 		return fmt.Errorf("no config path set")
@@ -284,7 +289,57 @@ func (c Config) SaveConfig() error {
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
 	}
-	return os.WriteFile(c.ConfigPath, data, 0600)
+	if err := os.WriteFile(c.ConfigPath, data, 0600); err != nil {
+		return err
+	}
+	c.syncEnvFile() // best-effort; ignore error
+	return nil
+}
+
+// syncEnvFile updates any CRAYFISH_* keys already present in the env file to
+// match the current config. Only existing keys are updated — new ones are never
+// added — so the file stays minimal. This prevents stale setup-wizard values
+// from overriding dashboard saves after a restart.
+func (c Config) syncEnvFile() {
+	if c.ConfigPath == "" {
+		return
+	}
+	envPath := filepath.Join(filepath.Dir(c.ConfigPath), "env")
+	data, err := os.ReadFile(envPath)
+	if err != nil {
+		return // file doesn't exist or unreadable — nothing to do
+	}
+
+	vals := map[string]string{
+		"CRAYFISH_NAME":           c.Name,
+		"CRAYFISH_PROVIDER":       c.Provider,
+		"CRAYFISH_API_KEY":        c.APIKey,
+		"CRAYFISH_ENDPOINT":       c.Endpoint,
+		"CRAYFISH_MODEL":          c.Model,
+		"CRAYFISH_TELEGRAM_TOKEN": c.TelegramToken,
+		"CRAYFISH_GMAIL_USER":     c.GmailUser,
+		"CRAYFISH_BRAVE_API_KEY":  c.BraveAPIKey,
+		"CRAYFISH_AUTO_UPDATE":    strconv.FormatBool(c.AutoUpdate),
+		"CRAYFISH_UPDATE_CHANNEL": c.UpdateChannel,
+	}
+
+	lines := strings.Split(string(data), "\n")
+	changed := false
+	for i, line := range lines {
+		for k, v := range vals {
+			if strings.HasPrefix(line, k+"=") {
+				if want := k + "=" + v; line != want {
+					lines[i] = want
+					changed = true
+				}
+				break
+			}
+		}
+	}
+
+	if changed {
+		os.WriteFile(envPath, []byte(strings.Join(lines, "\n")), 0600)
+	}
 }
 
 // NeedsSetup returns true if the minimum required config is missing.

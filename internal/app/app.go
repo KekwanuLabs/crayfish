@@ -1185,9 +1185,12 @@ func (a *App) UpdateConfig(updates map[string]any) (bool, error) {
 				changed = true
 			}
 		case "gmail_app_password":
-			if s, ok := val.(string); ok && !strings.Contains(s, "****") && s != a.Config.GmailAppPassword {
-				a.Config.GmailAppPassword = s
-				changed = true
+			if s, ok := val.(string); ok && !strings.Contains(s, "****") {
+				s = strings.ReplaceAll(s, " ", "") // Google displays app passwords with spaces; strip them
+				if s != a.Config.GmailAppPassword {
+					a.Config.GmailAppPassword = s
+					changed = true
+				}
 			}
 		case "brave_api_key":
 			if s, ok := val.(string); ok && !strings.Contains(s, "****") && s != a.Config.BraveAPIKey {

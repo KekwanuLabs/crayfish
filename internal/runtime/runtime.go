@@ -136,7 +136,7 @@ If they ask about Google Drive, Docs, or Sheets, you can add those capabilities 
 		base += `
 
 ## Google Integration
-You can help the user connect their Google account for calendar features. If they ask about their calendar or schedule, offer to set it up using the google_connect tool. Keep it simple and conversational — they just need to enter a code on their phone at google.com/device.`
+You can help the user connect their Google account for calendar features. If they ask about their calendar or schedule, call google_connect immediately — do not describe the process first. The tool returns the actual code the user needs. Present it clearly: tell them to go to google.com/device and enter the code shown. Never mention a code or link before calling the tool, because you don't have the code yet.`
 	}
 
 	// Email context.
