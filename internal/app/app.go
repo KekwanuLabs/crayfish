@@ -1101,6 +1101,7 @@ func (a *App) DashboardConfig() map[string]any {
 		"stt_enabled":            a.Config.STTEnabled,
 		"telegram_token":         mask(a.Config.TelegramToken),
 		"gmail_user":             a.Config.GmailUser,
+		"gmail_app_password":     mask(a.Config.GmailAppPassword),
 		"gmail_poll_minutes":     a.Config.GmailPollMinutes,
 		"brave_api_key":          mask(a.Config.BraveAPIKey),
 		"system_prompt":          a.Config.SystemPrompt,
@@ -1181,6 +1182,11 @@ func (a *App) UpdateConfig(updates map[string]any) (bool, error) {
 		case "gmail_user":
 			if s, ok := val.(string); ok && s != a.Config.GmailUser {
 				a.Config.GmailUser = s
+				changed = true
+			}
+		case "gmail_app_password":
+			if s, ok := val.(string); ok && !strings.Contains(s, "****") && s != a.Config.GmailAppPassword {
+				a.Config.GmailAppPassword = s
 				changed = true
 			}
 		case "brave_api_key":

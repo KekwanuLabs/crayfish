@@ -25,7 +25,7 @@ import (
 
 const (
 	// maxHistoryMessages is the number of recent messages to include in context.
-	maxHistoryMessages = 20
+	maxHistoryMessages = 50
 
 	// maxTokenBudget is the hard ceiling for context assembly (tokens).
 	maxTokenBudget = 4096

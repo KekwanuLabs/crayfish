@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/KekwanuLabs/crayfish/internal/bus"
 	"github.com/KekwanuLabs/crayfish/internal/storage"
@@ -113,6 +116,13 @@ func (api *DashboardAPI) handleConfig(w http.ResponseWriter, r *http.Request) {
 			"status":         "saved",
 			"restart_needed": restartNeeded,
 		})
+		if restartNeeded {
+			go func() {
+				time.Sleep(500 * time.Millisecond)
+				proc, _ := os.FindProcess(os.Getpid())
+				proc.Signal(syscall.SIGTERM)
+			}()
+		}
 	default:
 		api.writeError(w, "method not allowed", http.StatusMethodNotAllowed)
 	}

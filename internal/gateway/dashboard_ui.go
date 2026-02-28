@@ -390,7 +390,7 @@ const dashboardPageHTML = `<!DOCTYPE html>
         <div class="form-section-header"><span class="dot-restart"></span> AI Provider</div>
         <div class="form-row">
           <div class="form-group"><label>Provider</label><input type="text" id="cfg-provider" placeholder="anthropic"></div>
-          <div class="form-group"><label>Model</label><input type="text" id="cfg-model" placeholder="claude-sonnet-4-20250514"></div>
+          <div class="form-group"><label>Model</label><input type="text" id="cfg-model" placeholder="claude-sonnet-4-6"></div>
         </div>
         <div class="form-group"><label>API Key</label><div class="pass-wrap"><input type="password" id="cfg-api_key"><button class="pass-toggle" onclick="togglePass('cfg-api_key')">&#128065;</button></div></div>
         <div class="form-row">
@@ -604,8 +604,23 @@ async function saveSettings() {
   u.continuity_enabled = document.getElementById('cfg-continuity_enabled').checked;
   u.auto_update = document.getElementById('cfg-auto_update').checked;
   const r = await fetchJSON('/api/dashboard/config', {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(u)});
-  if (r.restart_needed) showToast('Settings saved \u2014 restart needed for some changes','success');
-  else showToast('Settings saved','success');
+  if (r.restart_needed) {
+    showToast('Settings saved \u2014 restarting\u2026','success');
+    await waitForRestart();
+  } else {
+    showToast('Settings saved','success');
+  }
+}
+async function waitForRestart() {
+  await new Promise(r => setTimeout(r, 1500));
+  for (let i = 0; i < 60; i++) {
+    try {
+      const resp = await fetch('/health', {cache:'no-store'});
+      if (resp.ok) { showToast('Restarted \u2014 reloading\u2026','success'); setTimeout(() => location.reload(), 800); return; }
+    } catch(e) {}
+    await new Promise(r => setTimeout(r, 2000));
+  }
+  showToast('Server did not come back \u2014 please reload manually','error');
 }
 
 function togglePass(id) {

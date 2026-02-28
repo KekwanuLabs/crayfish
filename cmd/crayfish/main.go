@@ -128,7 +128,7 @@ func printHelp() {
 	fmt.Println("")
 	fmt.Println("Environment:")
 	fmt.Println("  CRAYFISH_API_KEY          LLM API key (required)")
-	fmt.Println("  CRAYFISH_MODEL            Model name (e.g., claude-sonnet-4-20250514)")
+	fmt.Println("  CRAYFISH_MODEL            Model name (e.g., claude-sonnet-4-6)")
 	fmt.Println("  CRAYFISH_PROVIDER         Provider: anthropic, openai, groq, ollama, ...")
 	fmt.Println("  CRAYFISH_ENDPOINT         Custom API endpoint (for Ollama, vLLM, etc.)")
 	fmt.Println("  CRAYFISH_LISTEN           Listen address (default: :8119)")
