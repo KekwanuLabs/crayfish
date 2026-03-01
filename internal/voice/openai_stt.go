@@ -23,6 +23,7 @@ const GroqWhisperEndpoint = "https://api.groq.com/openai/v1/audio/transcriptions
 // endpoint (OpenAI, Groq, etc.). The audio is sent as multipart/form-data.
 type WhisperAPIEngine struct {
 	endpoint string
+	model    string
 	apiKey   string
 	client   *http.Client
 	logger   *slog.Logger
@@ -30,9 +31,16 @@ type WhisperAPIEngine struct {
 
 // NewWhisperAPI creates a Whisper API engine.
 // endpoint is the full transcription URL (e.g. OpenAIWhisperEndpoint or GroqWhisperEndpoint).
+// The model is auto-selected from the endpoint: Groq uses "whisper-large-v3-turbo",
+// OpenAI uses "whisper-1".
 func NewWhisperAPI(endpoint, apiKey string, logger *slog.Logger) *WhisperAPIEngine {
+	model := "whisper-1"
+	if strings.Contains(endpoint, "groq.com") {
+		model = "whisper-large-v3-turbo"
+	}
 	return &WhisperAPIEngine{
 		endpoint: endpoint,
+		model:    model,
 		apiKey:   apiKey,
 		client:   &http.Client{Timeout: 30 * time.Second},
 		logger:   logger,
@@ -66,7 +74,7 @@ func (e *WhisperAPIEngine) Transcribe(ctx context.Context, audioData []byte, for
 	}
 
 	// Add the model field.
-	if err := w.WriteField("model", "whisper-1"); err != nil {
+	if err := w.WriteField("model", e.model); err != nil {
 		return "", fmt.Errorf("whisper_api: write model field: %w", err)
 	}
 	w.Close()
