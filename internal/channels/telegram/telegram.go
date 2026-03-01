@@ -559,17 +559,18 @@ func (a *Adapter) handleUpdate(ctx context.Context, update Update) {
 
 	var images []bus.ImageAttachment
 
-	// Handle voice messages — transcribe async so the poll loop stays unblocked
+	// Handle voice messages — transcribe async so the poll loop stays unblocked.
+	// If STT isn't configured, route through the LLM so it can guide the user to set it up.
 	if update.Message.Voice != nil {
 		if a.sttEngine == nil || !a.sttEngine.STTEnabled() {
-			a.sendMessageWithRetry(ctx, chatID, "Voice messages aren't enabled yet. Send me text instead!")
+			a.publishInbound(ctx, chatID, sessionID, "[The user sent a voice message but voice transcription isn't set up yet. Use the stt_connect tool to help them enable it.]", nil)
 			return
 		}
 		go a.transcribeAndPublish(ctx, chatID, sessionID, update.Message.Voice, "voice")
 		return
 	} else if update.Message.Audio != nil {
 		if a.sttEngine == nil || !a.sttEngine.STTEnabled() {
-			a.sendMessageWithRetry(ctx, chatID, "Voice messages aren't enabled yet. Send me text instead!")
+			a.publishInbound(ctx, chatID, sessionID, "[The user sent an audio file but voice transcription isn't set up yet. Use the stt_connect tool to help them enable it.]", nil)
 			return
 		}
 		v := &Voice{
@@ -581,7 +582,7 @@ func (a *Adapter) handleUpdate(ctx context.Context, update Update) {
 		return
 	} else if update.Message.VideoNote != nil {
 		if a.sttEngine == nil || !a.sttEngine.STTEnabled() {
-			a.sendMessageWithRetry(ctx, chatID, "Voice messages aren't enabled yet. Send me text instead!")
+			a.publishInbound(ctx, chatID, sessionID, "[The user sent a video note but voice transcription isn't set up yet. Use the stt_connect tool to help them enable it.]", nil)
 			return
 		}
 		v := &Voice{
