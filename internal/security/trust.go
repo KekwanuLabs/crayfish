@@ -81,21 +81,26 @@ func (s *SessionStore) Resolve(ctx context.Context, channel, userID string) (*Se
 		&allowedToolsJSON, &createdStr, &activeStr)
 
 	if err == sql.ErrNoRows {
-		// Create new session with unknown trust.
+		// System channel sessions (scheduler, heartbeat, etc.) are internal — grant operator trust.
+		// All other new sessions start at unknown and must go through the pairing flow.
+		trust := TierUnknown
+		if channel == "system" {
+			trust = TierOperator
+		}
 		now := time.Now().UTC().Format("2006-01-02 15:04:05")
 		_, err = s.db.ExecContext(ctx,
 			"INSERT INTO sessions (id, channel, user_id, trust_tier, paired, allowed_tools, created_at, last_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-			sessionID, channel, userID, int(TierUnknown), 0, "[]", now, now,
+			sessionID, channel, userID, int(trust), 0, "[]", now, now,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("security.Resolve: insert: %w", err)
 		}
-		s.logger.Info("new session created", "session_id", sessionID, "trust", TierUnknown)
+		s.logger.Info("new session created", "session_id", sessionID, "trust", trust)
 		return &Session{
 			ID:           sessionID,
 			Channel:      channel,
 			UserID:       userID,
-			Trust:        TierUnknown,
+			Trust:        trust,
 			Paired:       false,
 			AllowedTools: []string{},
 			CreatedAt:    time.Now().UTC(),
@@ -111,6 +116,12 @@ func (s *SessionStore) Resolve(ctx context.Context, channel, userID string) (*Se
 	}
 	sess.CreatedAt, _ = time.Parse("2006-01-02 15:04:05", createdStr)
 	sess.LastActive, _ = time.Parse("2006-01-02 15:04:05", activeStr)
+
+	// Upgrade existing system sessions that were created before this fix.
+	if channel == "system" && sess.Trust < TierOperator {
+		sess.Trust = TierOperator
+		s.db.ExecContext(ctx, "UPDATE sessions SET trust_tier = ? WHERE id = ?", int(TierOperator), sessionID) //nolint:errcheck
+	}
 
 	// Update last active timestamp.
 	if _, err := s.db.ExecContext(ctx,
