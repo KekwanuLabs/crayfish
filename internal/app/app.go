@@ -19,7 +19,6 @@ import (
 	"github.com/KekwanuLabs/crayfish/internal/channels"
 	"github.com/KekwanuLabs/crayfish/internal/channels/cli"
 	"github.com/KekwanuLabs/crayfish/internal/channels/telegram"
-	"github.com/KekwanuLabs/crayfish/internal/docs"
 	"github.com/KekwanuLabs/crayfish/internal/drive"
 	"github.com/KekwanuLabs/crayfish/internal/gateway"
 	"github.com/KekwanuLabs/crayfish/internal/gmail"
@@ -391,14 +390,14 @@ func (a *App) Start(ctx context.Context) error {
 
 	// Wire Drive/Docs tools if scopes already present on the loaded token.
 	if a.oauthClient != nil && a.googleToken != nil && a.googleToken.RefreshToken != "" {
-		if hasScope(a.googleToken, oauth.DriveScope) || hasScope(a.googleToken, oauth.DocsScope) {
+		if hasScope(a.googleToken, oauth.DriveScope) {
 			driveTP := func(ctx context.Context) (string, error) {
 				a.googleMu.RLock()
 				t := a.googleToken
 				a.googleMu.RUnlock()
 				return a.oauthClient.ValidAccessToken(ctx, t)
 			}
-			tools.RegisterDriveTools(toolReg, drive.NewClient(driveTP), docs.NewClient(driveTP))
+			tools.RegisterDriveTools(toolReg, drive.NewClient(driveTP))
 			a.Logger.Info("drive/docs tools registered")
 		}
 	}
@@ -457,8 +456,8 @@ func (a *App) Start(ctx context.Context) error {
 				}
 
 				// Hot-reload Drive/Docs tools if those scopes were just granted.
-				if hasScope(&tok, oauth.DriveScope) || hasScope(&tok, oauth.DocsScope) {
-					tools.RegisterDriveTools(toolReg, drive.NewClient(tokenProvider), docs.NewClient(tokenProvider))
+				if hasScope(&tok, oauth.DriveScope) {
+					tools.RegisterDriveTools(toolReg, drive.NewClient(tokenProvider))
 					a.Logger.Info("drive/docs tools hot-reloaded after OAuth")
 				}
 
@@ -1005,8 +1004,8 @@ func (a *App) Start(ctx context.Context) error {
 			a.googleMu.RLock()
 			dashTok := a.googleToken
 			a.googleMu.RUnlock()
-			if hasScope(dashTok, oauth.DriveScope) || hasScope(dashTok, oauth.DocsScope) {
-				tools.RegisterDriveTools(toolReg, drive.NewClient(tokenProvider), docs.NewClient(tokenProvider))
+			if hasScope(dashTok, oauth.DriveScope) {
+				tools.RegisterDriveTools(toolReg, drive.NewClient(tokenProvider))
 				a.Logger.Info("drive/docs tools hot-reloaded after dashboard OAuth")
 			}
 

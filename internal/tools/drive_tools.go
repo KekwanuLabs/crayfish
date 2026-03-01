@@ -5,14 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/KekwanuLabs/crayfish/internal/docs"
 	"github.com/KekwanuLabs/crayfish/internal/drive"
 	"github.com/KekwanuLabs/crayfish/internal/security"
 )
 
 // RegisterDriveTools adds Google Drive and Docs tools to the registry.
-// Called only when Drive or Docs scopes are present on the Google token.
-func RegisterDriveTools(reg *Registry, driveClient *drive.Client, docsClient *docs.Client) {
+// Called when drive.file scope is present on the Google token.
+// Docs are created via Drive API (mimeType trick) — no Docs API scope required.
+func RegisterDriveTools(reg *Registry, driveClient *drive.Client) {
 	reg.logger.Info("registering drive/docs tools")
 
 	// drive_create_folder — create a folder in Drive
@@ -179,10 +179,10 @@ func RegisterDriveTools(reg *Registry, driveClient *drive.Client, docsClient *do
 		},
 	})
 
-	// docs_create — create a Google Doc
+	// docs_create — create a Google Doc via Drive API (no Docs API scope needed)
 	reg.Register(&Tool{
 		Name:        "docs_create",
-		Description: "Create a new Google Doc, optionally inside a Drive folder and with initial content.",
+		Description: "Create a new Google Doc inside a Drive folder.",
 		MinTier:     security.TierTrusted,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
@@ -194,19 +194,14 @@ func RegisterDriveTools(reg *Registry, driveClient *drive.Client, docsClient *do
 				"folder_id": {
 					"type": "string",
 					"description": "Drive folder ID to place the doc in (optional)"
-				},
-				"initial_content": {
-					"type": "string",
-					"description": "Initial text content for the document (optional)"
 				}
 			},
 			"required": ["title"]
 		}`),
 		Execute: func(ctx context.Context, sess *security.Session, input json.RawMessage) (string, error) {
 			var params struct {
-				Title          string `json:"title"`
-				FolderID       string `json:"folder_id"`
-				InitialContent string `json:"initial_content"`
+				Title    string `json:"title"`
+				FolderID string `json:"folder_id"`
 			}
 			if err := json.Unmarshal(input, &params); err != nil {
 				return "", fmt.Errorf("docs_create: parse input: %w", err)
@@ -214,23 +209,12 @@ func RegisterDriveTools(reg *Registry, driveClient *drive.Client, docsClient *do
 			if params.Title == "" {
 				return "", fmt.Errorf("docs_create: title is required")
 			}
-			docID, webLink, err := docsClient.Create(ctx, params.Title)
+			// Create a Google Doc via Drive API using the Docs mimeType.
+			// This only requires drive.file scope — no Docs API scope needed.
+			docID, webLink, err := driveClient.CreateFile(ctx, params.Title,
+				"application/vnd.google-apps.document", params.FolderID)
 			if err != nil {
 				return "", fmt.Errorf("docs_create: %w", err)
-			}
-			// Move to folder if specified.
-			if params.FolderID != "" {
-				if err := driveClient.MoveFile(ctx, docID, params.FolderID); err != nil {
-					// Non-fatal — doc was created, just not moved.
-					reg.logger.Warn("docs_create: failed to move doc to folder", "error", err)
-				}
-			}
-			// Add initial content if provided.
-			if params.InitialContent != "" {
-				if err := docsClient.AppendText(ctx, docID, params.InitialContent); err != nil {
-					// Non-fatal — doc was created, just without initial content.
-					reg.logger.Warn("docs_create: failed to add initial content", "error", err)
-				}
 			}
 			result, _ := json.Marshal(map[string]string{
 				"id":       docID,
@@ -241,83 +225,44 @@ func RegisterDriveTools(reg *Registry, driveClient *drive.Client, docsClient *do
 		},
 	})
 
-	// docs_append — append text to an existing Google Doc
+	// sheets_create — create a Google Sheet via Drive API (no Sheets API scope needed)
 	reg.Register(&Tool{
-		Name:        "docs_append",
-		Description: "Append text to an existing Google Doc.",
+		Name:        "sheets_create",
+		Description: "Create a new Google Sheet inside a Drive folder.",
 		MinTier:     security.TierTrusted,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
-				"doc_id": {
+				"title": {
 					"type": "string",
-					"description": "The Google Doc ID"
+					"description": "Spreadsheet title"
 				},
-				"text": {
+				"folder_id": {
 					"type": "string",
-					"description": "Text to append to the document"
+					"description": "Drive folder ID to place the sheet in (optional)"
 				}
 			},
-			"required": ["doc_id", "text"]
+			"required": ["title"]
 		}`),
 		Execute: func(ctx context.Context, sess *security.Session, input json.RawMessage) (string, error) {
 			var params struct {
-				DocID string `json:"doc_id"`
-				Text  string `json:"text"`
+				Title    string `json:"title"`
+				FolderID string `json:"folder_id"`
 			}
 			if err := json.Unmarshal(input, &params); err != nil {
-				return "", fmt.Errorf("docs_append: parse input: %w", err)
+				return "", fmt.Errorf("sheets_create: parse input: %w", err)
 			}
-			if params.DocID == "" {
-				return "", fmt.Errorf("docs_append: doc_id is required")
+			if params.Title == "" {
+				return "", fmt.Errorf("sheets_create: title is required")
 			}
-			if params.Text == "" {
-				return "", fmt.Errorf("docs_append: text is required")
-			}
-			if err := docsClient.AppendText(ctx, params.DocID, params.Text); err != nil {
-				return "", fmt.Errorf("docs_append: %w", err)
-			}
-			result, _ := json.Marshal(map[string]string{
-				"status": "appended",
-				"doc_id": params.DocID,
-			})
-			return string(result), nil
-		},
-	})
-
-	// docs_get — read a Google Doc's content
-	reg.Register(&Tool{
-		Name:        "docs_get",
-		Description: "Read the content of a Google Doc.",
-		MinTier:     security.TierTrusted,
-		InputSchema: json.RawMessage(`{
-			"type": "object",
-			"properties": {
-				"doc_id": {
-					"type": "string",
-					"description": "The Google Doc ID"
-				}
-			},
-			"required": ["doc_id"]
-		}`),
-		Execute: func(ctx context.Context, sess *security.Session, input json.RawMessage) (string, error) {
-			var params struct {
-				DocID string `json:"doc_id"`
-			}
-			if err := json.Unmarshal(input, &params); err != nil {
-				return "", fmt.Errorf("docs_get: parse input: %w", err)
-			}
-			if params.DocID == "" {
-				return "", fmt.Errorf("docs_get: doc_id is required")
-			}
-			title, content, _, err := docsClient.GetDoc(ctx, params.DocID)
+			sheetID, webLink, err := driveClient.CreateFile(ctx, params.Title,
+				"application/vnd.google-apps.spreadsheet", params.FolderID)
 			if err != nil {
-				return "", fmt.Errorf("docs_get: %w", err)
+				return "", fmt.Errorf("sheets_create: %w", err)
 			}
-			webLink := "https://docs.google.com/document/d/" + params.DocID + "/edit"
 			result, _ := json.Marshal(map[string]string{
-				"title":    title,
-				"content":  content,
+				"id":       sheetID,
+				"title":    params.Title,
 				"web_link": webLink,
 			})
 			return string(result), nil

@@ -26,7 +26,7 @@ const (
 	GmailSend      = "https://www.googleapis.com/auth/gmail.send"
 	GmailModify    = "https://www.googleapis.com/auth/gmail.modify"
 	UserInfoEmail  = "https://www.googleapis.com/auth/userinfo.email"
-	DriveScope     = "https://www.googleapis.com/auth/drive"
+	DriveScope     = "https://www.googleapis.com/auth/drive.file" // drive.file works with device flow; full drive scope is blocked
 	DriveReadonly  = "https://www.googleapis.com/auth/drive.readonly"
 	DocsScope      = "https://www.googleapis.com/auth/documents"
 	DocsReadonly   = "https://www.googleapis.com/auth/documents.readonly"
@@ -43,8 +43,9 @@ var ScopesBase = []string{CalendarScope, UserInfoEmail}
 // Used by the google_connect tool to determine which scopes to request
 // when a user asks for a specific capability.
 var ScopesByPurpose = map[string][]string{
-	"drive": {DriveScope},
-	"docs":  {DocsScope},
+	"drive":          {DriveScope},
+	"docs":           {DriveScope}, // Google Docs created via Drive API; DocsScope blocked from device flow
+	"drive_and_docs": {DriveScope}, // same — drive.file covers folder + doc creation
 	// "sheets": not yet implemented — add when sheets tools are built
 }
 

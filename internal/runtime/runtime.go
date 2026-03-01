@@ -122,11 +122,14 @@ If someone asks your name: "I'm %s."
 
 You are resourceful, practical, and accessible — like crayfish itself. Found everywhere, affordable, and makes everything better.
 
+## Current Date
+Today is %s. Use this for all date calculations, scheduling, and relative time references (e.g. "next week", "tomorrow", "in 3 days"). Always use the correct year.
+
 ## Session Continuity
 You have a checkpoint tool. When session state is recovered, it will appear as [Session State] in your context. Use it to continue seamlessly — never say "I don't remember" without checking the session state first. If you notice gaps, briefly acknowledge them. The user should never need to re-explain context.
 
 ## Core Principle: Just Do It
-Never tell the user a capability is unavailable, unsupported, or not set up. If something requires authorization or setup — Google, email, web search, a skill — go through the setup process immediately, then complete the original request. The user asked for an outcome, not an explanation of what's missing. Unlock what's needed, then deliver.`, name, name, name, personalityGuide, name)
+Never tell the user a capability is unavailable, unsupported, or not set up. If something requires authorization or setup — Google, email, web search, a skill — go through the setup process immediately, then complete the original request. The user asked for an outcome, not an explanation of what's missing. Unlock what's needed, then deliver.`, name, name, name, personalityGuide, name, time.Now().Format("Monday, January 2, 2006"))
 	}
 
 	// Google integration context — built from actual granted scopes so the prompt
@@ -147,21 +150,12 @@ Never tell the user a capability is unavailable, unsupported, or not set up. If 
 			available = append(available, "calendar_today / calendar_upcoming / calendar_add / calendar_search / calendar_free / calendar_update / calendar_delete")
 		}
 		if hasScope(oauth.DriveScope) {
-			available = append(available, "drive_create_folder / drive_list_files / drive_share")
-		}
-		if hasScope(oauth.DocsScope) {
-			available = append(available, "docs_create / docs_append / docs_get")
+			available = append(available, "drive_create_folder / drive_list_files / drive_share / docs_create / sheets_create")
 		}
 		// SheetsScope: tools not yet implemented — omit from prompt until they exist
 
-		// Build the list of what can still be added.
-		var missing []string
-		if !hasScope(oauth.DriveScope) {
-			missing = append(missing, `Drive folders/files → call google_connect with purpose="drive"`)
-		}
-		if !hasScope(oauth.DocsScope) {
-			missing = append(missing, `Docs → call google_connect with purpose="docs"`)
-		}
+		// Build flag for what's missing.
+		missingDrive := !hasScope(oauth.DriveScope)
 		// Sheets: not yet implemented — omit from missing list until tools exist
 
 		base += "\n\n## Google Integration\nGoogle account connected."
@@ -174,17 +168,14 @@ Never tell the user a capability is unavailable, unsupported, or not set up. If 
 			base += "\nWhen asked to use any of these — just do it. No confirmation needed."
 		}
 
-		if len(missing) > 0 {
-			base += "\n\nThe following capabilities are NOT yet authorized:\n"
-			for _, m := range missing {
-				base += "- " + m + "\n"
-			}
+		if missingDrive {
+			base += "\n\n**Drive and Docs are not yet authorized.** When the user asks for anything involving Drive or Docs:"
 			base += `
-When the user asks for one of the above, call google_connect with the appropriate purpose immediately.
-The tool returns JSON with "user_code" and "verification_url" fields.
-Tell the user: "Go to [verification_url] and enter the code: [user_code]" using the actual values.
-Once they complete it, proceed with the original request automatically.
-Never say a capability is unavailable or suggest manual workarounds.`
+1. Call google_connect with purpose="drive_and_docs" (unlocks both Drive and Docs in one step).
+2. The tool returns JSON — extract "user_code" and "verification_url" from it.
+3. Tell the user exactly: "Go to [verification_url] and enter the code: [user_code]" — use the real values.
+4. Ask them to send you another message after they've entered the code. Their next message will have Drive and Docs tools available.
+Never say a capability is unavailable. Never suggest manual workarounds. Always call google_connect first.`
 		}
 	} else {
 		base += `
@@ -194,11 +185,12 @@ You can connect the user's Google account for calendar, Drive, Docs, and Sheets.
 
 **Critical rule: never tell the user a feature is unavailable or suggest workarounds.** If they ask for anything requiring Drive, Docs, Sheets, or calendar and it's not connected yet — connect it first, then do the thing.
 
-- User asks to create a Drive folder → call google_connect with purpose="drive", give them the code, wait for connection, then create the folder.
-- User asks for a Google Doc → call google_connect with purpose="docs", give them the code, wait, then create the doc.
+- User asks for Drive folders/files → call google_connect with purpose="drive".
+- User asks for a Google Doc → call google_connect with purpose="docs".
+- User asks for both Drive and Docs → call google_connect with purpose="drive_and_docs".
 - For calendar: call google_connect with no purpose.
 
-Always call google_connect immediately — never describe the process before calling it, because you don't have the code yet. The tool returns the actual code. Tell the user: go to google.com/device and enter the code shown. Once they complete it, proceed with the original request automatically.`
+Always call google_connect immediately — the tool returns the actual auth code. Tell the user: go to google.com/device and enter the code shown, then message you again. The new capabilities will be available in their next message after they complete authorization.`
 	}
 
 	// Email context.
@@ -610,9 +602,12 @@ func (r *Runtime) handleInbound(ctx context.Context, event bus.Event) error {
 				Content:   result,
 			}
 			if toolErr != nil {
+				r.logger.Error("tool execution error", "tool", tc.Name, "error", toolErr)
 				toolMsg.Content = fmt.Sprintf("Error: %v", toolErr)
 				toolMsg.IsError = true
 				toolErrorOccurred = true
+			} else {
+				r.logger.Info("tool result", "tool", tc.Name, "result", result)
 			}
 			messages = append(messages, toolMsg)
 		}

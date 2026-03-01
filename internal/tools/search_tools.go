@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/KekwanuLabs/crayfish/internal/security"
@@ -109,6 +110,11 @@ func RegisterSearchTools(reg *Registry, cfg BraveSearchConfig) {
 
 	httpClient := &http.Client{Timeout: 15 * time.Second}
 
+	// Brave free plan: max 1 req/sec. Use 1.1s gap to stay safely under the limit.
+	const braveMinInterval = 1100 * time.Millisecond
+	var rateMu sync.Mutex
+	var lastReq time.Time
+
 	// web_search — search the web using Brave Search API.
 	reg.Register(&Tool{
 		Name:        "web_search",
@@ -129,6 +135,20 @@ func RegisterSearchTools(reg *Registry, cfg BraveSearchConfig) {
 			"required": ["query"]
 		}`),
 		Execute: func(ctx context.Context, sess *security.Session, input json.RawMessage) (string, error) {
+			// Enforce rate limit for Brave free plan.
+			rateMu.Lock()
+			if wait := braveMinInterval - time.Since(lastReq); wait > 0 {
+				rateMu.Unlock()
+				select {
+				case <-time.After(wait):
+				case <-ctx.Done():
+					return "", ctx.Err()
+				}
+				rateMu.Lock()
+			}
+			lastReq = time.Now()
+			rateMu.Unlock()
+
 			var params struct {
 				Query string `json:"query"`
 				Count int    `json:"count"`

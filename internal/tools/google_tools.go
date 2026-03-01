@@ -76,14 +76,14 @@ func RegisterGoogleTools(reg *Registry, deps GoogleToolsDeps) {
 		Description: `Connect or upgrade a Google account using a device code. The user visits google.com/device on their phone and enters the code shown.
 
 Without a purpose: enables calendar and email (base scopes).
-With a purpose ("drive" or "docs"): adds that capability to the existing connection. Same quick code process — Google only asks for the new permissions.`,
+With a purpose ("drive", "docs", or "drive_and_docs"): adds that capability to the existing connection. Use "drive_and_docs" when the user needs both. Same quick code process — Google only asks for the new permissions.`,
 		MinTier: security.TierOperator,
 		InputSchema: json.RawMessage(`{
 			"type": "object",
 			"properties": {
 				"purpose": {
 					"type": "string",
-					"description": "Optional: what capability to add. One of: drive, docs. Omit for initial connection (calendar + email)."
+					"description": "Optional: what capability to add. One of: drive, docs, drive_and_docs. Use drive_and_docs when both are needed. Omit for initial connection (calendar + email)."
 				}
 			}
 		}`),
@@ -107,7 +107,7 @@ With a purpose ("drive" or "docs"): adds that capability to the existing connect
 			if params.Purpose != "" {
 				extraScopes, ok := oauth.ScopesByPurpose[params.Purpose]
 				if !ok {
-					return "", fmt.Errorf("google_connect: unknown purpose %q — valid options: drive, docs", params.Purpose)
+					return "", fmt.Errorf("google_connect: unknown purpose %q — valid options: drive, docs, drive_and_docs", params.Purpose)
 				}
 
 				// Check if the requested scopes are already granted.
@@ -123,18 +123,34 @@ With a purpose ("drive" or "docs"): adds that capability to the existing connect
 					}
 				}
 			} else if deps.IsConnected() {
-				// No purpose and already connected — nothing to do.
-				friendly := make([]string, len(currentScopes))
-				for i, s := range currentScopes {
-					friendly[i] = oauth.FriendlyScope(s)
+				// No purpose and already connected — auto-upgrade to drive_and_docs if those scopes are missing.
+				missingDrive := !containsScope(currentScopes, oauth.DriveScope)
+				missingDocs := !containsScope(currentScopes, oauth.DocsScope)
+				if missingDrive || missingDocs {
+					// Treat as purpose="drive_and_docs" — fall through to device flow below.
+					for _, s := range oauth.ScopesByPurpose["drive_and_docs"] {
+						if !containsScope(requestedScopes, s) {
+							requestedScopes = append(requestedScopes, s)
+						}
+					}
+					params.Purpose = "drive_and_docs"
+				} else {
+					// Already has everything.
+					friendly := make([]string, len(currentScopes))
+					for i, s := range currentScopes {
+						friendly[i] = oauth.FriendlyScope(s)
+					}
+					return fmt.Sprintf(`{"status":"already_connected","scopes":%s}`,
+						mustJSON(friendly)), nil
 				}
-				return fmt.Sprintf(`{"status":"already_connected","scopes":%s,"hint":"To add more capabilities, call google_connect with a purpose like 'drive' or 'docs'."}`,
-					mustJSON(friendly)), nil
 			}
 
 			// Request device code with the full scope set.
 			dc, err := deps.OAuthClient.RequestDeviceCodeWithScopes(ctx, requestedScopes)
 			if err != nil {
+				// Log the full error so we can see exactly which scope is rejected.
+				reg.logger.Error("google_connect: device code request failed",
+					"error", err, "scopes", requestedScopes)
 				return "", fmt.Errorf("google_connect: request device code: %w", err)
 			}
 
