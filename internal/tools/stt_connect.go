@@ -64,7 +64,7 @@ func RegisterSTTConnectTool(reg *Registry, deps STTConnectDeps) {
 				}
 
 				// Guide the user to get an API key.
-				return sttSetupInstructions(deps.ProviderName), nil
+				return sttSetupInstructions(), nil
 			}
 
 			// Key provided — validate and activate.
@@ -92,35 +92,21 @@ func RegisterSTTConnectTool(reg *Registry, deps STTConnectDeps) {
 }
 
 // sttSetupInstructions returns friendly setup guidance based on the user's current provider.
-func sttSetupInstructions(providerName string) string {
-	provider := strings.ToLower(providerName)
+func sttSetupInstructions() string {
+	return `Voice transcription needs a small extra step on this device. Here are two ways to set it up — pick whichever feels easier:
 
-	if provider == "anthropic" || provider == "ollama" || provider == "" {
-		// These providers don't have Whisper. Guide to Groq (free, no card needed).
-		return `Voice transcription isn't available on this device's hardware, and your current AI provider (` + providerName + `) doesn't include it.
-
-The easiest fix is a free Groq account — it takes about 2 minutes and doesn't need a credit card:
-
-1. Go to **console.groq.com** and sign up with your email
-2. Once you're in, click **"API Keys"** in the left sidebar
+**Option 1 — Groq (recommended, free, no credit card needed)**
+1. Go to console.groq.com and sign up with your email
+2. Click **"API Keys"** in the left sidebar
 3. Click **"Create API Key"**, give it any name, and copy it
 4. Paste the key here
 
-Groq's free tier is generous and includes voice transcription at no cost.`
-	}
-
-	// Generic fallback for other providers.
-	return `Voice transcription isn't available on this device's hardware. To enable it, you need an API key from OpenAI or Groq that supports Whisper.
-
-**Easiest option — Groq (free, no credit card):**
-1. Go to console.groq.com and sign up
-2. Click "API Keys" → "Create API Key"
-3. Paste it here
-
-**Or if you already have an OpenAI account:**
+**Option 2 — OpenAI (if you already have an account)**
 1. Go to platform.openai.com/api-keys
-2. Click "Create new secret key"
-3. Paste it here`
+2. Click **"Create new secret key"**, copy it
+3. Paste the key here
+
+Either key works. Once you paste it, I'll verify and activate it right away.`
 }
 
 // validateWhisperKey checks that an API key is valid by hitting the models list endpoint.
