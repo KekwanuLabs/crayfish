@@ -38,9 +38,10 @@ type Config struct {
 	VoiceEnabled bool   `yaml:"voice_enabled"`
 	VoiceModel   string `yaml:"voice_model"` // Piper voice model name
 
-	// STT — Speech-to-text via whisper.cpp
+	// STT — Speech-to-text via whisper.cpp (local) or OpenAI/Groq Whisper (cloud fallback)
 	STTEnabled   bool   `yaml:"stt_enabled"`
 	STTModelPath string `yaml:"stt_model_path"` // Path to whisper model (auto-detect if empty)
+	STTAPIKey    string `yaml:"stt_api_key"`    // OpenAI or Groq API key for cloud STT fallback
 
 	// Channels
 	TelegramToken string `yaml:"telegram_token"`
@@ -204,6 +205,7 @@ func LoadConfig(logger *slog.Logger) Config {
 	envStr("CRAYFISH_VOICE_MODEL", &cfg.VoiceModel)
 	envBool("CRAYFISH_STT_ENABLED", &cfg.STTEnabled)
 	envStr("CRAYFISH_STT_MODEL_PATH", &cfg.STTModelPath)
+	envStr("CRAYFISH_STT_API_KEY", &cfg.STTAPIKey)
 	envStr("CRAYFISH_PROVIDER", &cfg.Provider)
 	envStr("CRAYFISH_ENDPOINT", &cfg.Endpoint)
 	envStr("CRAYFISH_MODEL", &cfg.Model)

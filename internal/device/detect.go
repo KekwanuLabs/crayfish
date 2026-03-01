@@ -283,6 +283,23 @@ func (i Info) CanRunWhisper() bool {
 	return i.RecommendedWhisperModel() != ""
 }
 
+// CanRunLocalSTT returns whether this device can run local whisper-cpp speech-to-text
+// within a reasonable time limit. ARMv7 and ARMv6 devices (e.g. Pi 2, Pi 1, Pi Zero)
+// are far too slow — whisper takes ~4 minutes per 3 seconds of audio on those chips.
+// ARMv8+ (Pi 3+, Pi 4, Pi 5, Pi Zero 2), amd64, and arm64 are fast enough.
+func (i Info) CanRunLocalSTT() bool {
+	// Must have enough RAM for at least the tiny model.
+	if !i.CanRunWhisper() {
+		return false
+	}
+	// 32-bit ARMv7 or ARMv6 is too slow for real-time (or near-real-time) transcription.
+	// ARMv8 on 32-bit OS (e.g. Pi 3 running Raspberry Pi OS Lite 32-bit) is still fine.
+	if i.Arch == "arm" && i.ArmModel != "v8" {
+		return false
+	}
+	return true
+}
+
 // WhisperBinaryName returns the expected whisper binary name for this platform.
 func (i Info) WhisperBinaryName() string {
 	if i.OS == "windows" {

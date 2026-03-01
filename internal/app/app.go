@@ -15,6 +15,7 @@ import (
 
 	"github.com/KekwanuLabs/crayfish/internal/agents"
 	"github.com/KekwanuLabs/crayfish/internal/bus"
+	"github.com/KekwanuLabs/crayfish/internal/device"
 	"github.com/KekwanuLabs/crayfish/internal/calendar"
 	"github.com/KekwanuLabs/crayfish/internal/channels"
 	"github.com/KekwanuLabs/crayfish/internal/channels/cli"
@@ -143,19 +144,29 @@ func (a *App) Start(ctx context.Context) error {
 	}
 
 	var tgAdapter *telegram.Adapter
+	devInfo := device.Detect()
 	if a.Config.TelegramToken != "" {
 		tgAdapter = telegram.New(a.Config.TelegramToken, a.Logger.With("component", "telegram"))
 		adapterMap[tgAdapter.Name()] = tgAdapter
 
-		// Wire up STT for voice message transcription
+		// Wire up STT for voice message transcription.
 		if a.Config.STTEnabled {
-			sttEngine := voice.NewSTT(voice.STTConfig{
-				Enabled:   true,
-				ModelPath: a.Config.STTModelPath,
-			}, a.Logger.With("component", "stt"))
-			if sttEngine.STTEnabled() {
-				tgAdapter.SetSTT(sttEngine)
-				a.Logger.Info("voice transcription enabled for Telegram")
+			if devInfo.CanRunLocalSTT() {
+				// Local whisper.cpp is viable on this hardware.
+				sttEngine := voice.NewSTT(voice.STTConfig{
+					Enabled:   true,
+					ModelPath: a.Config.STTModelPath,
+				}, a.Logger.With("component", "stt"))
+				if sttEngine.STTEnabled() {
+					tgAdapter.SetSTT(sttEngine)
+					a.Logger.Info("voice transcription enabled for Telegram")
+				}
+			} else {
+				// Local STT is too slow on this hardware (e.g. Pi 2, ARMv7).
+				// Try cloud STT: auto-detect from LLM provider first, then explicit key.
+				a.Logger.Info("local STT not supported on this hardware — trying cloud STT",
+					"arch", devInfo.Arch, "arm_model", devInfo.ArmModel, "device", devInfo.String())
+				a.wireCloudSTT(tgAdapter)
 			}
 		}
 	}
@@ -185,6 +196,51 @@ func (a *App) Start(ctx context.Context) error {
 			a.Logger.Info("Brave Search API key saved and activated")
 		},
 		Registry: toolReg,
+	})
+
+	// Always register stt_connect so users can set up cloud voice transcription conversationally.
+	tools.RegisterSTTConnectTool(toolReg, tools.STTConnectDeps{
+		ProviderName: a.Config.Provider,
+		IsConfigured: func() bool {
+			a.configMu.RLock()
+			defer a.configMu.RUnlock()
+			// Configured if we have an explicit STT key OR the LLM provider supports Whisper.
+			if a.Config.STTAPIKey != "" {
+				return true
+			}
+			return voice.WhisperEndpointForProvider(a.Config.Provider, a.Config.Endpoint) != ""
+		},
+		TryReuseProviderKey: func() bool {
+			// Attempt to activate STT using the existing LLM provider key.
+			if tgAdapter == nil {
+				return false
+			}
+			endpoint := voice.WhisperEndpointForProvider(a.Config.Provider, a.Config.Endpoint)
+			if endpoint == "" || a.Config.APIKey == "" {
+				return false
+			}
+			whisperSTT := voice.NewWhisperAPI(endpoint, a.Config.APIKey, a.Logger.With("component", "whisper-api"))
+			tgAdapter.SetSTT(whisperSTT)
+			a.Logger.Info("cloud STT activated using existing provider key", "provider", a.Config.Provider)
+			return true
+		},
+		SaveKey: func(key string) {
+			a.configMu.Lock()
+			a.Config.STTAPIKey = key
+			a.configMu.Unlock()
+			if err := a.Config.SaveConfig(); err != nil {
+				a.Logger.Warn("failed to save STT API key to config", "error", err)
+			}
+			a.Logger.Info("STT API key saved")
+		},
+		ActivateSTT: func(key string) {
+			if tgAdapter == nil {
+				return
+			}
+			whisperSTT := voice.NewWhisperAPI(voice.OpenAIWhisperEndpoint, key, a.Logger.With("component", "whisper-api"))
+			tgAdapter.SetSTT(whisperSTT)
+			a.Logger.Info("cloud STT activated via stt_connect")
+		},
 	})
 
 	// 6b. Amadeus flight tools
@@ -790,8 +846,8 @@ func (a *App) Start(ctx context.Context) error {
 		a.autoUpdater.Start(ctx)
 	}
 
-	// 13. Voice STT auto-installer (runs in background)
-	if a.Config.STTEnabled {
+	// 13. Voice STT auto-installer (runs in background, local hardware only)
+	if a.Config.STTEnabled && devInfo.CanRunLocalSTT() {
 		a.voiceInstaller = voice.NewInstaller(
 			voice.DefaultInstallerConfig(),
 			a.Logger.With("component", "voice-installer"),
@@ -1390,6 +1446,33 @@ func hasScope(tok *oauth.Token, scope string) bool {
 		}
 	}
 	return false
+}
+
+// wireCloudSTT activates cloud-based STT (Whisper API) on the Telegram adapter.
+// Priority: (1) auto-detect from LLM provider, (2) explicit stt_api_key in config.
+func (a *App) wireCloudSTT(tgAdapter *telegram.Adapter) {
+	if tgAdapter == nil {
+		return
+	}
+
+	// 1. Try to reuse the existing LLM provider key (zero setup for openai/groq users).
+	endpoint := voice.WhisperEndpointForProvider(a.Config.Provider, a.Config.Endpoint)
+	if endpoint != "" && a.Config.APIKey != "" {
+		whisperSTT := voice.NewWhisperAPI(endpoint, a.Config.APIKey, a.Logger.With("component", "whisper-api"))
+		tgAdapter.SetSTT(whisperSTT)
+		a.Logger.Info("cloud STT auto-enabled using LLM provider key", "provider", a.Config.Provider)
+		return
+	}
+
+	// 2. Fall back to an explicitly configured STT key.
+	if a.Config.STTAPIKey != "" {
+		whisperSTT := voice.NewWhisperAPI(voice.OpenAIWhisperEndpoint, a.Config.STTAPIKey, a.Logger.With("component", "whisper-api"))
+		tgAdapter.SetSTT(whisperSTT)
+		a.Logger.Info("cloud STT enabled using stt_api_key config")
+		return
+	}
+
+	a.Logger.Info("cloud STT not configured — voice messages won't be transcribed; ask the assistant to set it up")
 }
 
 // cleanSnapshots periodically removes old session snapshots.
