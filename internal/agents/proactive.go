@@ -139,6 +139,15 @@ func (a *ProactiveAgent) EvaluateAndNotify(ctx context.Context, sessionID string
 	verdict, _ := resp.State["verdict"].(string)
 	if verdict != "surface" {
 		a.logger.Debug("proactive evaluation skipped", "id", opp.ID, "verdict", verdict)
+		// Record skip/delay/failed evaluations so we don't re-evaluate on every sync.
+		// "delay" is intentionally also recorded here — re-evaluation on the next sync
+		// cycle (minutes later) provides no new signal and just burns API tokens.
+		if a.db != nil && opp.ID != "" {
+			if _, dbErr := a.db.ExecContext(ctx,
+				"INSERT OR IGNORE INTO proactive_notified (email_id) VALUES (?)", opp.ID); dbErr != nil {
+				a.logger.Debug("failed to record proactive skip", "id", opp.ID, "error", dbErr)
+			}
+		}
 		return nil
 	}
 
@@ -346,9 +355,13 @@ Return ONLY valid JSON:
 		end := strings.LastIndex(body, "}")
 		if start >= 0 && end > start {
 			if err := json.Unmarshal([]byte(body[start:end+1]), &eval); err != nil {
+				a.logger.Debug("proactive eval: JSON parse failed after bracket extraction",
+					"id", opp.ID, "raw_response", body)
 				return nil, fmt.Errorf("failed to parse evaluation: %w", err)
 			}
 		} else {
+			a.logger.Debug("proactive eval: no JSON in LLM response",
+				"id", opp.ID, "raw_response", body)
 			return nil, fmt.Errorf("no valid JSON in evaluation response")
 		}
 	}
