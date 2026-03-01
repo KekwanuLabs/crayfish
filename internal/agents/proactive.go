@@ -260,7 +260,7 @@ func (a *ProactiveAgent) HandleEvaluateOpportunity(ctx context.Context, msg *Mes
 	// Evaluate with LLM.
 	evaluation, err := a.evaluateWithLLM(ctx, opp, userContext)
 	if err != nil {
-		a.logger.Warn("LLM evaluation failed for opportunity", "id", opp.ID, "error", err)
+		a.logger.Debug("LLM evaluation failed for opportunity, skipping", "id", opp.ID, "error", err)
 		// Fail closed — don't notify when we can't evaluate properly.
 		return &Response{
 			Success: true,
