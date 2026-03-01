@@ -19,7 +19,7 @@ type STTConnectDeps struct {
 	IsConfigured        func() bool          // True if cloud STT is already active (provider key or explicit key)
 	TryReuseProviderKey func() bool          // Activate STT using the existing LLM provider key; returns true if it worked
 	SaveKey             func(key string)     // Persist an explicit STT API key to config
-	ActivateSTT         func(key string)     // Create engine and attach to Telegram adapter using the given key
+	ActivateSTT         func(endpoint, key string) // Create engine and attach to Telegram adapter
 }
 
 // RegisterSTTConnectTool adds the stt_connect tool so users can set up voice
@@ -70,13 +70,12 @@ func RegisterSTTConnectTool(reg *Registry, deps STTConnectDeps) {
 			// Key provided — validate and activate.
 			apiKey := strings.TrimSpace(params.APIKey)
 
-			// Detect if it looks like a Groq key (they start with "gsk_").
+			// Detect endpoint from key prefix: Groq keys start with "gsk_".
 			endpoint := "https://api.openai.com/v1/audio/transcriptions"
 			validationURL := "https://api.openai.com/v1/models"
 			if strings.HasPrefix(apiKey, "gsk_") {
 				endpoint = "https://api.groq.com/openai/v1/audio/transcriptions"
 				validationURL = "https://api.groq.com/openai/v1/models"
-				_ = endpoint // endpoint is used via ActivateSTT
 			}
 
 			if err := validateWhisperKey(ctx, validationURL, apiKey); err != nil {
@@ -84,7 +83,7 @@ func RegisterSTTConnectTool(reg *Registry, deps STTConnectDeps) {
 			}
 
 			deps.SaveKey(apiKey)
-			deps.ActivateSTT(apiKey)
+			deps.ActivateSTT(endpoint, apiKey)
 
 			return "Voice transcription is now active! I verified the key and saved it. Voice messages on Telegram will be transcribed automatically.", nil
 		},

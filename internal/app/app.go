@@ -233,13 +233,13 @@ func (a *App) Start(ctx context.Context) error {
 			}
 			a.Logger.Info("STT API key saved")
 		},
-		ActivateSTT: func(key string) {
+		ActivateSTT: func(endpoint, key string) {
 			if tgAdapter == nil {
 				return
 			}
-			whisperSTT := voice.NewWhisperAPI(voice.OpenAIWhisperEndpoint, key, a.Logger.With("component", "whisper-api"))
+			whisperSTT := voice.NewWhisperAPI(endpoint, key, a.Logger.With("component", "whisper-api"))
 			tgAdapter.SetSTT(whisperSTT)
-			a.Logger.Info("cloud STT activated via stt_connect")
+			a.Logger.Info("cloud STT activated via stt_connect", "endpoint", endpoint)
 		},
 	})
 
@@ -1465,10 +1465,15 @@ func (a *App) wireCloudSTT(tgAdapter *telegram.Adapter) {
 	}
 
 	// 2. Fall back to an explicitly configured STT key.
+	// Detect Groq vs OpenAI from the key prefix (Groq keys start with "gsk_").
 	if a.Config.STTAPIKey != "" {
-		whisperSTT := voice.NewWhisperAPI(voice.OpenAIWhisperEndpoint, a.Config.STTAPIKey, a.Logger.With("component", "whisper-api"))
+		sttEndpoint := voice.OpenAIWhisperEndpoint
+		if strings.HasPrefix(a.Config.STTAPIKey, "gsk_") {
+			sttEndpoint = voice.GroqWhisperEndpoint
+		}
+		whisperSTT := voice.NewWhisperAPI(sttEndpoint, a.Config.STTAPIKey, a.Logger.With("component", "whisper-api"))
 		tgAdapter.SetSTT(whisperSTT)
-		a.Logger.Info("cloud STT enabled using stt_api_key config")
+		a.Logger.Info("cloud STT enabled using stt_api_key config", "endpoint", sttEndpoint)
 		return
 	}
 
