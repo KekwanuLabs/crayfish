@@ -17,7 +17,6 @@
 
 set -euo pipefail
 
-CRAYFISH_VERSION="${CRAYFISH_VERSION:-0.4.0}"
 CRAYFISH_BIN="/usr/local/bin/crayfish"
 
 RED='\033[0;31m'
@@ -30,7 +29,7 @@ warn()  { echo -e "${YELLOW}[crayfish]${NC} $*"; }
 error() { echo -e "${RED}[crayfish]${NC} $*" >&2; }
 
 echo ""
-echo "  Crayfish v${CRAYFISH_VERSION}"
+echo "  Crayfish (latest)"
 echo "  Accessible AI for everyone."
 echo ""
 
@@ -120,7 +119,7 @@ echo ""
 # ==================================================================
 
 BINARY="crayfish-${OS}-${ARCH}"
-DOWNLOAD_URL="https://github.com/KekwanuLabs/crayfish/releases/download/v${CRAYFISH_VERSION}/${BINARY}"
+DOWNLOAD_URL="https://github.com/KekwanuLabs/crayfish/releases/download/latest/${BINARY}"
 info "Downloading ${BINARY}..."
 
 if command -v curl &>/dev/null; then

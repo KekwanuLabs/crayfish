@@ -24,6 +24,7 @@ misc.txt
 notes.txt
 TODO.md
 docs/SHIPPING_PLAN.md
+tasks/
 
 # IDE and editors
 .idea/
