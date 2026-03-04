@@ -16,11 +16,12 @@ import (
 
 // DashboardAPI provides HTTP endpoints for the admin dashboard.
 type DashboardAPI struct {
-	db       *storage.DB
-	bus      bus.Bus
-	appRef   AppAccessor
-	adapters func() []string
-	logger   *slog.Logger
+	db         *storage.DB
+	bus        bus.Bus
+	appRef     AppAccessor
+	adapters   func() []string
+	logger     *slog.Logger
+	restartFn  func() // injectable for tests; defaults to SIGTERM self
 }
 
 // NewDashboardAPI creates a new dashboard API handler.
@@ -31,6 +32,10 @@ func NewDashboardAPI(db *storage.DB, b bus.Bus, appRef AppAccessor, adaptersFn f
 		appRef:   appRef,
 		adapters: adaptersFn,
 		logger:   logger,
+		restartFn: func() {
+			proc, _ := os.FindProcess(os.Getpid())
+			proc.Signal(syscall.SIGTERM)
+		},
 	}
 }
 
@@ -117,10 +122,10 @@ func (api *DashboardAPI) handleConfig(w http.ResponseWriter, r *http.Request) {
 			"restart_needed": restartNeeded,
 		})
 		if restartNeeded {
+			fn := api.restartFn
 			go func() {
 				time.Sleep(500 * time.Millisecond)
-				proc, _ := os.FindProcess(os.Getpid())
-				proc.Signal(syscall.SIGTERM)
+				fn()
 			}()
 		}
 	default:

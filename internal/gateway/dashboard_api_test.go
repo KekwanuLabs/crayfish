@@ -81,6 +81,7 @@ func testAPI(t *testing.T) (*DashboardAPI, *storage.DB) {
 	}
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError}))
 	api := NewDashboardAPI(db, b, app, func() []string { return []string{"cli", "telegram"} }, logger)
+	api.restartFn = func() {} // no-op: prevent SIGTERM from killing the test process
 	return api, db
 }
 

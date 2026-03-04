@@ -621,9 +621,9 @@ func TestSummarizerSnapshotIntegration(t *testing.T) {
 	summarizer := NewSummarizer(db, summarizerProvider, testLogger())
 	summarizer.SetSnapshotManager(snapshotMgr)
 
-	// Build enough messages to trigger summarization (> 15).
+	// Build enough messages to trigger summarization (> SummarizationThreshold = 40).
 	var messages []provider.Message
-	for i := 0; i < 18; i++ {
+	for i := 0; i < 45; i++ {
 		role := provider.RoleUser
 		if i%2 == 1 {
 			role = provider.RoleAssistant
