@@ -76,3 +76,70 @@ func ValidateTwilioCredentials(ctx context.Context, accountSID, authToken string
 	}
 	return nil
 }
+
+// UpdateWebhook sets the VoiceUrl on the Twilio phone number to twimlURL.
+// Called automatically whenever the tunnel URL changes.
+func UpdateWebhook(ctx context.Context, accountSID, authToken, fromNumber, twimlURL string) error {
+	sid, err := lookupPhoneNumberSID(ctx, accountSID, authToken, fromNumber)
+	if err != nil {
+		return fmt.Errorf("lookup phone SID: %w", err)
+	}
+
+	endpoint := fmt.Sprintf("https://api.twilio.com/2010-04-01/Accounts/%s/IncomingPhoneNumbers/%s.json",
+		accountSID, sid)
+
+	form := url.Values{}
+	form.Set("VoiceUrl", twimlURL)
+	form.Set("VoiceMethod", "GET")
+
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.SetBasicAuth(accountSID, authToken)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := twilioHTTPClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("http: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		return fmt.Errorf("Twilio API %d: %s", resp.StatusCode, string(b))
+	}
+	return nil
+}
+
+// lookupPhoneNumberSID finds the SID for a given Twilio phone number.
+func lookupPhoneNumberSID(ctx context.Context, accountSID, authToken, phoneNumber string) (string, error) {
+	endpoint := fmt.Sprintf(
+		"https://api.twilio.com/2010-04-01/Accounts/%s/IncomingPhoneNumbers.json?PhoneNumber=%s",
+		accountSID, url.QueryEscape(phoneNumber))
+
+	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+	if err != nil {
+		return "", err
+	}
+	req.SetBasicAuth(accountSID, authToken)
+
+	resp, err := twilioHTTPClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("http: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		IncomingPhoneNumbers []struct {
+			SID string `json:"sid"`
+		} `json:"incoming_phone_numbers"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return "", fmt.Errorf("parse: %w", err)
+	}
+	if len(result.IncomingPhoneNumbers) == 0 {
+		return "", fmt.Errorf("phone number %s not found in this Twilio account", phoneNumber)
+	}
+	return result.IncomingPhoneNumbers[0].SID, nil
+}

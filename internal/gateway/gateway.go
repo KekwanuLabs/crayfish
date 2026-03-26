@@ -105,8 +105,48 @@ func (g *Gateway) RegisterAdapter(adapter channels.ChannelAdapter) {
 	g.logger.Info("adapter registered", "name", adapter.Name())
 }
 
+// NotifyOperator sends a system message to the operator via their preferred channel.
+// Used by background services (tunnel manager, etc.) to report status changes.
+func (g *Gateway) NotifyOperator(ctx context.Context, message string) error {
+	g.mu.RLock()
+	tgAdapter, ok := g.adapters["telegram"]
+	g.mu.RUnlock()
+	if !ok || tgAdapter == nil {
+		return nil
+	}
+	return tgAdapter.Send(ctx, channels.OutboundMessage{
+		Text: message,
+	})
+}
+
 // RegisterPhoneAdapter wires the Twilio ConversationRelay phone adapter.
 // Exposes /phone/twiml (TwiML endpoint) and /phone/ws (WebSocket endpoint).
+// isLocalRequest returns true if the request originates from localhost or a private network.
+func isLocalRequest(r *http.Request) bool {
+	host := r.RemoteAddr
+	// Strip port.
+	if idx := strings.LastIndex(host, ":"); idx != -1 {
+		host = host[:idx]
+	}
+	host = strings.TrimPrefix(host, "[") // IPv6
+	host = strings.TrimSuffix(host, "]")
+
+	// Check X-Forwarded-For from Cloudflare Tunnel (it sends the real IP).
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		host = strings.TrimSpace(strings.Split(xff, ",")[0])
+	}
+
+	return host == "127.0.0.1" || host == "::1" ||
+		strings.HasPrefix(host, "192.168.") ||
+		strings.HasPrefix(host, "10.") ||
+		strings.HasPrefix(host, "172.16.") ||
+		strings.HasPrefix(host, "172.17.") ||
+		strings.HasPrefix(host, "172.18.") ||
+		strings.HasPrefix(host, "172.19.") ||
+		strings.HasPrefix(host, "172.2") ||
+		strings.HasPrefix(host, "172.3")
+}
+
 func (g *Gateway) RegisterPhoneAdapter(adapter *phone.Adapter) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -244,11 +284,19 @@ func (g *Gateway) adapterNames() []string {
 }
 
 // requireAuth wraps an HTTP handler with Bearer token authentication.
-// If no API key is configured, requests pass through (backward compat).
+// Local requests (127.0.0.1, ::1, 192.168.x.x, 10.x.x.x) always pass through
+// so the setup wizard and local dashboard work without credentials.
+// External (tunnel) requests require a valid Bearer token.
 func (g *Gateway) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if g.config.APIKey == "" {
+		// Always allow local network access.
+		if isLocalRequest(r) {
 			next(w, r)
+			return
+		}
+		if g.config.APIKey == "" {
+			// No key generated yet — block external access.
+			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
 		auth := r.Header.Get("Authorization")

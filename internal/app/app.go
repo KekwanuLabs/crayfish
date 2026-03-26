@@ -21,6 +21,7 @@ import (
 	"github.com/KekwanuLabs/crayfish/internal/channels/cli"
 	"github.com/KekwanuLabs/crayfish/internal/channels/phone"
 	"github.com/KekwanuLabs/crayfish/internal/channels/telegram"
+	"github.com/KekwanuLabs/crayfish/internal/tunnel"
 	"github.com/KekwanuLabs/crayfish/internal/drive"
 	"github.com/KekwanuLabs/crayfish/internal/gateway"
 	"github.com/KekwanuLabs/crayfish/internal/gmail"
@@ -123,6 +124,20 @@ func (a *App) Start(ctx context.Context) error {
 
 	// 3. Session store
 	a.sessions = security.NewSessionStore(db.Inner(), a.Logger.With("component", "sessions"))
+
+	// Auto-generate dashboard API key on first run if none is configured.
+	// This secures the dashboard without requiring manual setup.
+	if a.Config.DashboardAPIKey == "" {
+		key, err := generateAPIKey()
+		if err == nil {
+			a.Config.DashboardAPIKey = key
+			if saveErr := a.Config.SaveConfig(); saveErr == nil {
+				a.Logger.Info("dashboard API key generated (first run)",
+					"key", key,
+					"hint", "Add 'Authorization: Bearer "+key+"' header to access the dashboard remotely")
+			}
+		}
+	}
 
 	// 4. LLM provider
 	provCfg := provider.ProviderConfig{
@@ -1258,6 +1273,16 @@ func (a *App) Start(ctx context.Context) error {
 		}
 	}
 
+	// Auto-manage Cloudflare Tunnel when Twilio is configured.
+	// Starts cloudflared, parses the URL, and updates the Twilio webhook automatically.
+	// Runs in background; re-runs on crash with retry loop.
+	if a.Config.TwilioAccountSID != "" && tunnel.IsAvailable() {
+		go a.runTunnelManager(ctx, phoneAdapter)
+	} else if a.Config.TwilioAccountSID != "" && !tunnel.IsAvailable() {
+		a.Logger.Warn("cloudflared not installed — phone calls need a public URL",
+			"hint", "Install with: curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm -o /usr/local/bin/cloudflared && chmod +x /usr/local/bin/cloudflared")
+	}
+
 	if err := a.gateway.Start(ctx, rt, a.bus); err != nil {
 		cancel()
 		return fmt.Errorf("start gateway: %w", err)
@@ -1658,6 +1683,76 @@ func (a *App) wireCloudSTT(tgAdapter *telegram.Adapter) {
 }
 
 // cleanSnapshots periodically removes old session snapshots.
+// runTunnelManager starts and supervises the Cloudflare Tunnel.
+// When a URL is assigned (or reassigned after restart), it immediately
+// updates the Twilio webhook — retrying until it succeeds.
+// Any failure is logged AND sent to the user via Telegram so they know.
+func (a *App) runTunnelManager(ctx context.Context, phoneAdapter *phone.Adapter) {
+	notify := func(msg string) {
+		a.Logger.Warn("tunnel", "msg", msg)
+		// Push to Telegram so the user knows something happened.
+		if a.gateway != nil {
+			_ = a.gateway.NotifyOperator(ctx, "📡 "+msg)
+		}
+	}
+
+	mgr := tunnel.New("http://localhost:8119", func(tunnelURL string) {
+		a.Logger.Info("tunnel URL assigned", "url", tunnelURL)
+
+		// Update config so TwiML uses the new URL.
+		a.configMu.Lock()
+		a.Config.TunnelURL = tunnelURL
+		a.configMu.Unlock()
+		_ = a.Config.SaveConfig()
+
+		if phoneAdapter != nil {
+			phoneAdapter.UpdateTunnelURL(tunnelURL)
+		}
+
+		// Update Twilio webhook — retry with backoff until it succeeds.
+		twimlURL := tunnelURL + "/phone/twiml"
+		a.Logger.Info("updating Twilio webhook", "url", twimlURL)
+
+		var lastErr error
+		for attempt := 1; attempt <= 10; attempt++ {
+			updateCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			err := phone.UpdateWebhook(updateCtx, a.Config.TwilioAccountSID,
+				a.Config.TwilioAuthToken, a.Config.TwilioFromNumber, twimlURL)
+			cancel()
+
+			if err == nil {
+				a.Logger.Info("Twilio webhook updated — phone calls ready", "url", twimlURL)
+				notify(fmt.Sprintf("Phone calls ready. Tunnel: %s", tunnelURL))
+				return
+			}
+
+			lastErr = err
+			a.Logger.Warn("Twilio webhook update failed, retrying",
+				"attempt", attempt, "error", err)
+
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Duration(attempt*attempt) * time.Second): // exponential backoff
+			}
+		}
+
+		// All retries exhausted.
+		notify(fmt.Sprintf("⚠️ Tunnel is up (%s) but Twilio webhook update failed after 10 attempts: %v — phone calls may not work. Check your Twilio credentials.", tunnelURL, lastErr))
+	}, a.Logger.With("component", "tunnel"))
+
+	mgr.Start(ctx)
+}
+
+// generateAPIKey creates a cryptographically random 32-character hex API key.
+func generateAPIKey() (string, error) {
+	b := make([]byte, 16)
+	if _, err := crypto_rand.Read(b); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%x", b), nil
+}
+
 func (a *App) cleanSnapshots(ctx context.Context, mgr *runtime.SnapshotManager, keep int) {
 	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()

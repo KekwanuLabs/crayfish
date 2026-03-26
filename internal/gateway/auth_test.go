@@ -64,7 +64,7 @@ func TestRequireAuthPassesWithCorrectKey(t *testing.T) {
 	}
 }
 
-func TestRequireAuthPassthroughWhenNoKey(t *testing.T) {
+func TestRequireAuthPassthroughFromLocalhost(t *testing.T) {
 	g := &Gateway{config: Config{APIKey: ""}}
 
 	handler := g.requireAuth(func(w http.ResponseWriter, r *http.Request) {
@@ -72,12 +72,31 @@ func TestRequireAuthPassthroughWhenNoKey(t *testing.T) {
 		w.Write([]byte("ok"))
 	})
 
-	// No Authorization header, no API key configured — should pass through.
+	// Localhost requests always pass through regardless of API key.
 	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/overview", nil)
+	req.RemoteAddr = "127.0.0.1:54321"
 	rec := httptest.NewRecorder()
 	handler(rec, req)
 
 	if rec.Code != http.StatusOK {
-		t.Errorf("status = %d, want %d (no key configured = passthrough)", rec.Code, http.StatusOK)
+		t.Errorf("status = %d, want %d (localhost = always allowed)", rec.Code, http.StatusOK)
+	}
+}
+
+func TestRequireAuthBlocksExternalWithNoKey(t *testing.T) {
+	g := &Gateway{config: Config{APIKey: ""}}
+
+	handler := g.requireAuth(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	// External request with no API key configured — must be blocked.
+	req := httptest.NewRequest(http.MethodGet, "/api/dashboard/overview", nil)
+	req.RemoteAddr = "203.0.113.1:54321" // external IP
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+
+	if rec.Code != http.StatusForbidden {
+		t.Errorf("status = %d, want %d (external + no key = forbidden)", rec.Code, http.StatusForbidden)
 	}
 }

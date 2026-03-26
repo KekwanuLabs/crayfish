@@ -7,11 +7,15 @@ package phone
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha1"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +41,7 @@ type Adapter struct {
 	llm      provider.Provider
 	logger   *slog.Logger
 	sessions sync.Map // callSid → *Session
+	mu       sync.RWMutex
 }
 
 // New creates a phone channel adapter.
@@ -71,7 +76,13 @@ func (a *Adapter) Send(_ context.Context, _ channels.OutboundMessage) error { re
 
 // HandleTwiML is the HTTP handler that serves the ConversationRelay TwiML.
 // Twilio fetches this when the call connects (inbound or outbound).
+// Requests not originating from Twilio are rejected (HMAC-SHA1 signature check).
 func (a *Adapter) HandleTwiML(w http.ResponseWriter, r *http.Request) {
+	if !validateTwilioRequest(r, a.config.TwilioAuthToken) {
+		a.logger.Warn("rejected unauthorized TwiML request", "remote", r.RemoteAddr)
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	callSid := r.URL.Query().Get("CallSid")
 	if callSid == "" {
 		callSid = r.FormValue("CallSid")
@@ -106,7 +117,13 @@ func (a *Adapter) HandleTwiML(w http.ResponseWriter, r *http.Request) {
 }
 
 // HandleWebSocket is the HTTP handler for the ConversationRelay WebSocket endpoint.
+// Validates the Twilio signature before upgrading.
 func (a *Adapter) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
+	if !validateTwilioRequest(r, a.config.TwilioAuthToken) {
+		a.logger.Warn("rejected unauthorized WebSocket upgrade", "remote", r.RemoteAddr)
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	ws, err := UpgradeWS(w, r)
 	if err != nil {
 		a.logger.Warn("WebSocket upgrade failed", "error", err)
@@ -120,6 +137,14 @@ func (a *Adapter) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 			a.sessions.Delete(sess.callSid)
 		}
 	}()
+}
+
+// UpdateTunnelURL updates the tunnel URL used for outbound calls and TwiML.
+// Called automatically by the tunnel manager whenever the URL changes.
+func (a *Adapter) UpdateTunnelURL(url string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.config.TunnelURL = url
 }
 
 // MakeCall initiates an outbound call via the Twilio REST API.
@@ -169,6 +194,55 @@ func (a *Adapter) elevenLabsVoice() string {
 		id = "21m00Tcm4TlvDq8ikWAM" // Rachel
 	}
 	return fmt.Sprintf("%s-flash_v2_5-1.0_0.5_0.75", id)
+}
+
+// validateTwilioRequest returns true if the request genuinely came from Twilio.
+// Twilio signs every request with HMAC-SHA1(authToken, fullURL + sorted POST params).
+// Rejecting unsigned requests prevents toll fraud from anyone who finds the tunnel URL.
+// See: https://www.twilio.com/docs/usage/security#validating-signatures-from-twilio
+func validateTwilioRequest(r *http.Request, authToken string) bool {
+	if authToken == "" {
+		return true // no token configured — skip validation (setup phase)
+	}
+
+	signature := r.Header.Get("X-Twilio-Signature")
+	if signature == "" {
+		return false
+	}
+
+	// Build the full URL including scheme.
+	scheme := "https"
+	if r.TLS == nil && r.Header.Get("X-Forwarded-Proto") == "" {
+		scheme = "http"
+	}
+	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
+		scheme = proto
+	}
+	fullURL := scheme + "://" + r.Host + r.RequestURI
+
+	// Parse POST body to get form params (Twilio uses POST for TwiML webhook).
+	_ = r.ParseForm()
+
+	// Sort POST params alphabetically and concatenate key+value pairs.
+	var sb strings.Builder
+	sb.WriteString(fullURL)
+	if r.Method == "POST" {
+		keys := make([]string, 0, len(r.PostForm))
+		for k := range r.PostForm {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			sb.WriteString(k)
+			sb.WriteString(r.PostForm.Get(k))
+		}
+	}
+
+	mac := hmac.New(sha1.New, []byte(authToken))
+	mac.Write([]byte(sb.String()))
+	expected := base64.StdEncoding.EncodeToString(mac.Sum(nil))
+
+	return hmac.Equal([]byte(expected), []byte(signature))
 }
 
 func escapeXML(s string) string {
