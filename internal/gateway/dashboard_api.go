@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"syscall"
@@ -50,6 +51,19 @@ func (api *DashboardAPI) RegisterRoutes(mux *http.ServeMux, wrap func(http.Handl
 	mux.HandleFunc("/api/dashboard/memory/", wrap(api.handleMemoryDelete))
 	mux.HandleFunc("/api/dashboard/events", wrap(api.handleEvents))
 	mux.HandleFunc("/api/dashboard/snapshots", wrap(api.handleSnapshots))
+	mux.HandleFunc("/api/security/status", wrap(api.handleSecurityStatus))
+}
+
+// GET /api/security/status — returns firewall state (ufw).
+func (api *DashboardAPI) handleSecurityStatus(w http.ResponseWriter, r *http.Request) {
+	firewallEnabled := false
+	cmd := exec.CommandContext(r.Context(), "sudo", "ufw", "status")
+	if out, err := cmd.Output(); err == nil {
+		firewallEnabled = strings.Contains(string(out), "Status: active")
+	}
+	api.writeJSON(w, map[string]any{
+		"firewall_enabled": firewallEnabled,
+	})
 }
 
 func (api *DashboardAPI) writeJSON(w http.ResponseWriter, v any) {

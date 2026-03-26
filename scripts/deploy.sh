@@ -247,6 +247,25 @@ if ! command -v cloudflared >/dev/null 2>&1; then
 else
     echo "[deploy] cloudflared already installed"
 fi
+
+# Firewall — ensure ufw is active with correct rules.
+if command -v ufw >/dev/null 2>&1; then
+    if sudo ufw status | grep -q "Status: active"; then
+        echo "[deploy] Firewall already active"
+    else
+        echo "[deploy] Configuring firewall..."
+        sudo ufw --force reset >/dev/null 2>&1
+        sudo ufw default deny incoming >/dev/null 2>&1
+        sudo ufw default allow outgoing >/dev/null 2>&1
+        sudo ufw allow 22/tcp >/dev/null 2>&1
+        sudo ufw allow from 192.168.0.0/16 to any port 8119 proto tcp >/dev/null 2>&1
+        sudo ufw allow from 10.0.0.0/8     to any port 8119 proto tcp >/dev/null 2>&1
+        sudo ufw allow from 172.16.0.0/12  to any port 8119 proto tcp >/dev/null 2>&1
+        sudo ufw allow from 127.0.0.1      to any port 8119 proto tcp >/dev/null 2>&1
+        sudo ufw --force enable >/dev/null 2>&1
+        echo "[deploy] Firewall configured"
+    fi
+fi
 DEPS_SCRIPT
 
     info "Dependencies checked"

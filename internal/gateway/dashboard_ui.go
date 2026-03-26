@@ -412,6 +412,40 @@ const dashboardPageHTML = `<!DOCTYPE html>
         <div class="form-group"><label>Listen Address</label><input type="text" id="cfg-listen_addr"></div>
       </div>
       <div class="form-section">
+        <div class="form-section-header"><span class="dot-hot"></span> Phone &amp; Tunnel</div>
+        <div id="phone-status-bar" style="display:none;margin-bottom:1rem;padding:0.75rem 1rem;border-radius:10px;background:rgba(15,23,42,0.6);border:1px solid rgba(71,85,105,0.4);font-size:0.875rem;">
+          <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">
+            <span id="phone-dot" style="width:8px;height:8px;border-radius:50%;background:#6ee7b7;flex-shrink:0;"></span>
+            <span id="phone-status-text" style="color:#94a3b8;"></span>
+          </div>
+          <div id="tunnel-type-banner" style="display:none;margin-top:0.5rem;padding:0.5rem 0.75rem;border-radius:8px;background:rgba(249,115,22,0.1);border:1px solid rgba(249,115,22,0.2);font-size:0.8125rem;color:#fcd34d;"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Twilio Account SID</label><input type="text" id="cfg-twilio_account_sid" placeholder="ACxxxxxxxxxxxxx" autocomplete="off"></div>
+          <div class="form-group"><label>From Number</label><input type="text" id="cfg-twilio_from_number" placeholder="+12025551234"></div>
+        </div>
+        <div class="form-group">
+          <label>Stable Tunnel URL <span style="color:#64748b;font-weight:400;font-size:0.75rem;">(optional — see below)</span></label>
+          <div style="display:flex;gap:0.5rem;">
+            <input type="text" id="cfg-tunnel_url" placeholder="https://abc.trycloudflare.com" style="flex:1;">
+            <button class="btn btn-secondary" onclick="saveTunnelURL()" style="white-space:nowrap;padding:0 1rem;">Save &amp; Sync</button>
+          </div>
+          <div style="margin-top:0.625rem;padding:0.875rem 1rem;border-radius:10px;background:rgba(15,23,42,0.6);border:1px solid rgba(71,85,105,0.3);font-size:0.8125rem;line-height:1.6;color:#94a3b8;">
+            <div style="color:#f8fafc;font-weight:500;margin-bottom:0.375rem;">🔁 How tunnels work</div>
+            <div><b style="color:#6ee7b7;">Quick tunnel (default, automatic):</b> Crayfish starts a Cloudflare tunnel on boot, gets a random URL like <code>abc-def.trycloudflare.com</code>, and automatically updates your Twilio webhook. Works immediately with zero setup. The URL changes on restart but Crayfish syncs it every time.</div>
+            <div style="margin-top:0.5rem;"><b style="color:#f97316;">Named tunnel (stable URL, optional):</b> If you want a permanent URL like <code>calls.yourdomain.com</code> that never changes — useful if you receive inbound calls or want faster reconnection — follow these steps:</div>
+            <ol style="margin:0.375rem 0 0 1.25rem;padding:0;color:#94a3b8;">
+              <li>Create a free Cloudflare account at cloudflare.com</li>
+              <li>On the Pi: <code>cloudflared tunnel login</code> (opens browser)</li>
+              <li>On the Pi: <code>cloudflared tunnel create crayfish</code></li>
+              <li>On the Pi: <code>cloudflared tunnel route dns crayfish calls.yourdomain.com</code></li>
+              <li>Paste your stable URL above and click Save &amp; Sync</li>
+            </ol>
+            <div style="margin-top:0.5rem;color:#64748b;">The quick tunnel is fine for most people. The stable URL is a power-user feature.</div>
+          </div>
+        </div>
+        <div id="firewall-status" style="display:none;margin-top:0.5rem;padding:0.625rem 0.875rem;border-radius:8px;font-size:0.8125rem;"></div>
+
         <div class="form-section-header"><span class="dot-hot"></span> System</div>
         <div class="form-row">
           <div class="form-group"><label>Session Resume (min)</label><input type="number" id="cfg-session_resume_minutes"></div>
@@ -583,7 +617,8 @@ async function loadSettings() {
   const c = await fetchJSON('/api/dashboard/config');
   const fields = ['name','personality','system_prompt','provider','api_key','endpoint','model','max_tokens',
     'telegram_token','gmail_user','gmail_app_password','brave_api_key','listen_addr',
-    'session_resume_minutes','snapshots_per_session','update_channel'];
+    'session_resume_minutes','snapshots_per_session','update_channel',
+    'twilio_account_sid','twilio_from_number','tunnel_url'];
   fields.forEach(f => {
     const el = document.getElementById('cfg-'+f);
     if (!el) return;
@@ -592,6 +627,62 @@ async function loadSettings() {
   });
   document.getElementById('cfg-continuity_enabled').checked = !!c.continuity_enabled;
   document.getElementById('cfg-auto_update').checked = !!c.auto_update;
+
+  // Phone & Tunnel status panel.
+  if (c.phone_configured) {
+    const bar = document.getElementById('phone-status-bar');
+    bar.style.display = 'block';
+    const txt = document.getElementById('phone-status-text');
+    txt.textContent = 'Phone configured — ' + (c.twilio_from_number || 'number not set');
+
+    const banner = document.getElementById('tunnel-type-banner');
+    if (c.tunnel_type === 'quick') {
+      banner.style.display = 'block';
+      banner.textContent = '🔁 Using quick tunnel — URL changes on restart but Crayfish syncs Twilio automatically. For a permanent URL, paste your named tunnel URL below.';
+    } else if (c.tunnel_type === 'named') {
+      banner.style.display = 'block';
+      banner.style.background = 'rgba(16,185,129,0.1)';
+      banner.style.borderColor = 'rgba(16,185,129,0.3)';
+      banner.style.color = '#6ee7b7';
+      banner.textContent = '✓ Stable tunnel configured — your URL never changes on restart.';
+    }
+  }
+
+  // Firewall status.
+  loadFirewallStatus();
+}
+
+async function loadFirewallStatus() {
+  try {
+    const s = await fetchJSON('/api/security/status');
+    const el = document.getElementById('firewall-status');
+    if (!el) return;
+    el.style.display = 'block';
+    if (s.firewall_enabled) {
+      el.style.background = 'rgba(16,185,129,0.08)';
+      el.style.border = '1px solid rgba(16,185,129,0.2)';
+      el.style.color = '#6ee7b7';
+      el.innerHTML = '🛡️ Firewall active — SSH and local dashboard open, all other inbound ports blocked.';
+    } else {
+      el.style.background = 'rgba(239,68,68,0.08)';
+      el.style.border = '1px solid rgba(239,68,68,0.2)';
+      el.style.color = '#fca5a5';
+      el.innerHTML = '⚠️ Firewall not active. Run <code>sudo ufw enable</code> on the Pi for extra security.';
+    }
+  } catch(e) { /* non-fatal */ }
+}
+
+async function saveTunnelURL() {
+  const url = document.getElementById('cfg-tunnel_url').value.trim();
+  if (!url) { showToast('Enter a tunnel URL first','error'); return; }
+  if (!url.startsWith('https://')) { showToast('URL must start with https://','error'); return; }
+  const r = await fetchJSON('/api/dashboard/config', {
+    method: 'PUT',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({tunnel_url: url})
+  });
+  showToast('Tunnel URL saved — syncing Twilio webhook…', 'success');
+  setTimeout(loadSettings, 3000); // refresh status after webhook sync
 }
 
 async function saveSettings() {

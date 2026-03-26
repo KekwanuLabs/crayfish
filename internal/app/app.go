@@ -1410,7 +1410,25 @@ func (a *App) DashboardConfig() map[string]any {
 		"google_connected":       a.Config.Google != nil && a.Config.Google.RefreshToken != "",
 		"google_scopes":          googleScopes(a.Config.Google),
 		"amadeus_connected":      a.Config.AmadeusClientID != "" && a.Config.AmadeusClientSecret != "",
+		// Phone & Tunnel
+		"twilio_account_sid":  mask(a.Config.TwilioAccountSID),
+		"twilio_from_number":  a.Config.TwilioFromNumber,
+		"tunnel_url":          a.Config.TunnelURL,
+		"phone_configured":    a.Config.TwilioAccountSID != "",
+		"tunnel_type":         tunnelType(a.Config.TunnelURL),
+		"dashboard_api_key":   mask(a.Config.DashboardAPIKey),
 	}
+}
+
+// tunnelType returns "named" if the URL was explicitly set (stable), "quick" if auto-assigned.
+func tunnelType(url string) string {
+	if url == "" {
+		return "none"
+	}
+	if strings.Contains(url, "trycloudflare.com") {
+		return "quick"
+	}
+	return "named"
 }
 
 // UpdateConfig applies config updates. Returns true if a restart is needed.
@@ -1540,6 +1558,23 @@ func (a *App) UpdateConfig(updates map[string]any) (bool, error) {
 	// Hot-reload runtime config.
 	if a.rt != nil {
 		a.rt.UpdateConfig(a.Config.Name, a.Config.Personality, a.Config.SystemPrompt)
+	}
+
+	// If tunnel_url was updated, persist and re-sync Twilio webhook immediately.
+	if newURL, ok := updates["tunnel_url"].(string); ok && newURL != "" {
+		a.Config.TunnelURL = newURL
+		_ = a.Config.SaveConfig()
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			twimlURL := strings.TrimSuffix(newURL, "/") + "/phone/twiml"
+			if err := phone.UpdateWebhook(ctx, a.Config.TwilioAccountSID,
+				a.Config.TwilioAuthToken, a.Config.TwilioFromNumber, twimlURL); err != nil {
+				a.Logger.Warn("Twilio webhook update failed after tunnel URL change", "error", err)
+			} else {
+				a.Logger.Info("Twilio webhook updated from dashboard", "url", twimlURL)
+			}
+		}()
 	}
 
 	return restartNeeded, nil

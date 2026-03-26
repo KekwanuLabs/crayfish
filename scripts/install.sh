@@ -509,6 +509,37 @@ EOF
 fi
 
 # ==================================================================
+# Configure firewall (ufw) — lock down to SSH + LAN-only dashboard
+# ==================================================================
+
+if [ "$OS" = "linux" ] && command -v apt-get &>/dev/null; then
+    if ! command -v ufw &>/dev/null; then
+        info "Installing ufw firewall..."
+        sudo apt-get install -y -qq ufw >/dev/null 2>&1
+    fi
+
+    if command -v ufw &>/dev/null; then
+        if sudo ufw status | grep -q "Status: active"; then
+            info "Firewall already active — skipping reconfiguration"
+        else
+            info "Configuring firewall..."
+            sudo ufw --force reset >/dev/null 2>&1
+            sudo ufw default deny incoming >/dev/null 2>&1
+            sudo ufw default allow outgoing >/dev/null 2>&1
+            # SSH — essential for remote management
+            sudo ufw allow 22/tcp >/dev/null 2>&1
+            # Crayfish dashboard — local network only (Cloudflare Tunnel handles external)
+            sudo ufw allow from 192.168.0.0/16 to any port 8119 proto tcp >/dev/null 2>&1
+            sudo ufw allow from 10.0.0.0/8     to any port 8119 proto tcp >/dev/null 2>&1
+            sudo ufw allow from 172.16.0.0/12  to any port 8119 proto tcp >/dev/null 2>&1
+            sudo ufw allow from 127.0.0.1      to any port 8119 proto tcp >/dev/null 2>&1
+            sudo ufw --force enable >/dev/null 2>&1
+            info "Firewall active (SSH open, dashboard LAN-only, all else blocked)"
+        fi
+    fi
+fi
+
+# ==================================================================
 # Done!
 # ==================================================================
 echo ""
