@@ -344,6 +344,7 @@ const dashboardPageHTML = `<!DOCTYPE html>
   <div class="tab-bar">
     <button class="tab-btn active" onclick="switchTab('overview')">Overview</button>
     <button class="tab-btn" onclick="switchTab('settings')">Settings</button>
+    <button class="tab-btn" onclick="switchTab('network')">Network</button>
     <button class="tab-btn" onclick="switchTab('skills')">Skills</button>
     <button class="tab-btn" onclick="switchTab('sessions')">Sessions</button>
     <button class="tab-btn" onclick="switchTab('memory')">Memory</button>
@@ -512,6 +513,100 @@ sudo systemctl restart sshd</pre>
     </div>
   </div>
 
+  <!-- Network Tab -->
+  <div class="tab-content" id="tab-network">
+    <div class="card">
+
+      <!-- Section: Your Device -->
+      <div class="form-section">
+        <div class="form-section-header"><span class="dot-hot"></span> Your Device</div>
+        <div id="net-device" style="font-size:0.8125rem;color:#94a3b8;line-height:1.8;">Loading…</div>
+      </div>
+
+      <!-- Section: Network Topology Diagram -->
+      <div class="form-section">
+        <div class="form-section-header"><span class="dot-hot"></span> Network Topology</div>
+        <div style="font-size:0.8125rem;color:#64748b;margin-bottom:0.75rem;">
+          How traffic flows to and from Crayfish. All external connections are <b style="color:#6ee7b7;">outbound only</b> — nothing on the internet can directly reach your Pi.
+        </div>
+        <pre id="net-topology" style="background:rgba(0,0,0,0.4);border:1px solid rgba(71,85,105,0.3);border-radius:10px;padding:1rem 1.25rem;overflow-x:auto;font-size:0.75rem;line-height:1.7;color:#94a3b8;">Loading topology…</pre>
+      </div>
+
+      <!-- Section: Firewall Rules -->
+      <div class="form-section">
+        <div class="form-section-header"><span class="dot-hot"></span> Firewall</div>
+        <div id="net-firewall-status" style="margin-bottom:0.75rem;font-size:0.8125rem;"></div>
+        <div style="font-size:0.75rem;color:#64748b;margin-bottom:0.5rem;">Active allow rules — everything else is blocked by default:</div>
+        <div id="net-firewall-rules" style="font-size:0.8125rem;color:#94a3b8;font-family:monospace;line-height:1.8;">—</div>
+      </div>
+
+      <!-- Section: External Services -->
+      <div class="form-section">
+        <div class="form-section-header"><span class="dot-hot"></span> External Services</div>
+        <div style="font-size:0.8125rem;color:#64748b;margin-bottom:0.75rem;">
+          These are the only external services Crayfish calls. All connections are HTTPS/TLS. No data is stored on any third-party server beyond what these services require to operate.
+        </div>
+        <div id="net-services" style="display:grid;gap:0.5rem;">Loading…</div>
+      </div>
+
+      <!-- Section: Data Flow Reference -->
+      <div class="form-section">
+        <div class="form-section-header"><span class="dot-hot"></span> What Data Leaves This Device</div>
+        <div style="font-size:0.8125rem;color:#94a3b8;line-height:1.7;">
+          <table style="width:100%;border-collapse:collapse;">
+            <thead>
+              <tr style="color:#64748b;font-size:0.75rem;border-bottom:1px solid rgba(71,85,105,0.3);">
+                <th style="padding:0.375rem 0.5rem;text-align:left;">What</th>
+                <th style="padding:0.375rem 0.5rem;text-align:left;">Sent to</th>
+                <th style="padding:0.375rem 0.5rem;text-align:left;">Why</th>
+                <th style="padding:0.375rem 0.5rem;text-align:left;">Stored?</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr style="border-bottom:1px solid rgba(71,85,105,0.15);">
+                <td style="padding:0.375rem 0.5rem;">Your messages</td>
+                <td style="padding:0.375rem 0.5rem;">LLM provider (Anthropic/Groq/etc.)</td>
+                <td style="padding:0.375rem 0.5rem;">Inference</td>
+                <td style="padding:0.375rem 0.5rem;color:#fca5a5;">Per provider policy</td>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(71,85,105,0.15);">
+                <td style="padding:0.375rem 0.5rem;">Voice audio</td>
+                <td style="padding:0.375rem 0.5rem;">Groq / OpenAI (STT)</td>
+                <td style="padding:0.375rem 0.5rem;">Transcription</td>
+                <td style="padding:0.375rem 0.5rem;color:#fca5a5;">Per provider policy</td>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(71,85,105,0.15);">
+                <td style="padding:0.375rem 0.5rem;">Response text</td>
+                <td style="padding:0.375rem 0.5rem;">ElevenLabs (if configured)</td>
+                <td style="padding:0.375rem 0.5rem;">Voice synthesis</td>
+                <td style="padding:0.375rem 0.5rem;color:#fca5a5;">Per provider policy</td>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(71,85,105,0.15);">
+                <td style="padding:0.375rem 0.5rem;">Search queries</td>
+                <td style="padding:0.375rem 0.5rem;">Brave Search (if configured)</td>
+                <td style="padding:0.375rem 0.5rem;">Web search</td>
+                <td style="padding:0.375rem 0.5rem;color:#fca5a5;">Per provider policy</td>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(71,85,105,0.15);">
+                <td style="padding:0.375rem 0.5rem;">Call audio</td>
+                <td style="padding:0.375rem 0.5rem;">Twilio (if configured)</td>
+                <td style="padding:0.375rem 0.5rem;">Phone calls</td>
+                <td style="padding:0.375rem 0.5rem;color:#fca5a5;">Per Twilio policy</td>
+              </tr>
+              <tr style="border-bottom:1px solid rgba(71,85,105,0.15);">
+                <td style="padding:0.375rem 0.5rem;">All other data</td>
+                <td style="padding:0.375rem 0.5rem;">Your device only</td>
+                <td style="padding:0.375rem 0.5rem;">Stored locally in SQLite</td>
+                <td style="padding:0.375rem 0.5rem;color:#6ee7b7;">On your device</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div><!-- .card -->
+  </div><!-- #tab-network -->
+
   <!-- Skills Tab -->
   <div class="tab-content" id="tab-skills">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
@@ -619,6 +714,7 @@ async function loadTab(t) {
     switch(t) {
       case 'overview': await loadOverview(); break;
       case 'settings': await loadSettings(); break;
+      case 'network': await loadNetwork(); break;
       case 'skills': await loadSkills(); break;
       case 'sessions': await loadSessions(); break;
       case 'memory': await loadMemory(''); break;
@@ -778,6 +874,111 @@ async function waitForRestart() {
 function togglePass(id) {
   const el = document.getElementById(id);
   el.type = el.type === 'password' ? 'text' : 'password';
+}
+
+/* === Network === */
+async function loadNetwork() {
+  const n = await fetchJSON('/api/network/status');
+
+  // Device summary
+  const ifaces = (n.interfaces || []).map(iface => {
+    const v4 = (iface.ipv4 || []).join(', ');
+    const v6 = (iface.ipv6 || []).map(a => a.split('/')[0]).join(', ');
+    let line = iface.name + ':  ' + (v4 || '—');
+    if (v6) line += '  |  IPv6: ' + v6;
+    return line;
+  }).join('\n');
+  document.getElementById('net-device').innerHTML =
+    '<b style="color:#f8fafc;">Hostname:</b> ' + esc(n.hostname || '—') + '<br>' +
+    '<b style="color:#f8fafc;">Interfaces:</b><br><pre style="margin:0.25rem 0 0 1rem;font-size:0.8125rem;color:#94a3b8;">' + esc(ifaces) + '</pre>';
+
+  // Build ASCII topology diagram
+  const tunnelLine = n.tunnel_url
+    ? 'Internet --> Cloudflare Edge --> [Tunnel] --> Crayfish :8119\n' +
+      '                                              (Twilio calls only, HMAC-validated)\n'
+    : 'Internet --> [BLOCKED by firewall - no inbound connections]\n';
+
+  const ifaceLines = (n.interfaces || []).map(i =>
+    '  ' + i.name.padEnd(8) + (i.ipv4[0] || '').padEnd(20) + (i.ipv6[0] ? i.ipv6[0].split('/')[0] : '')
+  ).join('\n');
+
+  const topology =
+    '╔══════════════════════════════════════════════════════╗\n' +
+    '║                YOUR LOCAL NETWORK                   ║\n' +
+    '║                                                      ║\n' +
+    '║  Devices ──────────► Crayfish (port 8119)           ║\n' +
+    '║                       └── SSH   (port 22)           ║\n' +
+    '║                                                      ║\n' +
+    '║  Network interfaces:                                 ║\n' +
+    (n.interfaces || []).map(i =>
+      '║    ' + (i.name + ':').padEnd(10) + ((i.ipv4[0]||'no IPv4').padEnd(20)) + '║'
+    ).join('\n') + '\n' +
+    '╚══════════════════════════════════════════════════════╝\n' +
+    '         │ (outbound only — firewall blocks all inbound)\n' +
+    '         ▼\n' +
+    '  ┌──────────────────────────────────────────────────┐\n' +
+    '  │              CLOUDFLARE EDGE                     │\n' +
+    (n.tunnel_url
+      ? '  │  ' + esc(n.tunnel_url).padEnd(46) + '│\n' +
+        '  │  Twilio calls arrive here, validated, forwarded  │\n'
+      : '  │  No tunnel active — external calls not possible  │\n') +
+    '  └──────────────────────────────────────────────────┘\n' +
+    '         │ (outbound API calls)\n' +
+    '         ▼\n' +
+    '  ┌─────────────────────────────────────────────────────────┐\n' +
+    '  │  EXTERNAL SERVICES  (HTTPS only, your data per policy)  │\n' +
+    '  │                                                         │\n' +
+    '  │  LLM  ────►  Anthropic / Groq / Ollama (local) / etc.  │\n' +
+    '  │  STT  ────►  Groq Whisper (cloud) or local whisper.cpp  │\n' +
+    '  │  TTS  ────►  ElevenLabs (cloud) or local Piper          │\n' +
+    '  │  Phone ───►  Twilio ConversationRelay                   │\n' +
+    '  │  Search ──►  Brave Search API                           │\n' +
+    '  │  Email ───►  Gmail / IMAP (read only)                   │\n' +
+    '  └─────────────────────────────────────────────────────────┘\n' +
+    '\n' +
+    'All conversation history, memory, and files stay on your device.';
+
+  document.getElementById('net-topology').textContent = topology;
+
+  // Firewall
+  const fwEl = document.getElementById('net-firewall-status');
+  if (n.firewall_enabled) {
+    fwEl.innerHTML = '<span style="color:#6ee7b7;">🛡️ Active</span> — default deny incoming, allow outgoing';
+  } else {
+    fwEl.innerHTML = '<span style="color:#fca5a5;">⚠️ Not active</span> — run <code>sudo ufw enable</code> on the Pi';
+  }
+
+  const rulesEl = document.getElementById('net-firewall-rules');
+  if (n.firewall_rules && n.firewall_rules.length > 0) {
+    rulesEl.textContent = n.firewall_rules.join('\n');
+  } else if (n.firewall_enabled) {
+    rulesEl.textContent = 'Rules managed dynamically by Crayfish based on active network interfaces.';
+  } else {
+    rulesEl.textContent = '—';
+  }
+
+  // External services
+  const svcEl = document.getElementById('net-services');
+  const svcDefs = [
+    {key:'llm',    label:'LLM (AI brain)',      desc:'Your messages are sent here for inference'},
+    {key:'stt',    label:'Speech-to-Text',       desc:'Voice messages transcribed here'},
+    {key:'tts',    label:'Text-to-Speech',       desc:'Responses synthesised to audio here'},
+    {key:'search', label:'Web Search',           desc:'Search queries sent here'},
+    {key:'email',  label:'Email',                desc:'Email synced from here (read)'},
+    {key:'phone',  label:'Phone Calls',          desc:'Calls routed through here'},
+  ];
+  svcEl.innerHTML = svcDefs.map(s => {
+    const svc = (n.services || {})[s.key] || {};
+    const badge = svc.configured
+      ? '<span class="badge badge-green">configured</span>'
+      : '<span class="badge badge-gray">not configured</span>';
+    const provider = svc.provider ? ' <span style="color:#64748b;font-size:0.75rem;">(' + esc(svc.provider) + ')</span>' : '';
+    return '<div style="display:flex;align-items:baseline;gap:0.5rem;padding:0.375rem 0;border-bottom:1px solid rgba(71,85,105,0.15);">' +
+      '<span style="color:#f8fafc;font-size:0.8125rem;min-width:140px;">' + esc(s.label) + provider + '</span>' +
+      badge +
+      '<span style="color:#64748b;font-size:0.75rem;margin-left:auto;">' + esc(s.desc) + '</span>' +
+      '</div>';
+  }).join('');
 }
 
 /* === Skills === */

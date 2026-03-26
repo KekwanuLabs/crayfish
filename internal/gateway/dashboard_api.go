@@ -53,6 +53,84 @@ func (api *DashboardAPI) RegisterRoutes(mux *http.ServeMux, wrap func(http.Handl
 	mux.HandleFunc("/api/dashboard/events", wrap(api.handleEvents))
 	mux.HandleFunc("/api/dashboard/snapshots", wrap(api.handleSnapshots))
 	mux.HandleFunc("/api/security/status", wrap(api.handleSecurityStatus))
+	mux.HandleFunc("/api/network/status", wrap(api.handleNetworkStatus))
+}
+
+// GET /api/network/status — returns full network topology for the dashboard.
+func (api *DashboardAPI) handleNetworkStatus(w http.ResponseWriter, r *http.Request) {
+	hostname, _ := os.Hostname()
+
+	// Collect all active network interfaces.
+	type ifaceInfo struct {
+		Name string   `json:"name"`
+		IPv4 []string `json:"ipv4"`
+		IPv6 []string `json:"ipv6"`
+	}
+	var ifaces []ifaceInfo
+	netIfaces, _ := net.Interfaces()
+	for _, iface := range netIfaces {
+		if iface.Flags&net.FlagLoopback != 0 || iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		info := ifaceInfo{Name: iface.Name}
+		addrs, _ := iface.Addrs()
+		for _, addr := range addrs {
+			ipNet, ok := addr.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			if ipNet.IP.To4() != nil {
+				info.IPv4 = append(info.IPv4, ipNet.String())
+			} else if len(ipNet.IP) == 16 {
+				info.IPv6 = append(info.IPv6, ipNet.String())
+			}
+		}
+		if len(info.IPv4) > 0 || len(info.IPv6) > 0 {
+			ifaces = append(ifaces, info)
+		}
+	}
+
+	// Firewall status.
+	firewallEnabled := false
+	var firewallRules []string
+	if out, err := exec.CommandContext(r.Context(), "sudo", "ufw", "status", "verbose").Output(); err == nil {
+		firewallEnabled = strings.Contains(string(out), "Status: active")
+		for _, line := range strings.Split(string(out), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.Contains(line, "ALLOW IN") || strings.Contains(line, "DENY IN") ||
+				strings.Contains(line, "ALLOW FWD") {
+				firewallRules = append(firewallRules, line)
+			}
+		}
+	}
+
+	cfg := api.appRef.DashboardConfig()
+	tunnelURL, _ := cfg["tunnel_url"].(string)
+	tunnelType, _ := cfg["tunnel_type"].(string)
+
+	type serviceStatus struct {
+		Configured bool   `json:"configured"`
+		Provider   string `json:"provider,omitempty"`
+	}
+	provider, _ := cfg["provider"].(string)
+	services := map[string]serviceStatus{
+		"llm":    {Configured: cfg["api_key"] != "" || cfg["endpoint"] != "", Provider: provider},
+		"tts":    {Configured: cfg["elevenlabs_api_key"] != "", Provider: "elevenlabs"},
+		"stt":    {Configured: cfg["stt_api_key"] != "" || cfg["api_key"] != "", Provider: "groq/openai"},
+		"search": {Configured: cfg["brave_api_key"] != "", Provider: "brave"},
+		"email":  {Configured: cfg["gmail_user"] != "" || cfg["google_connected"] == true, Provider: "gmail/imap"},
+		"phone":  {Configured: cfg["phone_configured"] == true, Provider: "twilio"},
+	}
+
+	api.writeJSON(w, map[string]any{
+		"hostname":         hostname,
+		"interfaces":       ifaces,
+		"firewall_enabled": firewallEnabled,
+		"firewall_rules":   firewallRules,
+		"tunnel_url":       tunnelURL,
+		"tunnel_type":      tunnelType,
+		"services":         services,
+	})
 }
 
 // GET /api/security/status — returns firewall and network state.
