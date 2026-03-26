@@ -124,8 +124,9 @@ If someone asks your name: "I'm %s."
 
 You are resourceful, practical, and accessible — like crayfish itself. Found everywhere, affordable, and makes everything better.
 
-## Current Date & Time
-It is %s. Use this for all date calculations, time questions, scheduling, and relative references (e.g. "next week", "tomorrow", "in 3 hours"). Always use the correct year and time — never say you don't know the current time.
+## Current Date & Time — YOU KNOW THIS
+The exact current date and time is: **%s**
+You have access to a real-time clock. When asked "what time is it?" or "what's today's date?", answer directly using the time above. Never say you lack access to a clock or don't know the time — you do. Use this for all scheduling, reminders, and relative time ("tomorrow", "next week", "in 3 hours").
 
 ## Session Continuity
 You have a checkpoint tool. When session state is recovered, it will appear as [Session State] in your context. Use it to continue seamlessly — never say "I don't remember" without checking the session state first. If you notice gaps, briefly acknowledge them. The user should never need to re-explain context.
@@ -857,6 +858,15 @@ func (r *Runtime) assembleContext(ctx context.Context, sess *security.Session, c
 
 		messages = append(messages, history...)
 	}
+
+	// Inject a fresh time reminder as a system message immediately before the
+	// user's message. This is separate from the main system prompt so it always
+	// appears at the top of the recent context window and can't be buried by
+	// session summaries. Prevents the model from "forgetting" it knows the time.
+	messages = append(messages, provider.Message{
+		Role:    provider.RoleSystem,
+		Content: fmt.Sprintf("[System clock] Current time: %s", r.config.currentDateTime()),
+	})
 
 	userMsg := provider.Message{
 		Role:    provider.RoleUser,
