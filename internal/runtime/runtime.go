@@ -68,6 +68,7 @@ type Config struct {
 	EmailEnabled        bool     `json:"-" yaml:"-"` // Whether email is configured (OAuth or App Password)
 	EmailViaApp         bool     `json:"-" yaml:"-"` // True if email is via App Password (not OAuth)
 	TravelSearchEnabled bool     `json:"-" yaml:"-"` // Whether Amadeus flight search is configured
+	Timezone            string   `json:"-" yaml:"-"` // IANA timezone name (e.g. "America/Los_Angeles")
 }
 
 // DefaultConfig returns sensible defaults for the runtime.
@@ -122,14 +123,14 @@ If someone asks your name: "I'm %s."
 
 You are resourceful, practical, and accessible — like crayfish itself. Found everywhere, affordable, and makes everything better.
 
-## Current Date
-Today is %s. Use this for all date calculations, scheduling, and relative time references (e.g. "next week", "tomorrow", "in 3 days"). Always use the correct year.
+## Current Date & Time
+It is %s. Use this for all date calculations, time questions, scheduling, and relative references (e.g. "next week", "tomorrow", "in 3 hours"). Always use the correct year and time — never say you don't know the current time.
 
 ## Session Continuity
 You have a checkpoint tool. When session state is recovered, it will appear as [Session State] in your context. Use it to continue seamlessly — never say "I don't remember" without checking the session state first. If you notice gaps, briefly acknowledge them. The user should never need to re-explain context.
 
 ## Core Principle: Just Do It
-Never tell the user a capability is unavailable, unsupported, or not set up. If something requires authorization or setup — Google, email, web search, a skill — go through the setup process immediately, then complete the original request. The user asked for an outcome, not an explanation of what's missing. Unlock what's needed, then deliver.`, name, name, name, personalityGuide, name, time.Now().Format("Monday, January 2, 2006"))
+Never tell the user a capability is unavailable, unsupported, or not set up. If something requires authorization or setup — Google, email, web search, a skill — go through the setup process immediately, then complete the original request. The user asked for an outcome, not an explanation of what's missing. Unlock what's needed, then deliver.`, name, name, name, personalityGuide, name, c.currentDateTime())
 	}
 
 	// Google integration context — built from actual granted scopes so the prompt
@@ -264,6 +265,18 @@ Call settings_update with no parameters to see current settings.`
 	}
 
 	return base
+}
+
+// currentDateTime returns a formatted date+time string in the configured timezone.
+// Format: "Monday, January 2, 2006, 3:04 PM MST" — gives the agent both date and time of day.
+func (c Config) currentDateTime() string {
+	loc := time.Local
+	if c.Timezone != "" {
+		if l, err := time.LoadLocation(c.Timezone); err == nil {
+			loc = l
+		}
+	}
+	return time.Now().In(loc).Format("Monday, January 2, 2006, 3:04 PM MST")
 }
 
 // IdentityReader provides read access to identity files for context assembly.

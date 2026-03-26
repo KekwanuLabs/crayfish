@@ -19,8 +19,8 @@ func TestDefaultConfigContinuityValues(t *testing.T) {
 	if !cfg.ContinuityEnabled {
 		t.Error("ContinuityEnabled should default to true")
 	}
-	if cfg.SessionResumeMinutes != 30 {
-		t.Errorf("SessionResumeMinutes = %d, want 30", cfg.SessionResumeMinutes)
+	if cfg.SessionResumeMinutes != 5 {
+		t.Errorf("SessionResumeMinutes = %d, want 5", cfg.SessionResumeMinutes)
 	}
 	if cfg.SnapshotsPerSession != 3 {
 		t.Errorf("SnapshotsPerSession = %d, want 3", cfg.SnapshotsPerSession)

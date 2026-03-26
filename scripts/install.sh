@@ -165,6 +165,127 @@ else
 fi
 
 # ==================================================================
+# Install system dependencies (ffmpeg for audio conversion)
+# ==================================================================
+
+if [ "$OS" = "linux" ]; then
+    if command -v apt-get &>/dev/null; then
+        MISSING_PKGS=""
+        command -v ffmpeg &>/dev/null || MISSING_PKGS="$MISSING_PKGS ffmpeg"
+        dpkg -s libespeak-ng1 &>/dev/null 2>&1 || MISSING_PKGS="$MISSING_PKGS libespeak-ng1"
+        if [ -n "$MISSING_PKGS" ]; then
+            info "Installing audio dependencies:${MISSING_PKGS}..."
+            sudo apt-get install -y -qq $MISSING_PKGS
+            info "Audio dependencies installed"
+        else
+            info "Audio dependencies already installed"
+        fi
+    else
+        command -v ffmpeg &>/dev/null || warn "ffmpeg not found. Install manually: sudo apt-get install ffmpeg libespeak-ng1"
+    fi
+elif [ "$OS" = "darwin" ]; then
+    if ! command -v ffmpeg &>/dev/null; then
+        warn "ffmpeg not found. Install it for voice synthesis: brew install ffmpeg"
+    fi
+fi
+
+# ==================================================================
+# Install piper TTS (voice synthesis engine)
+# ==================================================================
+
+install_piper() {
+    local piper_platform=""
+    case "${OS}-${ARCH}" in
+        linux-amd64)  piper_platform="linux_x86_64" ;;
+        linux-arm64)  piper_platform="linux_aarch64" ;;
+        linux-armv7)  piper_platform="linux_armv7l" ;;
+        darwin-amd64) piper_platform="macos_x86_64" ;;
+        darwin-arm64) piper_platform="macos_aarch64" ;;
+        linux-armv6)
+            warn "Piper TTS is not available for ARMv6 (Pi Zero/1). Voice synthesis skipped."
+            return 0
+            ;;
+        *)
+            warn "Unknown platform ${OS}-${ARCH}. Skipping piper TTS install."
+            return 0
+            ;;
+    esac
+
+    local piper_dir="${PIPER_INSTALL_DIR}"
+    local piper_bin="${piper_dir}/piper"
+
+    if [ -x "${piper_bin}" ]; then
+        info "Piper TTS already installed"
+        return 0
+    fi
+
+    info "Installing Piper TTS (${piper_platform})..."
+    local piper_url="https://github.com/rhasspy/piper/releases/latest/download/piper_${piper_platform}.tar.gz"
+
+    if [ "$OS" = "linux" ]; then
+        sudo mkdir -p "${piper_dir}"
+        if command -v curl &>/dev/null; then
+            curl -sSL "${piper_url}" | sudo tar -xz -C "${piper_dir}" --strip-components=1
+        else
+            wget -q -O- "${piper_url}" | sudo tar -xz -C "${piper_dir}" --strip-components=1
+        fi
+        sudo chmod +x "${piper_bin}"
+    else
+        mkdir -p "${piper_dir}"
+        if command -v curl &>/dev/null; then
+            curl -sSL "${piper_url}" | tar -xz -C "${piper_dir}" --strip-components=1
+        else
+            wget -q -O- "${piper_url}" | tar -xz -C "${piper_dir}" --strip-components=1
+        fi
+        chmod +x "${piper_bin}"
+    fi
+
+    info "Piper TTS installed"
+
+    # Download default voice model.
+    # Use low-quality on armv7 for speed, medium elsewhere.
+    local model_name="en_US-lessac-medium"
+    if [ "$ARCH" = "armv7" ]; then
+        model_name="en_US-lessac-low"
+    fi
+
+    local model_dir="${piper_dir}/models"
+    if [ "$OS" = "linux" ]; then
+        sudo mkdir -p "${model_dir}"
+    else
+        mkdir -p "${model_dir}"
+    fi
+
+    if [ ! -f "${model_dir}/${model_name}.onnx" ]; then
+        info "Downloading voice model (${model_name})..."
+        local model_base="https://huggingface.co/rhasspy/piper-voices/resolve/v1.0.0/en/en_US/lessac"
+        local model_quality="${model_name##*-}" # "medium" or "low"
+        local model_url="${model_base}/${model_quality}/${model_name}"
+
+        if [ "$OS" = "linux" ]; then
+            if command -v curl &>/dev/null; then
+                curl -sSL "${model_url}.onnx"      | sudo tee "${model_dir}/${model_name}.onnx"      > /dev/null
+                curl -sSL "${model_url}.onnx.json" | sudo tee "${model_dir}/${model_name}.onnx.json" > /dev/null
+            else
+                wget -q "${model_url}.onnx"      -O- | sudo tee "${model_dir}/${model_name}.onnx"      > /dev/null
+                wget -q "${model_url}.onnx.json" -O- | sudo tee "${model_dir}/${model_name}.onnx.json" > /dev/null
+            fi
+        else
+            if command -v curl &>/dev/null; then
+                curl -sSL "${model_url}.onnx"      -o "${model_dir}/${model_name}.onnx"
+                curl -sSL "${model_url}.onnx.json" -o "${model_dir}/${model_name}.onnx.json"
+            else
+                wget -q "${model_url}.onnx"      -O "${model_dir}/${model_name}.onnx"
+                wget -q "${model_url}.onnx.json" -O "${model_dir}/${model_name}.onnx.json"
+            fi
+        fi
+        info "Voice model installed (${model_name})"
+    else
+        info "Voice model already present"
+    fi
+}
+
+# ==================================================================
 # Platform-specific service setup
 # ==================================================================
 
@@ -173,6 +294,7 @@ if [ "$OS" = "linux" ]; then
     CRAYFISH_USER="crayfish"
     CRAYFISH_HOME="/var/lib/crayfish"
     CRAYFISH_CONFIG_DIR="/etc/crayfish"
+    PIPER_INSTALL_DIR="${CRAYFISH_HOME}/piper"
 
     # System user.
     if ! id "${CRAYFISH_USER}" &>/dev/null; then
@@ -234,14 +356,19 @@ ENVEOF
     fi
 
     # Tune memory limits based on RAM.
-    MEMORY_MAX="128M"
-    MEMORY_HIGH="100M"
+    # Piper TTS (ONNX inference) needs ~200MB peak — set limits accordingly.
+    MEMORY_MAX="512M"
+    MEMORY_HIGH="400M"
     if [ "$RAM_MB" -gt 0 ]; then
         if [ "$RAM_MB" -le 512 ]; then
-            MEMORY_MAX="96M"; MEMORY_HIGH="80M"
-            warn "Low RAM detected (${RAM_MB}MB). Tightening memory limits."
-        elif [ "$RAM_MB" -ge 4096 ]; then
-            MEMORY_MAX="192M"; MEMORY_HIGH="160M"
+            MEMORY_MAX="128M"; MEMORY_HIGH="100M"
+            warn "Low RAM (${RAM_MB}MB) — voice synthesis disabled on this hardware."
+        elif [ "$RAM_MB" -le 1024 ]; then
+            MEMORY_MAX="512M"; MEMORY_HIGH="400M"   # Pi 2
+        elif [ "$RAM_MB" -le 4096 ]; then
+            MEMORY_MAX="768M"; MEMORY_HIGH="600M"   # Pi 3/4
+        else
+            MEMORY_MAX="1G"; MEMORY_HIGH="800M"     # Pi 5 / desktop
         fi
     fi
 
@@ -290,6 +417,13 @@ EOF
     sudo systemctl daemon-reload
     info "Systemd service installed"
 
+    # Install piper TTS engine and voice model.
+    install_piper
+    # Ensure crayfish user owns the piper directory.
+    if [ -d "${PIPER_INSTALL_DIR}" ]; then
+        sudo chown -R "${CRAYFISH_USER}:${CRAYFISH_USER}" "${PIPER_INSTALL_DIR}"
+    fi
+
     CONFIG_PATH="${CRAYFISH_CONFIG_DIR}/env"
     START_CMD="sudo systemctl enable --now crayfish"
     LOG_CMD="journalctl -u crayfish -f"
@@ -301,6 +435,7 @@ elif [ "$OS" = "darwin" ]; then
     # ---- macOS: launchd ----
     CRAYFISH_HOME="$HOME/.crayfish"
     CRAYFISH_CONFIG_DIR="$CRAYFISH_HOME"
+    PIPER_INSTALL_DIR="${CRAYFISH_HOME}/piper"
     PLIST_PATH="$HOME/Library/LaunchAgents/com.crayfish.agent.plist"
 
     mkdir -p "${CRAYFISH_HOME}" "${CRAYFISH_HOME}/skills" "$(dirname $PLIST_PATH)"
@@ -363,6 +498,9 @@ ENVEOF
 </plist>
 EOF
     info "launchd plist installed"
+
+    # Install piper TTS engine and voice model.
+    install_piper
 
     CONFIG_PATH="${CRAYFISH_HOME}/env"
     START_CMD="launchctl load ${PLIST_PATH}"

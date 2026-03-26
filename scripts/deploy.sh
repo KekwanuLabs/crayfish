@@ -247,13 +247,17 @@ install_service() {
     remote_gid=$(echo "$remote_info" | awk '{print $3}')
     ram_mb=$(echo "$remote_info" | awk '{print $4}')
 
-    # Memory limits: crayfish ~30MB base + whisper tiny model ~100MB at inference time.
-    # Set high enough for whisper to load, low enough to protect the system.
-    local memory_max="256M" memory_high="200M"
+    # Memory limits: crayfish base ~30MB + piper TTS ~200MB peak + whisper ~100MB.
+    # TTS (piper ONNX) is the largest consumer — needs headroom or synthesis stalls.
+    local memory_max="512M" memory_high="400M"
     if [ "$ram_mb" -le 512 ] 2>/dev/null; then
-        memory_max="128M"; memory_high="100M"
-    elif [ "$ram_mb" -ge 4096 ] 2>/dev/null; then
-        memory_max="512M"; memory_high="400M"
+        memory_max="128M"; memory_high="100M"   # Pi Zero/1 — no TTS
+    elif [ "$ram_mb" -le 1024 ] 2>/dev/null; then
+        memory_max="512M"; memory_high="400M"   # Pi 2 (921MB) — TTS needs room
+    elif [ "$ram_mb" -le 4096 ] 2>/dev/null; then
+        memory_max="768M"; memory_high="600M"   # Pi 3/4 (1-4GB)
+    else
+        memory_max="1G"; memory_high="800M"     # Pi 5 / desktop
     fi
 
     info "Remote: home=${remote_home}, RAM=${ram_mb}MB, limits=${memory_max}/${memory_high}"

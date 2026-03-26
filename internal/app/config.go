@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/KekwanuLabs/crayfish/internal/heartbeat"
+	"github.com/KekwanuLabs/crayfish/internal/voice"
 	"gopkg.in/yaml.v3"
 )
 
@@ -33,6 +34,9 @@ type Config struct {
 	Endpoint  string `yaml:"endpoint"`
 	Model     string `yaml:"model"`
 	MaxTokens int    `yaml:"max_tokens"`
+
+	// Timezone — IANA timezone name (e.g. "America/Los_Angeles"). Empty = system local.
+	Timezone string `yaml:"timezone"`
 
 	// Voice — Local text-to-speech
 	VoiceEnabled bool   `yaml:"voice_enabled"`
@@ -122,12 +126,13 @@ func DefaultConfig() Config {
 		DBPath:               "crayfish.db",
 		ListenAddr:           ":8119",
 		ContinuityEnabled:    true,
-		SessionResumeMinutes: 30,
+		SessionResumeMinutes: 5, // Inject snapshot after 5min idle — catches restarts and short breaks
 		SnapshotsPerSession:  3,
 		AutoUpdate:           true,
 		UpdateChannel:        "stable",
-		VoiceEnabled:         false,
-		VoiceModel:           "en_US-lessac-medium", // Default Piper voice
+		Timezone:             "",                        // Empty = use system local timezone
+		VoiceEnabled:         true,                     // Auto-enables when piper is installed
+		VoiceModel:           voice.RecommendedPiperModel(), // Hardware-appropriate default
 		STTEnabled:           true,                  // Auto-enable if whisper.cpp is available
 		STTModelPath:         "",                    // Auto-detect
 	}
@@ -201,6 +206,7 @@ func LoadConfig(logger *slog.Logger) Config {
 	envStr("CRAYFISH_NAME", &cfg.Name)
 	envStr("CRAYFISH_DB_PATH", &cfg.DBPath)
 	envStr("CRAYFISH_LISTEN", &cfg.ListenAddr)
+	envStr("CRAYFISH_TIMEZONE", &cfg.Timezone)
 	envBool("CRAYFISH_VOICE_ENABLED", &cfg.VoiceEnabled)
 	envStr("CRAYFISH_VOICE_MODEL", &cfg.VoiceModel)
 	envBool("CRAYFISH_STT_ENABLED", &cfg.STTEnabled)

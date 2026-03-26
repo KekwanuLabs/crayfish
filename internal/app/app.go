@@ -63,7 +63,8 @@ type App struct {
 	skillScheduler *skills.Scheduler
 	hubSyncer      *skills.HubSyncer
 	autoUpdater    *updater.Updater
-	voiceInstaller *voice.Installer
+	voiceInstaller    *voice.Installer
+	ttsInstaller      *voice.TTSInstaller
 
 	// Identity system
 	identityStore *identity.Store
@@ -167,6 +168,39 @@ func (a *App) Start(ctx context.Context) error {
 				a.Logger.Info("local STT not supported on this hardware — trying cloud STT",
 					"arch", devInfo.Arch, "arm_model", devInfo.ArmModel, "device", devInfo.String())
 				a.wireCloudSTT(tgAdapter)
+			}
+		}
+
+		// Wire up TTS for voice responses.
+		// Skip local TTS on hardware too slow to synthesize in useful time (e.g. Pi 2 armv7).
+		// Use ElevenLabs or similar cloud TTS on those devices instead.
+		if a.Config.VoiceEnabled && devInfo.CanRunLocalTTS() {
+			// Try the configured model first; fall back to hardware-recommended model.
+			modelName := a.Config.VoiceModel
+			ttsEngine := voice.New(voice.Config{
+				Enabled:   true,
+				ModelName: modelName,
+			}, a.Logger.With("component", "tts"))
+			if !ttsEngine.Enabled() && modelName != "" {
+				rec := voice.RecommendedPiperModel()
+				if rec != modelName {
+					ttsEngine = voice.New(voice.Config{
+						Enabled:   true,
+						ModelName: rec,
+					}, a.Logger.With("component", "tts"))
+					if ttsEngine.Enabled() {
+						modelName = rec
+						// Persist the actual model so restarts are consistent.
+						a.Config.VoiceModel = rec
+						_ = a.Config.SaveConfig()
+					}
+				}
+			}
+			if ttsEngine.Enabled() {
+				tgAdapter.SetTTS(ttsEngine)
+				a.Logger.Info("text-to-speech enabled for Telegram", "model", modelName)
+			} else {
+				a.Logger.Info("piper not yet installed; background installer will activate TTS")
 			}
 		}
 	}
@@ -881,7 +915,47 @@ func (a *App) Start(ctx context.Context) error {
 		}
 	}
 
-	// 14. Identity system (SOUL.md + USER.md)
+	// 14. TTS auto-installer (runs in background when piper isn't already present)
+	if a.Config.VoiceEnabled && tgAdapter != nil && devInfo.CanRunLocalTTS() {
+		a.ttsInstaller = voice.NewTTSInstaller(
+			voice.DefaultTTSInstallerConfig(),
+			a.Logger.With("component", "tts-installer"),
+		)
+		if !a.ttsInstaller.IsInstalled() && voice.CanInstallTTS() {
+			go func() {
+				// Stagger from the STT installer to avoid competing downloads on Pi.
+				time.Sleep(30 * time.Second)
+				a.Logger.Info("starting background piper TTS setup")
+				if err := a.ttsInstaller.Install(ctx); err != nil {
+					a.Logger.Warn("piper TTS setup failed (non-fatal)", "error", err)
+					return
+				}
+				// Hot-enable TTS now that piper is installed.
+				// Use the recommended model for this hardware (may differ from config default).
+				model := a.ttsInstaller.RecommendedModel()
+				ttsEngine := voice.New(voice.Config{
+					Enabled:   true,
+					ModelName: model,
+				}, a.Logger.With("component", "tts"))
+				if ttsEngine.Enabled() {
+					tgAdapter.SetTTS(ttsEngine)
+					a.Logger.Info("text-to-speech enabled for Telegram (post-install)",
+						"model", model)
+					// Persist the correct model name so restarts use the right model.
+					if a.Config.VoiceModel != model {
+						a.Config.VoiceModel = model
+						if err := a.Config.SaveConfig(); err != nil {
+							a.Logger.Warn("could not save updated voice model to config", "error", err)
+						}
+					}
+				}
+			}()
+		} else if a.ttsInstaller.IsInstalled() {
+			a.Logger.Info("piper TTS already installed")
+		}
+	}
+
+	// 15. Identity system (SOUL.md + USER.md)
 	configDir := filepath.Dir(a.Config.ConfigPath)
 	a.identityStore = identity.NewStore(configDir, a.Logger.With("component", "identity"))
 	tools.RegisterIdentityTools(toolReg, a.identityStore)
@@ -980,6 +1054,7 @@ func (a *App) Start(ctx context.Context) error {
 	}
 	rtCfg.WebSearchEnabled = a.Config.BraveAPIKey != ""
 	rtCfg.TravelSearchEnabled = a.Config.AmadeusClientID != "" && a.Config.AmadeusClientSecret != ""
+	rtCfg.Timezone = a.Config.Timezone
 	a.emailMu.RLock()
 	rtCfg.EmailEnabled = a.emailProvider != nil
 	a.emailMu.RUnlock()

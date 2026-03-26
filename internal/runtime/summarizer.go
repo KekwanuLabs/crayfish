@@ -11,11 +11,12 @@ import (
 )
 
 const (
-	// SummarizationThreshold is the number of messages at which summarization is triggered
-	SummarizationThreshold = 40
+	// SummarizationThreshold is the number of messages at which summarization is triggered.
+	// Lower = more frequent snapshot saves = less context lost on restart.
+	SummarizationThreshold = 20
 
 	// KeepRecentDefault is the default number of recent messages to keep unsummarized
-	KeepRecentDefault = 15
+	KeepRecentDefault = 12
 
 	// SummarizationPrompt is the template for summarizing conversations
 	SummarizationPrompt = `Summarize this conversation in 2-3 sentences, preserving key facts, decisions, and user preferences. Be concise — this summary replaces the full history to save bandwidth.

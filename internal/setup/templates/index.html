@@ -1024,6 +1024,60 @@
         <button type="button" class="chip" data-personality="minimal">Brief & Direct</button>
       </div>
 
+      <div style="margin-top: 1.25rem;">
+        <label for="timezone">Your timezone</label>
+        <select id="timezone" style="width:100%;padding:0.875rem 1rem;border-radius:10px;border:1px solid #475569;background:rgba(15,23,42,0.8);color:#f8fafc;font-size:0.9375rem;margin-bottom:0.375rem;cursor:pointer;appearance:none;-webkit-appearance:none;background-image:url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%2394a3b8' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E\");background-repeat:no-repeat;background-position:right 1rem center;">
+          <optgroup label="🇺🇸 United States &amp; Canada">
+            <option value="America/New_York">Eastern Time — New York, Miami, Atlanta</option>
+            <option value="America/Chicago">Central Time — Chicago, Dallas, Houston</option>
+            <option value="America/Denver">Mountain Time — Denver, Phoenix, Salt Lake City</option>
+            <option value="America/Los_Angeles">Pacific Time — Los Angeles, Seattle, San Francisco</option>
+            <option value="America/Anchorage">Alaska Time — Anchorage</option>
+            <option value="Pacific/Honolulu">Hawaii Time — Honolulu</option>
+            <option value="America/Toronto">Eastern Time — Toronto</option>
+            <option value="America/Vancouver">Pacific Time — Vancouver</option>
+          </optgroup>
+          <optgroup label="🌍 Europe">
+            <option value="Europe/London">London (GMT/BST)</option>
+            <option value="Europe/Paris">Paris, Madrid, Rome (CET)</option>
+            <option value="Europe/Berlin">Berlin, Amsterdam, Brussels</option>
+            <option value="Europe/Stockholm">Stockholm, Oslo, Copenhagen</option>
+            <option value="Europe/Helsinki">Helsinki, Kyiv, Bucharest (EET)</option>
+            <option value="Europe/Moscow">Moscow (MSK)</option>
+            <option value="Europe/Istanbul">Istanbul</option>
+          </optgroup>
+          <optgroup label="🌏 Asia &amp; Pacific">
+            <option value="Asia/Dubai">Dubai, Abu Dhabi (GST)</option>
+            <option value="Asia/Kolkata">Mumbai, Delhi, Kolkata (IST)</option>
+            <option value="Asia/Dhaka">Dhaka, Almaty</option>
+            <option value="Asia/Bangkok">Bangkok, Jakarta, Ho Chi Minh</option>
+            <option value="Asia/Shanghai">Beijing, Shanghai, Chongqing</option>
+            <option value="Asia/Singapore">Singapore, Kuala Lumpur, Manila</option>
+            <option value="Asia/Tokyo">Tokyo, Osaka, Seoul</option>
+            <option value="Australia/Sydney">Sydney, Melbourne, Brisbane</option>
+            <option value="Australia/Perth">Perth</option>
+            <option value="Pacific/Auckland">Auckland, Wellington</option>
+          </optgroup>
+          <optgroup label="🌎 Latin America">
+            <option value="America/Sao_Paulo">São Paulo, Buenos Aires, Montevideo</option>
+            <option value="America/Santiago">Santiago</option>
+            <option value="America/Bogota">Bogotá, Lima, Quito</option>
+            <option value="America/Mexico_City">Mexico City, Guatemala City</option>
+            <option value="America/Caracas">Caracas</option>
+          </optgroup>
+          <optgroup label="🌍 Africa &amp; Middle East">
+            <option value="Africa/Lagos">Lagos, Kinshasa, Luanda (WAT)</option>
+            <option value="Africa/Nairobi">Nairobi, Addis Ababa, Kampala (EAT)</option>
+            <option value="Africa/Johannesburg">Johannesburg, Cape Town (SAST)</option>
+            <option value="Africa/Cairo">Cairo, Khartoum (EET)</option>
+            <option value="Africa/Casablanca">Casablanca, Accra, Dakar (GMT)</option>
+          </optgroup>
+        </select>
+        <div class="hint" id="tz-hint" style="display:flex;align-items:center;gap:0.4rem;">
+          <span>🕐</span><span id="tz-time">Detecting your timezone…</span>
+        </div>
+      </div>
+
       <div class="btn-row">
         <button class="btn btn-primary" onclick="nextStep()">Continue</button>
       </div>
@@ -1364,6 +1418,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
 
+  // Auto-detect timezone from browser and pre-select it.
+  autoDetectTimezone();
+
   // Fetch hardware info
   fetchHardwareInfo();
 
@@ -1373,6 +1430,53 @@ document.addEventListener('DOMContentLoaded', () => {
   // Check voice recognition status
   checkVoiceStatus();
 });
+
+function autoDetectTimezone() {
+  const sel = document.getElementById('timezone');
+  const hint = document.getElementById('tz-time');
+  if (!sel || !hint) return;
+
+  let detected = '';
+  try {
+    detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  } catch(e) {}
+
+  // Try to select the detected timezone in the dropdown.
+  if (detected) {
+    const opt = sel.querySelector(`option[value="${detected}"]`);
+    if (opt) {
+      sel.value = detected;
+    } else {
+      // Not in our list — add it at the top so it's still saved correctly.
+      const custom = document.createElement('option');
+      custom.value = detected;
+      custom.textContent = detected.replace(/_/g, ' ');
+      custom.selected = true;
+      sel.insertBefore(custom, sel.firstChild);
+    }
+  }
+
+  // Show the current time in the selected timezone as confirmation.
+  function updateHint() {
+    const tz = sel.value;
+    try {
+      const now = new Date();
+      const timeStr = now.toLocaleTimeString('en-US', {
+        timeZone: tz,
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZoneName: 'short'
+      });
+      hint.textContent = `Current time in your timezone: ${timeStr}`;
+    } catch(e) {
+      hint.textContent = tz;
+    }
+  }
+
+  updateHint();
+  sel.addEventListener('change', updateHint);
+}
 
 async function checkVoiceStatus() {
   const statusEl = document.getElementById('voice-status');
@@ -2197,6 +2301,7 @@ async function finishSetup() {
     telegram_token: document.getElementById('telegram-token').value,
     brave_api_key: document.getElementById('brave-key').value,
     auto_update: document.getElementById('auto-update').checked,
+    timezone: document.getElementById('timezone').value,
   };
 
   // Validate

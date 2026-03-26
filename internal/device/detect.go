@@ -300,6 +300,20 @@ func (i Info) CanRunLocalSTT() bool {
 	return true
 }
 
+// CanRunLocalTTS returns whether this device can run Piper neural TTS
+// within a usable latency. ARMv7 (Pi 2) benchmarks at ~14x real-time factor
+// with the low-quality model — 76 seconds to synthesize 5 seconds of audio.
+// Only ARMv8+ (Pi 3+), amd64, and arm64 are fast enough for interactive use.
+func (i Info) CanRunLocalTTS() bool {
+	if i.Arch == "arm" && i.ArmModel != "v8" {
+		return false // ARMv7/v6 — too slow even with low-quality model
+	}
+	if i.TotalRAMMB < 512 {
+		return false // Not enough RAM for ONNX runtime
+	}
+	return true
+}
+
 // WhisperBinaryName returns the expected whisper binary name for this platform.
 func (i Info) WhisperBinaryName() string {
 	if i.OS == "windows" {

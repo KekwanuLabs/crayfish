@@ -21,17 +21,21 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
 
 // Engine provides text-to-speech synthesis.
 type Engine struct {
-	enabled   bool
-	modelName string // Voice model name (e.g., "en_US-lessac-medium")
-	dataDir   string // Directory containing voice models (optional)
-	logger    *slog.Logger
-	mu        sync.Mutex
+	enabled    bool
+	modelName  string // Voice model name (e.g., "en_US-lessac-medium")
+	dataDir    string // Directory containing voice models (optional, for Python piper)
+	binaryPath string // Path to standalone piper binary (empty = use Python piper)
+	modelPath  string // Path to .onnx model file (for standalone piper)
+	espeakData string // Path to espeak-ng-data directory (for standalone piper)
+	logger     *slog.Logger
+	mu         sync.Mutex
 }
 
 // Config holds voice engine configuration.
@@ -51,6 +55,7 @@ func DefaultConfig() Config {
 }
 
 // New creates a voice engine.
+// It prefers the standalone piper binary over Python piper when available.
 func New(cfg Config, logger *slog.Logger) *Engine {
 	e := &Engine{
 		enabled:   cfg.Enabled,
@@ -64,15 +69,34 @@ func New(cfg Config, logger *slog.Logger) *Engine {
 		return e
 	}
 
-	// Verify piper-tts is installed.
-	if !isPiperInstalled() {
-		logger.Warn("piper-tts not installed, voice disabled",
-			"hint", "Install with: pip install piper-tts")
+	// Try standalone piper binary first (preferred — no Python dependency).
+	if binPath := findStandalonePiper(); binPath != "" {
+		modelPath := findPiperModel(cfg.ModelName)
+		if modelPath != "" {
+			e.binaryPath = binPath
+			e.modelPath = modelPath
+			// espeak-ng-data lives next to the binary.
+			e.espeakData = filepath.Join(filepath.Dir(binPath), "espeak-ng-data")
+			logger.Info("voice engine ready (standalone piper)",
+				"binary", binPath, "model", modelPath)
+			return e
+		}
+		logger.Warn("standalone piper found but no voice model; voice disabled",
+			"binary", binPath, "model_name", cfg.ModelName,
+			"hint", "Voice model will be downloaded automatically on next start")
 		e.enabled = false
 		return e
 	}
 
-	logger.Info("voice engine ready", "model", cfg.ModelName)
+	// Fall back to Python piper.
+	if !isPiperInstalled() {
+		logger.Info("piper not found (standalone or Python); voice synthesis unavailable",
+			"hint", "Install script handles this automatically")
+		e.enabled = false
+		return e
+	}
+
+	logger.Info("voice engine ready (Python piper)", "model", cfg.ModelName)
 	return e
 }
 
@@ -91,14 +115,45 @@ func (e *Engine) Synthesize(ctx context.Context, text string) ([]byte, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	// Build piper command:
-	// python3 -m piper -m <model> --output-raw -- 'text'
-	args := []string{"-m", "piper", "-m", e.modelName, "--output-raw"}
+	if e.binaryPath != "" {
+		return e.synthesizeStandalone(ctx, text)
+	}
+	return e.synthesizePython(ctx, text)
+}
 
+// synthesizeStandalone runs the piper standalone binary with text piped via stdin.
+func (e *Engine) synthesizeStandalone(ctx context.Context, text string) ([]byte, error) {
+	args := []string{"--model", e.modelPath, "--output-raw"}
+	if e.espeakData != "" {
+		if _, err := os.Stat(e.espeakData); err == nil {
+			args = append(args, "--espeak_data", e.espeakData)
+		}
+	}
+
+	cmd := exec.CommandContext(ctx, e.binaryPath, args...)
+	cmd.Stdin = strings.NewReader(text)
+	cmd.Env = piperEnv(e.binaryPath)
+
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		e.logger.Error("piper synthesis failed", "error", err, "stderr", stderr.String())
+		return nil, fmt.Errorf("piper: %w", err)
+	}
+
+	wav := pcmToWAV(stdout.Bytes(), 22050, 16, 1)
+	e.logger.Debug("synthesized speech (standalone)", "text_len", len(text), "audio_len", len(wav))
+	return wav, nil
+}
+
+// synthesizePython runs piper via python3 -m piper with text as a command argument.
+func (e *Engine) synthesizePython(ctx context.Context, text string) ([]byte, error) {
+	args := []string{"-m", "piper", "-m", e.modelName, "--output-raw"}
 	if e.dataDir != "" {
 		args = append(args, "--data-dir", e.dataDir)
 	}
-
 	args = append(args, "--", text)
 
 	cmd := exec.CommandContext(ctx, "python3", args...)
@@ -112,10 +167,8 @@ func (e *Engine) Synthesize(ctx context.Context, text string) ([]byte, error) {
 		return nil, fmt.Errorf("piper: %w", err)
 	}
 
-	// Convert raw PCM to WAV.
 	wav := pcmToWAV(stdout.Bytes(), 22050, 16, 1)
-
-	e.logger.Debug("synthesized speech", "text_len", len(text), "audio_len", len(wav))
+	e.logger.Debug("synthesized speech (Python piper)", "text_len", len(text), "audio_len", len(wav))
 	return wav, nil
 }
 
@@ -128,14 +181,62 @@ func (e *Engine) SynthesizeToFile(ctx context.Context, text, filename string) er
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	// Use piper's native file output for efficiency.
-	// python3 -m piper -m <model> -f <file> -- 'text'
-	args := []string{"-m", "piper", "-m", e.modelName, "-f", filename}
+	if e.binaryPath != "" {
+		return e.synthesizeToFileStandalone(ctx, text, filename)
+	}
+	return e.synthesizeToFilePython(ctx, text, filename)
+}
 
+func (e *Engine) synthesizeToFileStandalone(ctx context.Context, text, filename string) error {
+	args := []string{"--model", e.modelPath, "--output_file", filename}
+	if e.espeakData != "" {
+		if _, err := os.Stat(e.espeakData); err == nil {
+			args = append(args, "--espeak_data", e.espeakData)
+		}
+	}
+
+	cmd := exec.CommandContext(ctx, e.binaryPath, args...)
+	cmd.Stdin = strings.NewReader(text)
+	cmd.Env = piperEnv(e.binaryPath)
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		e.logger.Error("piper synthesis failed", "error", err, "stderr", stderr.String())
+		return fmt.Errorf("piper: %w", err)
+	}
+
+	e.logger.Debug("synthesized speech to file (standalone)", "text_len", len(text), "file", filename)
+	return nil
+}
+
+// piperEnv returns an os.Environ copy with LD_LIBRARY_PATH set to the piper binary's
+// directory, so the piper binary can find its bundled shared libraries (.so files).
+func piperEnv(binaryPath string) []string {
+	piperDir := filepath.Dir(binaryPath)
+	existing := os.Getenv("LD_LIBRARY_PATH")
+	var ldPath string
+	if existing != "" {
+		ldPath = piperDir + ":" + existing
+	} else {
+		ldPath = piperDir
+	}
+	env := os.Environ()
+	for i, e := range env {
+		if strings.HasPrefix(e, "LD_LIBRARY_PATH=") {
+			env[i] = "LD_LIBRARY_PATH=" + ldPath
+			return env
+		}
+	}
+	return append(env, "LD_LIBRARY_PATH="+ldPath)
+}
+
+func (e *Engine) synthesizeToFilePython(ctx context.Context, text, filename string) error {
+	args := []string{"-m", "piper", "-m", e.modelName, "-f", filename}
 	if e.dataDir != "" {
 		args = append(args, "--data-dir", e.dataDir)
 	}
-
 	args = append(args, "--", text)
 
 	cmd := exec.CommandContext(ctx, "python3", args...)
@@ -148,8 +249,42 @@ func (e *Engine) SynthesizeToFile(ctx context.Context, text, filename string) er
 		return fmt.Errorf("piper: %w", err)
 	}
 
-	e.logger.Debug("synthesized speech to file", "text_len", len(text), "file", filename)
+	e.logger.Debug("synthesized speech to file (Python piper)", "text_len", len(text), "file", filename)
 	return nil
+}
+
+// findStandalonePiper looks for the piper standalone binary in standard locations.
+func findStandalonePiper() string {
+	home := os.Getenv("HOME")
+	locations := []string{
+		filepath.Join(home, ".crayfish", "piper", "piper"),
+		"/var/lib/crayfish/piper/piper",
+	}
+	for _, p := range locations {
+		if info, err := os.Stat(p); err == nil && !info.IsDir() {
+			return p
+		}
+	}
+	// Check PATH as fallback (for manual installs).
+	if path, err := exec.LookPath("piper"); err == nil {
+		return path
+	}
+	return ""
+}
+
+// findPiperModel looks for a .onnx model file for the given model name.
+func findPiperModel(modelName string) string {
+	home := os.Getenv("HOME")
+	locations := []string{
+		filepath.Join(home, ".crayfish", "piper", "models", modelName+".onnx"),
+		"/var/lib/crayfish/piper/models/" + modelName + ".onnx",
+	}
+	for _, p := range locations {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
 }
 
 // SynthesizeStream writes speech to the provided writer.

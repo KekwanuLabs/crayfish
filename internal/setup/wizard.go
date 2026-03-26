@@ -49,6 +49,7 @@ type SetupData struct {
 	TelegramToken string `json:"telegram_token,omitempty" yaml:"telegram_token,omitempty"`
 	BraveAPIKey   string `json:"brave_api_key,omitempty" yaml:"brave_api_key,omitempty"`
 	AutoUpdate    bool   `json:"auto_update" yaml:"auto_update"`
+	Timezone      string `json:"timezone,omitempty" yaml:"timezone,omitempty"`
 }
 
 // HardwareInfo contains detected device capabilities.
@@ -431,6 +432,9 @@ func (w *Wizard) writeEnvFile(data SetupData) error {
 	}
 	if data.AutoUpdate {
 		lines = append(lines, "CRAYFISH_AUTO_UPDATE=true")
+	}
+	if data.Timezone != "" {
+		lines = append(lines, fmt.Sprintf("CRAYFISH_TIMEZONE=%s", data.Timezone))
 	}
 
 	return os.WriteFile(w.config.EnvPath, []byte(strings.Join(lines, "\n")+"\n"), 0600)

@@ -100,7 +100,7 @@ func (sm *SnapshotManager) GenerateAndSave(ctx context.Context, sessionID, trigg
 				Content: prompt,
 			},
 		},
-		MaxTokens: 500,
+		MaxTokens: 4096,
 	}
 
 	resp, err := sm.provider.Complete(ctx, req)
@@ -190,7 +190,36 @@ func (sm *SnapshotManager) saveSnapshot(ctx context.Context, sessionID, trigger 
 
 	sm.logger.Info("session snapshot saved",
 		"session_id", sessionID, "trigger", trigger, "message_count", messageCount)
+
+	// Promote open decisions to the todos table so they survive restarts and
+	// session changes. Existing entries are skipped to avoid duplicates.
+	if len(snap.DecisionsInFlight) > 0 {
+		sm.syncDecisionsToTodos(ctx, snap.DecisionsInFlight)
+	}
+
 	return nil
+}
+
+// syncDecisionsToTodos writes each decision-in-flight to the todos table
+// (list_name='decisions') if an identical entry doesn't already exist.
+// This makes open decisions durable across restarts and session boundaries.
+func (sm *SnapshotManager) syncDecisionsToTodos(ctx context.Context, decisions []string) {
+	for _, d := range decisions {
+		if d == "" {
+			continue
+		}
+		// Insert only if this exact text isn't already an open decision todo.
+		_, err := sm.db.ExecContext(ctx, `
+			INSERT INTO todos (text, completed, list_name)
+			SELECT ?, 0, 'decisions'
+			WHERE NOT EXISTS (
+				SELECT 1 FROM todos
+				WHERE text = ? AND list_name = 'decisions' AND completed = 0
+			)`, d, d)
+		if err != nil {
+			sm.logger.Warn("failed to sync decision to todos", "decision", d, "error", err)
+		}
+	}
 }
 
 // LoadLatest retrieves the most recent current snapshot for a session.
@@ -276,8 +305,44 @@ func (sm *SnapshotManager) FormatForContext(snap *Snapshot) string {
 		sb.WriteString("\n")
 	}
 
+	// Surface stale open decisions from the persistent todos table.
+	staleTodos := sm.loadStaleDecisions(snap.SessionID)
+	if len(staleTodos) > 0 {
+		sb.WriteString("Open decisions still pending your answer:\n")
+		for _, d := range staleTodos {
+			fmt.Fprintf(&sb, "  - %s\n", d)
+		}
+	}
+
 	sb.WriteString("\nContinue naturally from this state.")
 	return sb.String()
+}
+
+// loadStaleDecisions fetches open decision todos that haven't been completed.
+// Called when formatting a snapshot for context injection, so the agent is
+// always aware of outstanding decisions regardless of summarization state.
+func (sm *SnapshotManager) loadStaleDecisions(sessionID string) []string {
+	if sm.db == nil {
+		return nil
+	}
+	rows, err := sm.db.QueryContext(context.Background(), `
+		SELECT text FROM todos
+		WHERE list_name = 'decisions' AND completed = 0
+		ORDER BY created_at ASC
+		LIMIT 20`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+
+	var decisions []string
+	for rows.Next() {
+		var text string
+		if err := rows.Scan(&text); err == nil {
+			decisions = append(decisions, text)
+		}
+	}
+	return decisions
 }
 
 // Cleanup removes old snapshots, keeping only the most recent `keep` per session.

@@ -5,14 +5,18 @@
 package telegram
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -130,6 +134,7 @@ type Adapter struct {
 	operatorChatID int64          // First user to interact becomes operator
 	operatorMu     sync.Mutex     // protects operatorChatID
 	sttEngine      STTTranscriber // Optional: for voice message transcription
+	ttsEngine      TTSSynthesizer // Optional: for text-to-speech responses
 	typingMu       sync.Mutex
 	typingCancel   map[int64]context.CancelFunc // chatID -> cancel typing ticker
 }
@@ -138,6 +143,12 @@ type Adapter struct {
 type STTTranscriber interface {
 	STTEnabled() bool
 	Transcribe(ctx context.Context, audioData []byte, format string) (string, error)
+}
+
+// TTSSynthesizer is the interface for text-to-speech engines.
+type TTSSynthesizer interface {
+	Enabled() bool
+	Synthesize(ctx context.Context, text string) ([]byte, error)
 }
 
 // New creates a new Telegram adapter.
@@ -158,6 +169,12 @@ func (a *Adapter) Name() string { return adapterName }
 // SetSTT sets the speech-to-text engine for voice message transcription.
 func (a *Adapter) SetSTT(stt STTTranscriber) {
 	a.sttEngine = stt
+}
+
+// SetTTS sets the text-to-speech engine for voice responses.
+// When set, outbound messages are synthesized and sent as voice notes.
+func (a *Adapter) SetTTS(tts TTSSynthesizer) {
+	a.ttsEngine = tts
 }
 
 // Start begins polling for Telegram updates and publishing them to the bus.
@@ -217,6 +234,22 @@ func (a *Adapter) Send(ctx context.Context, msg channels.OutboundMessage) error 
 
 	// Stop the typing indicator — the response is about to land
 	a.stopTypingLoop(chatID)
+
+	// Attempt TTS voice response if engine is available and text is short enough.
+	// Long responses (email summaries, lists, etc.) stay as text — voice UX breaks
+	// down past ~500 chars and synthesis is slow on low-end hardware.
+	const maxTTSChars = 500
+	if a.ttsEngine != nil && a.ttsEngine.Enabled() && len(msg.Text) <= maxTTSChars {
+		a.logger.Info("synthesizing voice response", "chars", len(msg.Text))
+		if err := a.sendTTSVoice(ctx, chatID, msg.Text); err != nil {
+			a.logger.Warn("TTS voice send failed, falling back to text", "error", err)
+			// Fall through to text below.
+		} else {
+			return nil
+		}
+	} else if a.ttsEngine != nil && a.ttsEngine.Enabled() && len(msg.Text) > maxTTSChars {
+		a.logger.Info("response too long for voice, sending as text", "chars", len(msg.Text), "limit", maxTTSChars)
+	}
 
 	// Apply rate limiting
 	if !a.checkRateLimit(chatID) {
@@ -350,9 +383,15 @@ func (a *Adapter) sendChatAction(ctx context.Context, chatID int64, action strin
 	return nil
 }
 
-// startTypingLoop sends the "typing" indicator every 4 seconds until stopped.
-// Telegram's typing indicator expires after ~5 seconds, so we resend before it fades.
+// startTypingLoop sends the "typing" (or "record_voice" if TTS is active) indicator
+// every 4 seconds until stopped. Telegram's typing indicator expires after ~5 seconds,
+// so we resend before it fades.
 func (a *Adapter) startTypingLoop(ctx context.Context, chatID int64) {
+	action := "typing"
+	if a.ttsEngine != nil && a.ttsEngine.Enabled() {
+		action = "record_voice"
+	}
+
 	a.typingMu.Lock()
 	if cancel, ok := a.typingCancel[chatID]; ok {
 		cancel()
@@ -362,7 +401,7 @@ func (a *Adapter) startTypingLoop(ctx context.Context, chatID int64) {
 	a.typingMu.Unlock()
 
 	// Send the first one immediately
-	_ = a.sendChatAction(loopCtx, chatID, "typing")
+	_ = a.sendChatAction(loopCtx, chatID, action)
 
 	go func() {
 		ticker := time.NewTicker(4 * time.Second)
@@ -372,7 +411,7 @@ func (a *Adapter) startTypingLoop(ctx context.Context, chatID int64) {
 			case <-loopCtx.Done():
 				return
 			case <-ticker.C:
-				if err := a.sendChatAction(loopCtx, chatID, "typing"); err != nil {
+				if err := a.sendChatAction(loopCtx, chatID, action); err != nil {
 					return
 				}
 			}
@@ -748,6 +787,114 @@ func (a *Adapter) transcribeVoice(ctx context.Context, voice *Voice) (string, er
 	}
 
 	return a.sttEngine.Transcribe(ctx, audioData, format)
+}
+
+// sendTTSVoice synthesizes text to speech and sends it as a Telegram voice note.
+// Returns an error if synthesis or upload fails; caller should fall back to text.
+// ttsSynthesisTimeout caps how long we wait for piper to synthesize speech.
+// On slow hardware (Pi 2 armv7) synthesis can take 10-30s for short text.
+// If it exceeds this, we fall back to text so the user isn't left waiting.
+const ttsSynthesisTimeout = 45 * time.Second
+
+func (a *Adapter) sendTTSVoice(ctx context.Context, chatID int64, text string) error {
+	synthCtx, cancel := context.WithTimeout(ctx, ttsSynthesisTimeout)
+	defer cancel()
+
+	start := time.Now()
+	wavData, err := a.ttsEngine.Synthesize(synthCtx, text)
+	if err != nil {
+		if synthCtx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("synthesis timeout after %s (text too long for this hardware)", time.Since(start).Round(time.Second))
+		}
+		return fmt.Errorf("synthesize: %w", err)
+	}
+	a.logger.Info("piper synthesis complete", "elapsed", time.Since(start).Round(time.Millisecond), "chars", len(text))
+
+	oggData, err := convertWAVToOGG(ctx, wavData)
+	if err != nil {
+		return fmt.Errorf("wav→ogg: %w", err)
+	}
+
+	return a.sendVoice(ctx, chatID, oggData)
+}
+
+// sendVoice uploads OGG/Opus audio to Telegram as a voice note.
+func (a *Adapter) sendVoice(ctx context.Context, chatID int64, oggData []byte) error {
+	endpoint := fmt.Sprintf("%s/bot%s/sendVoice", telegramAPIBase, a.botToken)
+
+	var body bytes.Buffer
+	w := multipart.NewWriter(&body)
+
+	if err := w.WriteField("chat_id", strconv.FormatInt(chatID, 10)); err != nil {
+		return fmt.Errorf("write chat_id field: %w", err)
+	}
+
+	part, err := w.CreateFormFile("voice", "voice.ogg")
+	if err != nil {
+		return fmt.Errorf("create form file: %w", err)
+	}
+	if _, err := part.Write(oggData); err != nil {
+		return fmt.Errorf("write voice data: %w", err)
+	}
+	w.Close()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, &body)
+	if err != nil {
+		return fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", w.FormDataContentType())
+
+	resp, err := a.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("http request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var apiResp sendMessageResponse
+	if err := json.NewDecoder(resp.Body).Decode(&apiResp); err != nil {
+		return fmt.Errorf("parse response: %w", err)
+	}
+	if !apiResp.OK {
+		return fmt.Errorf("api error: %s", apiResp.Error)
+	}
+
+	a.logger.Info("voice note sent via Telegram", "chat_id", chatID, "ogg_bytes", len(oggData))
+	return nil
+}
+
+// convertWAVToOGG converts WAV audio to OGG/Opus format using ffmpeg.
+// Telegram's sendVoice endpoint requires OGG encoded with the Opus codec.
+func convertWAVToOGG(ctx context.Context, wavData []byte) ([]byte, error) {
+	wavFile, err := os.CreateTemp("", "crayfish-tts-*.wav")
+	if err != nil {
+		return nil, fmt.Errorf("create temp wav: %w", err)
+	}
+	wavPath := wavFile.Name()
+	defer os.Remove(wavPath)
+
+	if _, err := wavFile.Write(wavData); err != nil {
+		wavFile.Close()
+		return nil, fmt.Errorf("write wav: %w", err)
+	}
+	wavFile.Close()
+
+	oggPath := wavPath + ".ogg"
+	defer os.Remove(oggPath)
+
+	cmd := exec.CommandContext(ctx, "ffmpeg",
+		"-i", wavPath,
+		"-c:a", "libopus",
+		"-b:a", "32k",
+		"-y",
+		oggPath,
+	)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("ffmpeg: %w (stderr: %s)", err, stderr.String())
+	}
+
+	return os.ReadFile(oggPath)
 }
 
 // maskToken returns a redacted version of the bot token for logging.
