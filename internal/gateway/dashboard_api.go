@@ -134,17 +134,32 @@ func (api *DashboardAPI) handleNetworkStatus(w http.ResponseWriter, r *http.Requ
 }
 
 // GET /api/security/status — returns firewall and network state.
+// Reads /etc/ufw/ufw.conf directly (no sudo needed) because the crayfish
+// systemd service runs with NoNewPrivileges=true which blocks sudo.
 func (api *DashboardAPI) handleSecurityStatus(w http.ResponseWriter, r *http.Request) {
 	firewallInstalled := false
 	firewallEnabled := false
 	firewallNote := ""
 
+	// Check if ufw binary exists.
 	if _, err := exec.LookPath("ufw"); err == nil {
 		firewallInstalled = true
-		if out, err := exec.CommandContext(r.Context(), "sudo", "ufw", "status").Output(); err == nil {
-			firewallEnabled = strings.Contains(string(out), "Status: active")
+	} else if _, err := os.Stat("/usr/sbin/ufw"); err == nil {
+		firewallInstalled = true
+	}
+
+	if firewallInstalled {
+		// Read ufw.conf directly — doesn't require elevated privileges.
+		if data, err := os.ReadFile("/etc/ufw/ufw.conf"); err == nil {
+			for _, line := range strings.Split(string(data), "\n") {
+				line = strings.TrimSpace(line)
+				if line == "ENABLED=yes" {
+					firewallEnabled = true
+					break
+				}
+			}
 		} else {
-			firewallNote = "Could not check status (permission issue)"
+			firewallNote = "ufw.conf not readable — firewall state unknown"
 		}
 	}
 

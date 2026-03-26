@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"os"
 	"os/exec"
 	"sort"
 	"strings"
@@ -43,10 +44,19 @@ func New(logger *slog.Logger) *Manager {
 	return &Manager{logger: logger}
 }
 
-// IsAvailable returns true if ufw is installed and Crayfish can manage it.
+// IsAvailable returns true if ufw is installed.
+// Checks common binary locations directly rather than using exec.LookPath
+// to avoid issues with PATH differences in systemd environments.
 func IsAvailable() bool {
-	_, err := exec.LookPath("ufw")
-	return err == nil
+	for _, p := range []string{"/usr/sbin/ufw", "/sbin/ufw", "/usr/bin/ufw"} {
+		if _, err := os.Stat(p); err == nil {
+			return true
+		}
+	}
+	if _, err := exec.LookPath("ufw"); err == nil {
+		return true
+	}
+	return false
 }
 
 // Start syncs rules immediately then polls every 3 minutes for network changes.
@@ -218,12 +228,13 @@ func deleteRule(subnet string, port int) error {
 	return nil
 }
 
-// EnsureEnabled enables ufw with default deny-incoming/allow-outgoing
-// if it isn't already active. Safe to call multiple times.
+// EnsureEnabled enables ufw if it isn't already active.
+// Uses IsEnabled() (reads /etc/ufw/ufw.conf) for status check — no sudo needed there.
+// The enable commands use sudo; these work from install scripts and ExecStartPre
+// which run outside the systemd NoNewPrivileges boundary.
 func EnsureEnabled() error {
-	out, err := exec.Command("sudo", "ufw", "status").Output()
-	if err == nil && strings.Contains(string(out), "Status: active") {
-		return nil // already enabled
+	if IsEnabled() {
+		return nil
 	}
 
 	cmds := [][]string{
@@ -240,10 +251,20 @@ func EnsureEnabled() error {
 	return nil
 }
 
-// IsEnabled returns true if ufw is active.
+// IsEnabled returns true if ufw is active by reading /etc/ufw/ufw.conf.
+// Does NOT use sudo — safe to call from within the systemd service which
+// runs with NoNewPrivileges=true (sudo would fail there).
 func IsEnabled() bool {
-	out, err := exec.Command("sudo", "ufw", "status").Output()
-	return err == nil && strings.Contains(string(out), "Status: active")
+	data, err := os.ReadFile("/etc/ufw/ufw.conf")
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.TrimSpace(line) == "ENABLED=yes" {
+			return true
+		}
+	}
+	return false
 }
 
 // --- helpers ---
