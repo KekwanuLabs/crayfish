@@ -211,18 +211,19 @@ SETUP_SCRIPT
     ssh "${PI_USER}@${PI_HOST}" bash -s << 'DEPS_SCRIPT'
 # Check if we need to install deps
 NEED_INSTALL=0
-command -v cmake >/dev/null 2>&1 || NEED_INSTALL=1
-command -v g++ >/dev/null 2>&1 || NEED_INSTALL=1
-command -v git >/dev/null 2>&1 || NEED_INSTALL=1
-command -v ffmpeg >/dev/null 2>&1 || NEED_INSTALL=1
+command -v cmake >/dev/null 2>&1     || NEED_INSTALL=1
+command -v g++ >/dev/null 2>&1       || NEED_INSTALL=1
+command -v git >/dev/null 2>&1       || NEED_INSTALL=1
+command -v ffmpeg >/dev/null 2>&1    || NEED_INSTALL=1
+command -v ufw >/dev/null 2>&1       || NEED_INSTALL=1
 
 if [ "$NEED_INSTALL" -eq 1 ]; then
-    echo "[deploy] Installing build tools for voice recognition..."
+    echo "[deploy] Installing system dependencies..."
     sudo apt-get update -qq
-    sudo apt-get install -y -qq cmake g++ git ffmpeg >/dev/null 2>&1 || {
-        echo "[deploy] Warning: Could not install some dependencies (voice may not work)"
+    sudo apt-get install -y -qq cmake g++ git ffmpeg ufw >/dev/null 2>&1 || {
+        echo "[deploy] Warning: Could not install some dependencies"
     }
-    echo "[deploy] Build tools installed"
+    echo "[deploy] Dependencies installed"
 else
     echo "[deploy] Build tools already installed"
 fi

@@ -135,9 +135,17 @@ func (api *DashboardAPI) handleNetworkStatus(w http.ResponseWriter, r *http.Requ
 
 // GET /api/security/status — returns firewall and network state.
 func (api *DashboardAPI) handleSecurityStatus(w http.ResponseWriter, r *http.Request) {
+	firewallInstalled := false
 	firewallEnabled := false
-	if out, err := exec.CommandContext(r.Context(), "sudo", "ufw", "status").Output(); err == nil {
-		firewallEnabled = strings.Contains(string(out), "Status: active")
+	firewallNote := ""
+
+	if _, err := exec.LookPath("ufw"); err == nil {
+		firewallInstalled = true
+		if out, err := exec.CommandContext(r.Context(), "sudo", "ufw", "status").Output(); err == nil {
+			firewallEnabled = strings.Contains(string(out), "Status: active")
+		} else {
+			firewallNote = "Could not check status (permission issue)"
+		}
 	}
 
 	// Check whether any active interface has an IPv6 address.
@@ -160,8 +168,10 @@ func (api *DashboardAPI) handleSecurityStatus(w http.ResponseWriter, r *http.Req
 	}
 
 	api.writeJSON(w, map[string]any{
-		"firewall_enabled": firewallEnabled,
-		"ipv6_active":      ipv6Active,
+		"firewall_installed": firewallInstalled,
+		"firewall_enabled":   firewallEnabled,
+		"firewall_note":      firewallNote,
+		"ipv6_active":        ipv6Active,
 	})
 }
 

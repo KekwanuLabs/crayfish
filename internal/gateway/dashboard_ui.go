@@ -451,6 +451,20 @@ const dashboardPageHTML = `<!DOCTYPE html>
       </div>
       <div class="form-section">
         <div class="form-section-header"><span class="dot-hot"></span> Phone &amp; Tunnel</div>
+
+        <!-- Tunnel URL display — always shown, prominent -->
+        <div id="tunnel-url-display" style="margin-bottom:1rem;padding:0.875rem 1rem;border-radius:10px;background:rgba(15,23,42,0.6);border:1px solid rgba(71,85,105,0.4);">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;">
+            <div style="font-size:0.8125rem;color:#94a3b8;">
+              <span style="color:#f8fafc;font-weight:500;">Your Public Tunnel URL</span>
+              <span id="tunnel-type-label" style="margin-left:0.5rem;font-size:0.75rem;"></span>
+            </div>
+            <button onclick="copyTunnelURL()" style="font-size:0.75rem;padding:0.25rem 0.625rem;background:transparent;border:1px solid #475569;border-radius:6px;color:#94a3b8;cursor:pointer;">Copy</button>
+          </div>
+          <div id="tunnel-url-value" style="margin-top:0.375rem;font-family:monospace;font-size:0.875rem;color:#6ee7b7;word-break:break-all;">—</div>
+          <div id="tunnel-url-hint" style="margin-top:0.25rem;font-size:0.75rem;color:#64748b;"></div>
+        </div>
+
         <div id="phone-status-bar" style="display:none;margin-bottom:1rem;padding:0.75rem 1rem;border-radius:10px;background:rgba(15,23,42,0.6);border:1px solid rgba(71,85,105,0.4);font-size:0.875rem;">
           <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.5rem;">
             <span id="phone-dot" style="width:8px;height:8px;border-radius:50%;background:#6ee7b7;flex-shrink:0;"></span>
@@ -806,6 +820,28 @@ async function loadSettings() {
   document.getElementById('cfg-continuity_enabled').checked = !!c.continuity_enabled;
   document.getElementById('cfg-auto_update').checked = !!c.auto_update;
 
+  // Tunnel URL display in Phone & Tunnel section.
+  const urlVal = document.getElementById('tunnel-url-value');
+  const urlHint = document.getElementById('tunnel-url-hint');
+  const typeLabel = document.getElementById('tunnel-type-label');
+  if (urlVal) {
+    if (c.tunnel_url) {
+      urlVal.textContent = c.tunnel_url;
+      if (c.tunnel_type === 'quick') {
+        typeLabel.innerHTML = '<span class="badge badge-yellow">quick tunnel</span>';
+        urlHint.textContent = 'URL changes on restart — Crayfish updates Twilio automatically each time.';
+      } else if (c.tunnel_type === 'named') {
+        typeLabel.innerHTML = '<span class="badge badge-green">stable URL</span>';
+        urlHint.textContent = 'Permanent URL — never changes on restart.';
+      }
+    } else {
+      urlVal.style.color = '#64748b';
+      urlVal.textContent = 'Starting… (cloudflared is running, URL will appear shortly)';
+      urlHint.textContent = 'Crayfish starts the tunnel automatically. Refresh in a few seconds.';
+      typeLabel.innerHTML = '';
+    }
+  }
+
   // SSH tunnel hint — show current URL if one is set.
   if (c.tunnel_url) {
     const hint = document.getElementById('current-tunnel-hint');
@@ -856,15 +892,26 @@ async function loadFirewallStatus() {
       el.style.background = 'rgba(16,185,129,0.08)';
       el.style.border = '1px solid rgba(16,185,129,0.2)';
       el.style.color = '#6ee7b7';
-      const ipv6note = s.ipv6_active ? ' IPv6 LAN addresses (link-local + ULA) also allowed.' : '';
-      el.innerHTML = '🛡️ Firewall active — SSH and dashboard accessible from your local network only (IPv4 + IPv6). All internet traffic blocked.' + ipv6note;
-    } else {
+      const ipv6note = s.ipv6_active ? ' IPv4 + IPv6 LAN addresses allowed.' : '';
+      el.innerHTML = '🛡️ Firewall active — SSH and dashboard accessible from local network only. All internet traffic blocked.' + ipv6note;
+    } else if (s.firewall_installed) {
       el.style.background = 'rgba(239,68,68,0.08)';
       el.style.border = '1px solid rgba(239,68,68,0.2)';
       el.style.color = '#fca5a5';
-      el.innerHTML = '⚠️ Firewall not active. Run <code>sudo ufw enable</code> on the Pi for extra security.';
+      el.innerHTML = '⚠️ Firewall installed but not active. ' + (s.firewall_note || 'Run <code>sudo ufw enable</code> on the Pi.');
+    } else {
+      el.style.background = 'rgba(249,115,22,0.08)';
+      el.style.border = '1px solid rgba(249,115,22,0.2)';
+      el.style.color = '#fcd34d';
+      el.innerHTML = '⚠️ Firewall (ufw) not installed. Run: <code>sudo apt-get install -y ufw && sudo ufw default deny incoming && sudo ufw default allow outgoing && sudo ufw allow 22/tcp && sudo ufw enable</code>';
     }
   } catch(e) { /* non-fatal */ }
+}
+
+function copyTunnelURL() {
+  const url = document.getElementById('tunnel-url-value').textContent;
+  if (!url || url.startsWith('Starting')) return;
+  navigator.clipboard.writeText(url).then(() => showToast('Tunnel URL copied', 'success'));
 }
 
 async function saveTunnelURL() {

@@ -1287,14 +1287,14 @@ func (a *App) Start(ctx context.Context) error {
 		}
 	}
 
-	// Auto-manage Cloudflare Tunnel when Twilio is configured.
-	// Starts cloudflared, parses the URL, and updates the Twilio webhook automatically.
-	// Runs in background; re-runs on crash with retry loop.
-	if a.Config.TwilioAccountSID != "" && tunnel.IsAvailable() {
+	// Start Cloudflare Tunnel whenever cloudflared is available — not gated on Twilio.
+	// The tunnel URL is useful for phone calls, external SSH, and future features.
+	// Even without Twilio configured, the URL is stored in config and shown in the dashboard.
+	if tunnel.IsAvailable() {
 		go a.runTunnelManager(ctx, phoneAdapter)
-	} else if a.Config.TwilioAccountSID != "" && !tunnel.IsAvailable() {
-		a.Logger.Warn("cloudflared not installed — phone calls need a public URL",
-			"hint", "Install with: curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm -o /usr/local/bin/cloudflared && chmod +x /usr/local/bin/cloudflared")
+	} else {
+		a.Logger.Info("cloudflared not installed — tunnel and phone calls unavailable",
+			"hint", "deploy script installs it automatically on next deploy")
 	}
 
 	// Dynamic firewall manager — detects all active network interfaces and
@@ -1805,6 +1805,18 @@ func (a *App) runTunnelManager(ctx context.Context, phoneAdapter *phone.Adapter)
 
 		if phoneAdapter != nil {
 			phoneAdapter.UpdateTunnelURL(tunnelURL)
+		}
+
+		// Log the tunnel URL so it's visible even without Twilio configured.
+		a.Logger.Info("tunnel URL assigned", "url", tunnelURL)
+
+		// Skip Twilio webhook sync if Twilio isn't configured yet.
+		a.configMu.RLock()
+		twilioConfigured := a.Config.TwilioAccountSID != ""
+		a.configMu.RUnlock()
+		if !twilioConfigured {
+			notify(fmt.Sprintf("Tunnel ready: %s (Twilio not yet configured — set it up to enable phone calls)", tunnelURL))
+			return
 		}
 
 		// Update Twilio webhook — retry with backoff until it succeeds.

@@ -171,17 +171,18 @@ fi
 if [ "$OS" = "linux" ]; then
     if command -v apt-get &>/dev/null; then
         MISSING_PKGS=""
-        command -v ffmpeg &>/dev/null || MISSING_PKGS="$MISSING_PKGS ffmpeg"
+        command -v ffmpeg &>/dev/null     || MISSING_PKGS="$MISSING_PKGS ffmpeg"
+        command -v ufw &>/dev/null        || MISSING_PKGS="$MISSING_PKGS ufw"
         dpkg -s libespeak-ng1 &>/dev/null 2>&1 || MISSING_PKGS="$MISSING_PKGS libespeak-ng1"
         if [ -n "$MISSING_PKGS" ]; then
-            info "Installing audio dependencies:${MISSING_PKGS}..."
+            info "Installing system dependencies:${MISSING_PKGS}..."
             sudo apt-get install -y -qq $MISSING_PKGS
-            info "Audio dependencies installed"
+            info "Dependencies installed"
         else
-            info "Audio dependencies already installed"
+            info "System dependencies already installed"
         fi
     else
-        command -v ffmpeg &>/dev/null || warn "ffmpeg not found. Install manually: sudo apt-get install ffmpeg libespeak-ng1"
+        command -v ffmpeg &>/dev/null || warn "ffmpeg not found. Install manually: sudo apt-get install ffmpeg libespeak-ng1 ufw"
     fi
 elif [ "$OS" = "darwin" ]; then
     if ! command -v ffmpeg &>/dev/null; then
