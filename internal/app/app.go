@@ -68,6 +68,7 @@ type App struct {
 	autoUpdater    *updater.Updater
 	voiceInstaller    *voice.Installer
 	ttsInstaller      *voice.TTSInstaller
+	hotActivateTTS    func(apiKey, voiceID string) // set after tgAdapter is wired
 
 	// Identity system
 	identityStore *identity.Store
@@ -190,6 +191,15 @@ func (a *App) Start(ctx context.Context) error {
 
 		// Wire up TTS for voice responses.
 		// Priority: ElevenLabs (cloud, any hardware) > piper (local, fast hardware only).
+		// Store a hot-activate callback so dashboard settings can enable ElevenLabs
+		// without a restart.
+		a.hotActivateTTS = func(apiKey, voiceID string) {
+			elEngine := voice.NewElevenLabsEngine(apiKey, voiceID,
+				a.Logger.With("component", "elevenlabs"))
+			tgAdapter.SetTTS(elEngine)
+			a.Logger.Info("ElevenLabs TTS hot-activated", "voice_id", voiceID)
+		}
+
 		if a.Config.ElevenLabsAPIKey != "" {
 			elEngine := voice.NewElevenLabsEngine(
 				a.Config.ElevenLabsAPIKey,
@@ -1427,8 +1437,12 @@ func (a *App) DashboardConfig() map[string]any {
 		"google_connected":       a.Config.Google != nil && a.Config.Google.RefreshToken != "",
 		"google_scopes":          googleScopes(a.Config.Google),
 		"amadeus_connected":      a.Config.AmadeusClientID != "" && a.Config.AmadeusClientSecret != "",
+		// Voice
+		"elevenlabs_api_key":  mask(a.Config.ElevenLabsAPIKey),
+		"elevenlabs_voice_id": a.Config.ElevenLabsVoiceID,
 		// Phone & Tunnel
 		"twilio_account_sid":  mask(a.Config.TwilioAccountSID),
+		"twilio_auth_token":   mask(a.Config.TwilioAuthToken),
 		"twilio_from_number":  a.Config.TwilioFromNumber,
 		"tunnel_url":          a.Config.TunnelURL,
 		"phone_configured":    a.Config.TwilioAccountSID != "",
@@ -1529,6 +1543,31 @@ func (a *App) UpdateConfig(updates map[string]any) (bool, error) {
 				a.Config.BraveAPIKey = s
 				changed = true
 			}
+		case "elevenlabs_api_key":
+			if s, ok := val.(string); ok && !strings.Contains(s, "****") && s != a.Config.ElevenLabsAPIKey {
+				a.Config.ElevenLabsAPIKey = s
+				changed = true
+			}
+		case "elevenlabs_voice_id":
+			if s, ok := val.(string); ok && s != a.Config.ElevenLabsVoiceID {
+				a.Config.ElevenLabsVoiceID = s
+				changed = true
+			}
+		case "twilio_account_sid":
+			if s, ok := val.(string); ok && !strings.Contains(s, "****") && s != a.Config.TwilioAccountSID {
+				a.Config.TwilioAccountSID = s
+				changed = true
+			}
+		case "twilio_auth_token":
+			if s, ok := val.(string); ok && !strings.Contains(s, "****") && s != a.Config.TwilioAuthToken {
+				a.Config.TwilioAuthToken = s
+				changed = true
+			}
+		case "twilio_from_number":
+			if s, ok := val.(string); ok && s != a.Config.TwilioFromNumber {
+				a.Config.TwilioFromNumber = s
+				changed = true
+			}
 		case "listen_addr":
 			if s, ok := val.(string); ok && s != "" && s != a.Config.ListenAddr {
 				a.Config.ListenAddr = s
@@ -1575,6 +1614,13 @@ func (a *App) UpdateConfig(updates map[string]any) (bool, error) {
 	// Hot-reload runtime config.
 	if a.rt != nil {
 		a.rt.UpdateConfig(a.Config.Name, a.Config.Personality, a.Config.SystemPrompt)
+	}
+
+	// Hot-activate ElevenLabs TTS if API key was just saved via dashboard.
+	if elKey, ok := updates["elevenlabs_api_key"].(string); ok && elKey != "" && !strings.Contains(elKey, "****") {
+		if a.hotActivateTTS != nil {
+			a.hotActivateTTS(elKey, a.Config.ElevenLabsVoiceID)
+		}
 	}
 
 	// If tunnel_url was updated, persist and re-sync Twilio webhook immediately.

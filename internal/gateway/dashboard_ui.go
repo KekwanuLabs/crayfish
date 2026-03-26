@@ -406,7 +406,44 @@ const dashboardPageHTML = `<!DOCTYPE html>
           <div class="form-group"><label>Gmail User</label><input type="text" id="cfg-gmail_user" placeholder="you@gmail.com"></div>
           <div class="form-group"><label>Gmail App Password <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener" style="color:#f97316;font-weight:500;font-size:0.85em;text-decoration:underline">Get one here &rarr;</a></label><div class="pass-wrap"><input type="password" id="cfg-gmail_app_password"><button class="pass-toggle" onclick="togglePass('cfg-gmail_app_password')">&#128065;</button></div></div>
         </div>
-        <div class="form-group"><label>Brave API Key</label><div class="pass-wrap"><input type="password" id="cfg-brave_api_key"><button class="pass-toggle" onclick="togglePass('cfg-brave_api_key')">&#128065;</button></div></div>
+        <div class="form-group"><label>Brave Search API Key</label><div class="pass-wrap"><input type="password" id="cfg-brave_api_key"><button class="pass-toggle" onclick="togglePass('cfg-brave_api_key')">&#128065;</button></div></div>
+      </div>
+      <div class="form-section">
+        <div class="form-section-header"><span class="dot-hot"></span> 🎙️ ElevenLabs Voice</div>
+        <div style="font-size:0.8125rem;color:#64748b;margin-bottom:0.75rem;">
+          Gives Crayfish a natural, human-sounding voice for Telegram replies and phone calls.
+          Free tier: 10,000 characters/month.
+          <a href="https://elevenlabs.io" target="_blank" rel="noopener" style="color:#f97316;">Sign up free &rarr;</a>
+          then go to <b>Profile → API Keys</b>.
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>ElevenLabs API Key <a href="https://elevenlabs.io/app/speech-synthesis/text-to-speech" target="_blank" rel="noopener" style="color:#f97316;font-size:0.8em;">Get key &rarr;</a></label>
+            <div class="pass-wrap"><input type="password" id="cfg-elevenlabs_api_key" placeholder="Paste your API key here"><button class="pass-toggle" onclick="togglePass('cfg-elevenlabs_api_key')">&#128065;</button></div>
+          </div>
+          <div class="form-group"><label>Voice ID <span style="color:#64748b;font-size:0.8em;">(optional — leave blank for default)</span></label>
+            <input type="text" id="cfg-elevenlabs_voice_id" placeholder="21m00Tcm4TlvDq8ikWAM (Rachel)">
+          </div>
+        </div>
+        <div id="elevenlabs-status" style="display:none;margin-top:0.25rem;font-size:0.8125rem;padding:0.5rem 0.75rem;border-radius:8px;"></div>
+      </div>
+      <div class="form-section">
+        <div class="form-section-header"><span class="dot-hot"></span> 📞 Twilio Phone Calls</div>
+        <div style="font-size:0.8125rem;color:#64748b;margin-bottom:0.75rem;">
+          Lets Crayfish make and receive phone calls on your behalf.
+          <a href="https://www.twilio.com/try-twilio" target="_blank" rel="noopener" style="color:#f97316;">Sign up free &rarr;</a>
+          ($15 trial credit · ~$1/month for a phone number).
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Account SID <a href="https://console.twilio.com" target="_blank" rel="noopener" style="color:#f97316;font-size:0.8em;">Find in console &rarr;</a></label>
+            <input type="text" id="cfg-twilio_account_sid" placeholder="ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" autocomplete="off">
+          </div>
+          <div class="form-group"><label>Auth Token</label>
+            <div class="pass-wrap"><input type="password" id="cfg-twilio_auth_token" placeholder="Your Twilio Auth Token"><button class="pass-toggle" onclick="togglePass('cfg-twilio_auth_token')">&#128065;</button></div>
+          </div>
+        </div>
+        <div class="form-group"><label>Your Twilio Phone Number <span style="color:#64748b;font-size:0.8em;">E.164 format</span></label>
+          <input type="text" id="cfg-twilio_from_number" placeholder="+12025551234">
+        </div>
       </div>
       <div class="form-section">
         <div class="form-section-header"><span class="dot-restart"></span> Network</div>
@@ -758,7 +795,8 @@ async function loadSettings() {
   const fields = ['name','personality','system_prompt','provider','api_key','endpoint','model','max_tokens',
     'telegram_token','gmail_user','gmail_app_password','brave_api_key','listen_addr',
     'session_resume_minutes','snapshots_per_session','update_channel',
-    'twilio_account_sid','twilio_from_number','tunnel_url'];
+    'twilio_account_sid','twilio_auth_token','twilio_from_number','tunnel_url',
+    'elevenlabs_api_key','elevenlabs_voice_id'];
   fields.forEach(f => {
     const el = document.getElementById('cfg-'+f);
     if (!el) return;
@@ -845,7 +883,9 @@ async function saveTunnelURL() {
 async function saveSettings() {
   const u = {};
   const text = ['name','personality','system_prompt','provider','api_key','endpoint','model',
-    'telegram_token','gmail_user','gmail_app_password','brave_api_key','listen_addr','update_channel'];
+    'telegram_token','gmail_user','gmail_app_password','brave_api_key','listen_addr','update_channel',
+    'elevenlabs_api_key','elevenlabs_voice_id',
+    'twilio_account_sid','twilio_auth_token','twilio_from_number'];
   text.forEach(f => { const v = document.getElementById('cfg-'+f).value; u[f] = v; });
   const nums = ['max_tokens','session_resume_minutes','snapshots_per_session'];
   nums.forEach(f => { const v = parseInt(document.getElementById('cfg-'+f).value); if (!isNaN(v)) u[f] = v; });
