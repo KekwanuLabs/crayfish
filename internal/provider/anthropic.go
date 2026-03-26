@@ -4,6 +4,7 @@
 package provider
 
 import (
+	"bufio"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -12,6 +13,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -75,6 +77,7 @@ type anthropicRequest struct {
 	System    string             `json:"system,omitempty"`
 	Messages  []anthropicMessage `json:"messages"`
 	Tools     []anthropicToolDef `json:"tools,omitempty"`
+	Stream    bool               `json:"stream,omitempty"`
 }
 
 // anthropicMessage supports both simple string content and structured content blocks.
@@ -284,6 +287,124 @@ func (p *AnthropicProvider) Complete(ctx context.Context, req CompletionRequest)
 	}
 
 	return result, nil
+}
+
+// Stream sends a completion request using Anthropic's SSE streaming API and
+// calls onToken for each text token as it arrives.
+func (p *AnthropicProvider) Stream(ctx context.Context, req CompletionRequest, onToken TokenCallback) (*CompletionResponse, error) {
+	model := req.Model
+	if model == "" {
+		model = p.model
+	}
+	maxTokens := req.MaxTokens
+	if maxTokens == 0 {
+		maxTokens = p.maxTokens
+	}
+
+	// Build the same message array as Complete().
+	var systemPrompt string
+	var msgs []anthropicMessage
+	for _, m := range req.Messages {
+		if m.Role == RoleSystem {
+			systemPrompt = m.Content
+			continue
+		}
+		msgs = append(msgs, anthropicMessage{Role: m.Role, Content: m.Content})
+	}
+	if len(msgs) == 0 {
+		return nil, fmt.Errorf("anthropic.Stream: no user messages provided")
+	}
+
+	apiReq := anthropicRequest{
+		Model:     model,
+		MaxTokens: maxTokens,
+		System:    systemPrompt,
+		Messages:  msgs,
+		Stream:    true,
+	}
+	body, err := json.Marshal(apiReq)
+	if err != nil {
+		return nil, fmt.Errorf("anthropic.Stream: marshal: %w", err)
+	}
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", anthropicAPIURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("anthropic.Stream: new request: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("X-API-Key", p.apiKey)
+	httpReq.Header.Set("Anthropic-Version", anthropicAPIVersion)
+
+	resp, err := p.httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("anthropic.Stream: http do: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return nil, fmt.Errorf("anthropic.Stream: API error %d: %s", resp.StatusCode, string(b))
+	}
+
+	// Parse SSE events.
+	var fullText strings.Builder
+	var inputTokens, outputTokens int
+
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := line[len("data: "):]
+		if data == "[DONE]" {
+			break
+		}
+
+		var event struct {
+			Type  string `json:"type"`
+			Delta struct {
+				Type string `json:"type"`
+				Text string `json:"text"`
+			} `json:"delta"`
+			Usage struct {
+				InputTokens  int `json:"input_tokens"`
+				OutputTokens int `json:"output_tokens"`
+			} `json:"usage"`
+			Message struct {
+				Usage struct {
+					InputTokens int `json:"input_tokens"`
+				} `json:"usage"`
+			} `json:"message"`
+		}
+		if err := json.Unmarshal([]byte(data), &event); err != nil {
+			continue
+		}
+
+		switch event.Type {
+		case "content_block_delta":
+			if event.Delta.Type == "text_delta" && event.Delta.Text != "" {
+				fullText.WriteString(event.Delta.Text)
+				if err := onToken(event.Delta.Text); err != nil {
+					return nil, err
+				}
+			}
+		case "message_start":
+			inputTokens = event.Message.Usage.InputTokens
+		case "message_delta":
+			outputTokens = event.Usage.OutputTokens
+		}
+	}
+
+	if err := scanner.Err(); err != nil && ctx.Err() == nil {
+		return nil, fmt.Errorf("anthropic.Stream: read SSE: %w", err)
+	}
+
+	return &CompletionResponse{
+		Content:    fullText.String(),
+		TokensUsed: inputTokens + outputTokens,
+		StopReason: "end_turn",
+	}, nil
 }
 
 // doRequest performs a single HTTP request to the Anthropic API.

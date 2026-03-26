@@ -38,7 +38,11 @@ type Config struct {
 	// Timezone — IANA timezone name (e.g. "America/Los_Angeles"). Empty = system local.
 	Timezone string `yaml:"timezone"`
 
-	// Voice — Local text-to-speech
+	// ElevenLabs — Cloud text-to-speech (preferred over local piper when set).
+	ElevenLabsAPIKey string `yaml:"elevenlabs_api_key"`
+	ElevenLabsVoiceID string `yaml:"elevenlabs_voice_id"` // defaults to Rachel
+
+	// Voice — Local text-to-speech (piper)
 	VoiceEnabled bool   `yaml:"voice_enabled"`
 	VoiceModel   string `yaml:"voice_model"` // Piper voice model name
 
@@ -46,6 +50,16 @@ type Config struct {
 	STTEnabled   bool   `yaml:"stt_enabled"`
 	STTModelPath string `yaml:"stt_model_path"` // Path to whisper model (auto-detect if empty)
 	STTAPIKey    string `yaml:"stt_api_key"`    // OpenAI or Groq API key for cloud STT fallback
+
+	// Twilio — phone calls via ConversationRelay
+	TwilioAccountSID string `yaml:"twilio_account_sid"`
+	TwilioAuthToken  string `yaml:"twilio_auth_token"`
+	TwilioFromNumber string `yaml:"twilio_from_number"` // E.164 format, e.g. "+12025551234"
+
+	// TunnelURL is the publicly accessible base URL for this Crayfish instance.
+	// Required for phone calls (Twilio ConversationRelay needs a public wss:// endpoint).
+	// Set to your Cloudflare Tunnel URL, e.g. "https://abc.trycloudflare.com".
+	TunnelURL string `yaml:"tunnel_url"`
 
 	// Channels
 	TelegramToken string `yaml:"telegram_token"`
@@ -207,6 +221,12 @@ func LoadConfig(logger *slog.Logger) Config {
 	envStr("CRAYFISH_DB_PATH", &cfg.DBPath)
 	envStr("CRAYFISH_LISTEN", &cfg.ListenAddr)
 	envStr("CRAYFISH_TIMEZONE", &cfg.Timezone)
+	envStr("CRAYFISH_ELEVENLABS_API_KEY", &cfg.ElevenLabsAPIKey)
+	envStr("CRAYFISH_ELEVENLABS_VOICE_ID", &cfg.ElevenLabsVoiceID)
+	envStr("CRAYFISH_TWILIO_ACCOUNT_SID", &cfg.TwilioAccountSID)
+	envStr("CRAYFISH_TWILIO_AUTH_TOKEN", &cfg.TwilioAuthToken)
+	envStr("CRAYFISH_TWILIO_FROM_NUMBER", &cfg.TwilioFromNumber)
+	envStr("CRAYFISH_TUNNEL_URL", &cfg.TunnelURL)
 	envBool("CRAYFISH_VOICE_ENABLED", &cfg.VoiceEnabled)
 	envStr("CRAYFISH_VOICE_MODEL", &cfg.VoiceModel)
 	envBool("CRAYFISH_STT_ENABLED", &cfg.STTEnabled)

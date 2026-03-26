@@ -14,6 +14,7 @@ import (
 
 	"github.com/KekwanuLabs/crayfish/internal/bus"
 	"github.com/KekwanuLabs/crayfish/internal/channels"
+	"github.com/KekwanuLabs/crayfish/internal/channels/phone"
 	"github.com/KekwanuLabs/crayfish/internal/oauth"
 	"github.com/KekwanuLabs/crayfish/internal/runtime"
 	"github.com/KekwanuLabs/crayfish/internal/skills"
@@ -52,6 +53,7 @@ type Gateway struct {
 	bus             bus.Bus
 	rt              *runtime.Runtime
 	adapters        map[string]channels.ChannelAdapter
+	phoneAdapter    *phone.Adapter // optional — registered when Twilio is configured
 	skillRegistry   *skills.Registry
 	skillHub        *skills.HubClient
 	appRef          AppAccessor
@@ -101,6 +103,16 @@ func (g *Gateway) RegisterAdapter(adapter channels.ChannelAdapter) {
 	defer g.mu.Unlock()
 	g.adapters[adapter.Name()] = adapter
 	g.logger.Info("adapter registered", "name", adapter.Name())
+}
+
+// RegisterPhoneAdapter wires the Twilio ConversationRelay phone adapter.
+// Exposes /phone/twiml (TwiML endpoint) and /phone/ws (WebSocket endpoint).
+func (g *Gateway) RegisterPhoneAdapter(adapter *phone.Adapter) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.phoneAdapter = adapter
+	g.adapters[adapter.Name()] = adapter
+	g.logger.Info("phone adapter registered (Twilio ConversationRelay)")
 }
 
 // Start initializes and runs the complete gateway stack.
@@ -310,7 +322,19 @@ func (g *Gateway) httpHandler() http.Handler {
 		dashAPI.RegisterRoutes(mux, g.requireAuth)
 
 		g.logger.Info("dashboard registered")
-	} else {
+	}
+
+	// Phone endpoints — registered when Twilio is configured.
+	g.mu.RLock()
+	phoneAdapter := g.phoneAdapter
+	g.mu.RUnlock()
+	if phoneAdapter != nil {
+		mux.HandleFunc("/phone/twiml", phoneAdapter.HandleTwiML)
+		mux.HandleFunc("/phone/ws", phoneAdapter.HandleWebSocket)
+		g.logger.Info("phone endpoints registered", "twiml", "/phone/twiml", "ws", "/phone/ws")
+	}
+
+	if g.appRef == nil {
 		// Fallback if no app accessor (shouldn't happen in normal use).
 		mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path != "/" {

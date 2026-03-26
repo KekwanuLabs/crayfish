@@ -68,6 +68,7 @@ type Config struct {
 	EmailEnabled        bool     `json:"-" yaml:"-"` // Whether email is configured (OAuth or App Password)
 	EmailViaApp         bool     `json:"-" yaml:"-"` // True if email is via App Password (not OAuth)
 	TravelSearchEnabled bool     `json:"-" yaml:"-"` // Whether Amadeus flight search is configured
+	PhoneEnabled        bool     `json:"-" yaml:"-"` // Whether Twilio phone calls are configured
 	Timezone            string   `json:"-" yaml:"-"` // IANA timezone name (e.g. "America/Los_Angeles")
 }
 
@@ -235,6 +236,25 @@ When the user asks about flights or travel prices, use these tools directly:
 - flight_cheapest_dates: Discover the cheapest travel dates for a route
 - flight_price_analysis: Check if a price is HIGH, TYPICAL, or LOW compared to historical data
 You can watch prices and check daily — offer this when travel planning comes up.`
+	}
+
+	// Phone context.
+	if c.PhoneEnabled {
+		base += `
+
+## Phone Calls
+You can make outbound phone calls using call_make. Use this when:
+- The user asks you to call someone ("Call my wife and tell her...")
+- A workflow triggers a call (flight price alert, morning briefing, etc.)
+- Any situation where a phone call is the right medium
+
+The call will be a live two-way conversation — the recipient can talk back.
+Always confirm the phone number before calling unless it's obvious from context.`
+	} else {
+		base += `
+
+## Phone Calls
+Phone calls are not set up yet. If the user asks you to make a call, run twilio_connect to set it up first, then place the call.`
 	}
 
 	// Skills context.

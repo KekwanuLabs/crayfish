@@ -63,10 +63,20 @@ type CompletionResponse struct {
 	StopReason string     `json:"stop_reason"`
 }
 
+// TokenCallback is called for each streamed text token.
+// Returning a non-nil error stops the stream immediately.
+type TokenCallback func(token string) error
+
 // Provider is the interface all LLM backends must implement.
 type Provider interface {
 	// Complete sends a completion request and returns the model's response.
 	Complete(ctx context.Context, req CompletionRequest) (*CompletionResponse, error)
+
+	// Stream sends a completion request and calls onToken for each text token
+	// as it arrives. Returns the full response once the stream ends.
+	// Implementations that don't support streaming fall back to Complete and
+	// invoke onToken once with the full response text.
+	Stream(ctx context.Context, req CompletionRequest, onToken TokenCallback) (*CompletionResponse, error)
 
 	// Name returns the provider identifier (e.g., "anthropic", "openai").
 	Name() string

@@ -31,6 +31,18 @@ func (m *mockProvider) Complete(_ context.Context, _ provider.CompletionRequest)
 
 func (m *mockProvider) Name() string  { return "mock" }
 func (m *mockProvider) Model() string { return "mock-model" }
+func (m *mockProvider) Stream(ctx context.Context, req provider.CompletionRequest, onToken provider.TokenCallback) (*provider.CompletionResponse, error) {
+	resp, err := m.Complete(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if resp != nil && resp.Content != "" {
+		if err := onToken(resp.Content); err != nil {
+			return nil, err
+		}
+	}
+	return resp, nil
+}
 
 // setupSnapshotDB creates an in-memory SQLite database with the tables needed for snapshot tests.
 func setupSnapshotDB(t *testing.T) *sql.DB {
@@ -1147,3 +1159,15 @@ func (sp *switchingProvider) Complete(ctx context.Context, req provider.Completi
 
 func (sp *switchingProvider) Name() string  { return "switching-mock" }
 func (sp *switchingProvider) Model() string { return "switching-mock-model" }
+func (sp *switchingProvider) Stream(ctx context.Context, req provider.CompletionRequest, onToken provider.TokenCallback) (*provider.CompletionResponse, error) {
+	resp, err := sp.Complete(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if resp != nil && resp.Content != "" {
+		if err := onToken(resp.Content); err != nil {
+			return nil, err
+		}
+	}
+	return resp, nil
+}

@@ -226,6 +226,27 @@ if [ "$NEED_INSTALL" -eq 1 ]; then
 else
     echo "[deploy] Build tools already installed"
 fi
+
+# Install cloudflared for Twilio ConversationRelay tunnel (phone calls).
+if ! command -v cloudflared >/dev/null 2>&1; then
+    echo "[deploy] Installing cloudflared (Cloudflare Tunnel for phone calls)..."
+    ARCH=$(uname -m)
+    case "$ARCH" in
+        aarch64|arm64) CF_ARCH="arm64" ;;
+        armv7l|armv6l) CF_ARCH="arm" ;;
+        x86_64)        CF_ARCH="amd64" ;;
+        *)             CF_ARCH="amd64" ;;
+    esac
+    CF_URL="https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${CF_ARCH}"
+    if curl -sSL "$CF_URL" -o /tmp/cloudflared 2>/dev/null; then
+        sudo install -m 755 /tmp/cloudflared /usr/local/bin/cloudflared
+        echo "[deploy] cloudflared installed"
+    else
+        echo "[deploy] Warning: could not install cloudflared — phone calls need a manual tunnel setup"
+    fi
+else
+    echo "[deploy] cloudflared already installed"
+fi
 DEPS_SCRIPT
 
     info "Dependencies checked"

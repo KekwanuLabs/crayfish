@@ -303,3 +303,18 @@ func (p *OpenAICompatProvider) doRequest(ctx context.Context, body []byte) ([]by
 
 	return respBody, resp.StatusCode, nil
 }
+
+// Stream falls back to Complete and calls onToken once with the full response.
+// OpenAI-compatible providers can override this for native streaming support.
+func (p *OpenAICompatProvider) Stream(ctx context.Context, req CompletionRequest, onToken TokenCallback) (*CompletionResponse, error) {
+	resp, err := p.Complete(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if resp.Content != "" {
+		if err := onToken(resp.Content); err != nil {
+			return nil, err
+		}
+	}
+	return resp, nil
+}

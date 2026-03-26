@@ -19,6 +19,7 @@ import (
 	"github.com/KekwanuLabs/crayfish/internal/calendar"
 	"github.com/KekwanuLabs/crayfish/internal/channels"
 	"github.com/KekwanuLabs/crayfish/internal/channels/cli"
+	"github.com/KekwanuLabs/crayfish/internal/channels/phone"
 	"github.com/KekwanuLabs/crayfish/internal/channels/telegram"
 	"github.com/KekwanuLabs/crayfish/internal/drive"
 	"github.com/KekwanuLabs/crayfish/internal/gateway"
@@ -172,9 +173,17 @@ func (a *App) Start(ctx context.Context) error {
 		}
 
 		// Wire up TTS for voice responses.
-		// Skip local TTS on hardware too slow to synthesize in useful time (e.g. Pi 2 armv7).
-		// Use ElevenLabs or similar cloud TTS on those devices instead.
-		if a.Config.VoiceEnabled && devInfo.CanRunLocalTTS() {
+		// Priority: ElevenLabs (cloud, any hardware) > piper (local, fast hardware only).
+		if a.Config.ElevenLabsAPIKey != "" {
+			elEngine := voice.NewElevenLabsEngine(
+				a.Config.ElevenLabsAPIKey,
+				a.Config.ElevenLabsVoiceID,
+				a.Logger.With("component", "elevenlabs"),
+			)
+			tgAdapter.SetTTS(elEngine)
+			a.Logger.Info("text-to-speech enabled for Telegram (ElevenLabs)",
+				"voice_id", a.Config.ElevenLabsVoiceID)
+		} else if a.Config.VoiceEnabled && devInfo.CanRunLocalTTS() {
 			// Try the configured model first; fall back to hardware-recommended model.
 			modelName := a.Config.VoiceModel
 			ttsEngine := voice.New(voice.Config{
@@ -277,7 +286,92 @@ func (a *App) Start(ctx context.Context) error {
 		},
 	})
 
-	// 6b. Amadeus flight tools
+	// Always register voice_connect so users can set up ElevenLabs conversationally.
+	tools.RegisterVoiceConnectTool(toolReg, tools.VoiceConnectDeps{
+		IsConfigured: func() bool {
+			a.configMu.RLock()
+			defer a.configMu.RUnlock()
+			return a.Config.ElevenLabsAPIKey != ""
+		},
+		SaveConfig: func(apiKey, voiceID string) {
+			a.configMu.Lock()
+			a.Config.ElevenLabsAPIKey = apiKey
+			if voiceID != "" {
+				a.Config.ElevenLabsVoiceID = voiceID
+			}
+			a.configMu.Unlock()
+			if err := a.Config.SaveConfig(); err != nil {
+				a.Logger.Warn("failed to save ElevenLabs config", "error", err)
+			}
+			a.Logger.Info("ElevenLabs config saved", "voice_id", voiceID)
+		},
+		ActivateTTS: func(apiKey, voiceID string) {
+			if tgAdapter == nil {
+				return
+			}
+			elEngine := voice.NewElevenLabsEngine(apiKey, voiceID, a.Logger.With("component", "elevenlabs"))
+			tgAdapter.SetTTS(elEngine)
+			a.Logger.Info("ElevenLabs TTS hot-activated", "voice_id", voiceID)
+		},
+	})
+
+	// 6b. Phone/Twilio — ConversationRelay channel + call tools.
+	var phoneAdapter *phone.Adapter
+	if a.Config.TwilioAccountSID != "" {
+		phoneAdapter = phone.New(phone.Config{
+			TwilioAccountSID:  a.Config.TwilioAccountSID,
+			TwilioAuthToken:   a.Config.TwilioAuthToken,
+			TwilioFromNumber:  a.Config.TwilioFromNumber,
+			TunnelURL:         a.Config.TunnelURL,
+			ElevenLabsVoiceID: a.Config.ElevenLabsVoiceID,
+			SystemPrompt:      "", // filled after runtime config is built below
+		}, a.llm, a.Logger.With("component", "phone"))
+		tools.RegisterCallTools(toolReg, phoneAdapter)
+		a.Logger.Info("phone channel ready", "from", a.Config.TwilioFromNumber)
+	}
+
+	// Always register twilio_connect so users can set up phone calls conversationally.
+	tools.RegisterTwilioConnectTool(toolReg, tools.TwilioConnectDeps{
+		IsConfigured: func() bool {
+			a.configMu.RLock()
+			defer a.configMu.RUnlock()
+			return a.Config.TwilioAccountSID != ""
+		},
+		SaveCreds: func(accountSID, authToken, fromNumber, tunnelURL string) {
+			a.configMu.Lock()
+			a.Config.TwilioAccountSID = accountSID
+			a.Config.TwilioAuthToken = authToken
+			a.Config.TwilioFromNumber = fromNumber
+			if tunnelURL != "" {
+				a.Config.TunnelURL = tunnelURL
+			}
+			a.configMu.Unlock()
+			if err := a.Config.SaveConfig(); err != nil {
+				a.Logger.Warn("failed to save Twilio config", "error", err)
+			}
+		},
+		ActivatePhone: func(accountSID, authToken, fromNumber, tunnelURL string) {
+			if phoneAdapter != nil {
+				// Phone adapter already exists — update config in-place.
+				return
+			}
+			phoneAdapter = phone.New(phone.Config{
+				TwilioAccountSID: accountSID,
+				TwilioAuthToken:  authToken,
+				TwilioFromNumber: fromNumber,
+				TunnelURL:        tunnelURL,
+				ElevenLabsVoiceID: a.Config.ElevenLabsVoiceID,
+			}, a.llm, a.Logger.With("component", "phone"))
+			tools.RegisterCallTools(toolReg, phoneAdapter)
+			a.gateway.RegisterPhoneAdapter(phoneAdapter)
+			if err := phoneAdapter.Start(ctx, a.bus); err != nil {
+				a.Logger.Warn("phone adapter start failed", "error", err)
+			}
+			a.Logger.Info("phone channel hot-activated", "from", fromNumber)
+		},
+	})
+
+	// 6c. Amadeus flight tools
 	if a.Config.AmadeusClientID != "" && a.Config.AmadeusClientSecret != "" {
 		auth := tools.NewAmadeusAuth(a.Config.AmadeusClientID, a.Config.AmadeusClientSecret)
 		tools.RegisterAmadeusTools(toolReg, auth)
@@ -915,8 +1009,9 @@ func (a *App) Start(ctx context.Context) error {
 		}
 	}
 
-	// 14. TTS auto-installer (runs in background when piper isn't already present)
-	if a.Config.VoiceEnabled && tgAdapter != nil && devInfo.CanRunLocalTTS() {
+	// 14. TTS auto-installer (runs in background when piper isn't already present).
+	// Skip when ElevenLabs is configured — no need to install piper too.
+	if a.Config.VoiceEnabled && tgAdapter != nil && devInfo.CanRunLocalTTS() && a.Config.ElevenLabsAPIKey == "" {
 		a.ttsInstaller = voice.NewTTSInstaller(
 			voice.DefaultTTSInstallerConfig(),
 			a.Logger.With("component", "tts-installer"),
@@ -1054,6 +1149,7 @@ func (a *App) Start(ctx context.Context) error {
 	}
 	rtCfg.WebSearchEnabled = a.Config.BraveAPIKey != ""
 	rtCfg.TravelSearchEnabled = a.Config.AmadeusClientID != "" && a.Config.AmadeusClientSecret != ""
+	rtCfg.PhoneEnabled = a.Config.TwilioAccountSID != ""
 	rtCfg.Timezone = a.Config.Timezone
 	a.emailMu.RLock()
 	rtCfg.EmailEnabled = a.emailProvider != nil
@@ -1154,6 +1250,12 @@ func (a *App) Start(ctx context.Context) error {
 	a.gateway.RegisterAdapter(cliAdapter)
 	if tgAdapter != nil {
 		a.gateway.RegisterAdapter(tgAdapter)
+	}
+	if phoneAdapter != nil {
+		a.gateway.RegisterPhoneAdapter(phoneAdapter)
+		if err := phoneAdapter.Start(ctx, a.bus); err != nil {
+			a.Logger.Warn("phone adapter start failed (non-fatal)", "error", err)
+		}
 	}
 
 	if err := a.gateway.Start(ctx, rt, a.bus); err != nil {
