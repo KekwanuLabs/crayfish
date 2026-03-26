@@ -234,6 +234,9 @@ func (a *App) Start(ctx context.Context) error {
 	toolReg := tools.NewRegistry(a.Logger.With("component", "tools"))
 	tools.RegisterBuiltins(toolReg, adapterMap, db.Inner())
 
+	// Weather tools — free, no API key required (Open-Meteo).
+	tools.RegisterWeatherTools(toolReg)
+
 	if a.Config.BraveAPIKey != "" {
 		tools.RegisterSearchTools(toolReg, tools.BraveSearchConfig{APIKey: a.Config.BraveAPIKey})
 	}

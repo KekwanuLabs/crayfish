@@ -218,6 +218,17 @@ When you send or reply to an email for the user, let them know: "If they reply, 
 Email is not connected yet. If the user asks about email, call email_connect immediately to start setup — don't just describe the process. They'll need a Gmail app password (Google doesn't allow email via device code). Tell them to go to https://myaccount.google.com/apppasswords, create an app password, and paste it back. Once connected, complete their original request.`
 	}
 
+	// Weather — always available, no setup needed.
+	base += `
+
+## Weather
+You have real-time weather access via weather_current and weather_forecast tools.
+- Any question about weather, rain, temperature, forecast → call the tool immediately, don't search the web.
+- weather_current: current conditions + today's forecast
+- weather_forecast: 7-day forecast
+- Works for any location worldwide, no API key needed.
+- If the user asks about weather without specifying a location, use their saved location from USER.md.`
+
 	// Web search context.
 	if !c.WebSearchEnabled {
 		base += `
