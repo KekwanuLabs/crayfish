@@ -445,6 +445,50 @@ const dashboardPageHTML = `<!DOCTYPE html>
           </div>
         </div>
         <div id="firewall-status" style="display:none;margin-top:0.5rem;padding:0.625rem 0.875rem;border-radius:8px;font-size:0.8125rem;"></div>
+      </div>
+      <div class="form-section">
+        <div class="form-section-header"><span class="dot-hot"></span> External SSH Access <span style="font-size:0.75rem;font-weight:400;color:#64748b;margin-left:0.5rem;">(advanced)</span></div>
+        <div style="font-size:0.8125rem;color:#94a3b8;line-height:1.6;margin-bottom:1rem;">
+          SSH from your local network always works — no setup needed. The firewall blocks SSH from the internet by design.
+          If you need remote SSH access, use one of the secure options below. <b style="color:#fcd34d;">Never open port 22 to the internet directly</b> — it will be hammered by bots within minutes.
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:0.875rem;">
+
+          <!-- Option 1: Cloudflare Tunnel SSH -->
+          <div style="padding:0.875rem 1rem;border-radius:10px;border:1px solid rgba(71,85,105,0.4);background:rgba(15,23,42,0.5);">
+            <div style="font-weight:500;color:#f8fafc;margin-bottom:0.375rem;">Option 1 — Cloudflare Tunnel SSH <span style="font-size:0.75rem;color:#6ee7b7;font-weight:400;">recommended</span></div>
+            <div style="font-size:0.8125rem;color:#94a3b8;margin-bottom:0.625rem;">Route SSH through your Cloudflare tunnel — no open ports, protected by your Cloudflare identity.</div>
+            <div id="ssh-tunnel-steps" style="font-size:0.8125rem;">
+              <div style="color:#94a3b8;margin-bottom:0.375rem;"><b style="color:#f8fafc;">1.</b> Requires a named tunnel. On the Pi, run:</div>
+              <pre id="ssh-cf-setup" style="background:rgba(0,0,0,0.4);padding:0.625rem 0.875rem;border-radius:8px;overflow-x:auto;color:#6ee7b7;font-size:0.75rem;margin:0.375rem 0;">cloudflared tunnel login
+cloudflared tunnel create crayfish
+cloudflared tunnel route dns crayfish ssh.yourdomain.com</pre>
+              <div style="color:#94a3b8;margin:0.5rem 0 0.375rem;"><b style="color:#f8fafc;">2.</b> From any device with cloudflared installed, connect with:</div>
+              <pre id="ssh-cf-connect" style="background:rgba(0,0,0,0.4);padding:0.625rem 0.875rem;border-radius:8px;overflow-x:auto;color:#6ee7b7;font-size:0.75rem;margin:0.375rem 0;">ssh -o ProxyCommand="cloudflared access ssh --hostname ssh.yourdomain.com" crayfish@ssh.yourdomain.com</pre>
+              <div id="current-tunnel-hint" style="display:none;margin-top:0.5rem;padding:0.5rem 0.75rem;border-radius:8px;background:rgba(249,115,22,0.1);border:1px solid rgba(249,115,22,0.2);color:#fcd34d;font-size:0.75rem;"></div>
+            </div>
+          </div>
+
+          <!-- Option 2: Tailscale -->
+          <div style="padding:0.875rem 1rem;border-radius:10px;border:1px solid rgba(71,85,105,0.4);background:rgba(15,23,42,0.5);">
+            <div style="font-weight:500;color:#f8fafc;margin-bottom:0.375rem;">Option 2 — Tailscale <span style="font-size:0.75rem;color:#94a3b8;font-weight:400;">simplest</span></div>
+            <div style="font-size:0.8125rem;color:#94a3b8;margin-bottom:0.625rem;">Free mesh VPN. Install on the Pi and your devices — SSH via a stable private IP, no config needed.</div>
+            <pre style="background:rgba(0,0,0,0.4);padding:0.625rem 0.875rem;border-radius:8px;overflow-x:auto;color:#6ee7b7;font-size:0.75rem;margin:0;">curl -fsSL https://tailscale.com/install.sh | sh
+sudo tailscale up
+# SSH: ssh crayfish@$(tailscale ip -4)</pre>
+          </div>
+
+          <!-- SSH hardening note -->
+          <div style="padding:0.75rem 1rem;border-radius:10px;border:1px solid rgba(250,204,21,0.2);background:rgba(250,204,21,0.05);">
+            <div style="font-size:0.8125rem;color:#fcd34d;font-weight:500;margin-bottom:0.375rem;">🔑 SSH hardening (strongly recommended)</div>
+            <div style="font-size:0.8125rem;color:#94a3b8;margin-bottom:0.5rem;">Disable password login — keys only. Removes entire brute-force attack surface.</div>
+            <div style="font-size:0.8125rem;color:#94a3b8;margin-bottom:0.375rem;">First, ensure your SSH public key is in <code>~/.ssh/authorized_keys</code> on the Pi, then run:</div>
+            <pre style="background:rgba(0,0,0,0.4);padding:0.625rem 0.875rem;border-radius:8px;overflow-x:auto;color:#6ee7b7;font-size:0.75rem;margin:0;">sudo sed -i 's/^#\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+sudo sed -i 's/^#\?PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+sudo systemctl restart sshd</pre>
+          </div>
+        </div>
 
         <div class="form-section-header"><span class="dot-hot"></span> System</div>
         <div class="form-row">
@@ -628,6 +672,22 @@ async function loadSettings() {
   document.getElementById('cfg-continuity_enabled').checked = !!c.continuity_enabled;
   document.getElementById('cfg-auto_update').checked = !!c.auto_update;
 
+  // SSH tunnel hint — show current URL if one is set.
+  if (c.tunnel_url) {
+    const hint = document.getElementById('current-tunnel-hint');
+    if (hint) {
+      hint.style.display = 'block';
+      if (c.tunnel_type === 'quick') {
+        hint.innerHTML = '⚡ Your current quick tunnel is <code>' + esc(c.tunnel_url) + '</code> — note this URL changes on restart. For stable SSH, set up a named tunnel with the commands above.';
+      } else if (c.tunnel_type === 'named') {
+        hint.style.background = 'rgba(16,185,129,0.1)';
+        hint.style.borderColor = 'rgba(16,185,129,0.3)';
+        hint.style.color = '#6ee7b7';
+        hint.innerHTML = '✓ Named tunnel active: <code>' + esc(c.tunnel_url) + '</code> — use this hostname for your SSH route DNS command above.';
+      }
+    }
+  }
+
   // Phone & Tunnel status panel.
   if (c.phone_configured) {
     const bar = document.getElementById('phone-status-bar');
@@ -662,7 +722,8 @@ async function loadFirewallStatus() {
       el.style.background = 'rgba(16,185,129,0.08)';
       el.style.border = '1px solid rgba(16,185,129,0.2)';
       el.style.color = '#6ee7b7';
-      el.innerHTML = '🛡️ Firewall active — SSH and local dashboard open, all other inbound ports blocked.';
+      const ipv6note = s.ipv6_active ? ' IPv6 LAN addresses (link-local + ULA) also allowed.' : '';
+      el.innerHTML = '🛡️ Firewall active — SSH and dashboard accessible from your local network only (IPv4 + IPv6). All internet traffic blocked.' + ipv6note;
     } else {
       el.style.background = 'rgba(239,68,68,0.08)';
       el.style.border = '1px solid rgba(239,68,68,0.2)';

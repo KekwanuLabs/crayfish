@@ -123,7 +123,17 @@ func ApplyRules(previous, current []string, ports []int) error {
 }
 
 // GetLocalSubnets returns sorted CIDR subnets for all active non-loopback
-// IPv4 interfaces (ethernet, WiFi, etc.). Skips link-local (169.254.x.x).
+// interfaces — both IPv4 and IPv6. Only includes addresses that cannot
+// originate from the internet:
+//
+//   IPv4: any address except link-local (169.254.x.x)
+//   IPv6: link-local (fe80::/10) and ULA (fc00::/7, commonly fd00::/8)
+//         Global unicast IPv6 is intentionally excluded — it IS internet-
+//         routable, so allowing it would open SSH/dashboard to the world.
+//
+// Both link-local and ULA are safe to allow because:
+//   - fe80::/10 is not routable beyond a single network link
+//   - fc00::/7 is the IPv6 equivalent of RFC 1918 private space
 func GetLocalSubnets() ([]string, error) {
 	ifaces, err := net.Interfaces()
 	if err != nil {
@@ -149,16 +159,32 @@ func GetLocalSubnets() ([]string, error) {
 			if !ok {
 				continue
 			}
-			ip4 := ipNet.IP.To4()
-			if ip4 == nil {
-				continue // IPv6 — skip for now
+
+			if ip4 := ipNet.IP.To4(); ip4 != nil {
+				// IPv4: skip link-local (APIPA 169.254.x.x)
+				if ip4[0] == 169 && ip4[1] == 254 {
+					continue
+				}
+				network := &net.IPNet{
+					IP:   ip4.Mask(ipNet.Mask),
+					Mask: ipNet.Mask,
+				}
+				subnets = append(subnets, network.String())
+				continue
 			}
-			if ip4[0] == 169 && ip4[1] == 254 {
-				continue // link-local (APIPA) — skip
+
+			// IPv6: only include link-local and ULA — never global unicast.
+			ip6 := ipNet.IP
+			if len(ip6) != 16 {
+				continue
 			}
-			// Network address of this interface's subnet.
+			isLinkLocal := ip6[0] == 0xfe && (ip6[1]&0xc0) == 0x80 // fe80::/10
+			isULA := (ip6[0] & 0xfe) == 0xfc                        // fc00::/7 (fd00::/8 is subset)
+			if !isLinkLocal && !isULA {
+				continue // global unicast — skip, it's internet-routable
+			}
 			network := &net.IPNet{
-				IP:   ip4.Mask(ipNet.Mask),
+				IP:   ip6.Mask(ipNet.Mask),
 				Mask: ipNet.Mask,
 			}
 			subnets = append(subnets, network.String())

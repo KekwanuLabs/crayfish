@@ -3,6 +3,7 @@ package gateway
 import (
 	"encoding/json"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -54,15 +55,35 @@ func (api *DashboardAPI) RegisterRoutes(mux *http.ServeMux, wrap func(http.Handl
 	mux.HandleFunc("/api/security/status", wrap(api.handleSecurityStatus))
 }
 
-// GET /api/security/status — returns firewall state (ufw).
+// GET /api/security/status — returns firewall and network state.
 func (api *DashboardAPI) handleSecurityStatus(w http.ResponseWriter, r *http.Request) {
 	firewallEnabled := false
-	cmd := exec.CommandContext(r.Context(), "sudo", "ufw", "status")
-	if out, err := cmd.Output(); err == nil {
+	if out, err := exec.CommandContext(r.Context(), "sudo", "ufw", "status").Output(); err == nil {
 		firewallEnabled = strings.Contains(string(out), "Status: active")
 	}
+
+	// Check whether any active interface has an IPv6 address.
+	ipv6Active := false
+	ifaces, _ := net.Interfaces()
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagLoopback != 0 || iface.Flags&net.FlagUp == 0 {
+			continue
+		}
+		addrs, _ := iface.Addrs()
+		for _, addr := range addrs {
+			if ipNet, ok := addr.(*net.IPNet); ok && ipNet.IP.To4() == nil && len(ipNet.IP) == 16 {
+				ipv6Active = true
+				break
+			}
+		}
+		if ipv6Active {
+			break
+		}
+	}
+
 	api.writeJSON(w, map[string]any{
 		"firewall_enabled": firewallEnabled,
+		"ipv6_active":      ipv6Active,
 	})
 }
 
