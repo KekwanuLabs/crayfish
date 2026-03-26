@@ -61,21 +61,33 @@ Free tier: Twilio trial gives $15 credit. Phone numbers cost ~$1/month. Calls ~$
 			switch input.Action {
 			case "status":
 				if deps.IsConfigured() {
-					return "Twilio is configured and phone calls are enabled.", nil
+					return "Phone calls are set up and ready. Just ask me to call someone!", nil
 				}
-				return "Twilio is not configured. Provide your Account SID, Auth Token, and phone number to set it up.", nil
+				return "Phone calls aren't set up yet. Say 'set up phone calls' and I'll walk you through it step by step — takes about 5 minutes.", nil
 
 			case "setup":
 				if input.AccountSID == "" || input.AuthToken == "" {
-					return `To set up phone calls, I need your Twilio credentials:
+					return `I'll set up phone calls for you! Here's what you need — it takes about 5 minutes:
 
-1. **Account SID** and **Auth Token** — from console.twilio.com (top of your dashboard)
-2. **Phone number** — buy one in Twilio Console → Phone Numbers (~$1/month)
-3. **Tunnel URL** — run this on your Pi:
-   ` + "`cloudflared tunnel --url http://localhost:8119`" + `
-   Copy the URL it prints (e.g. https://abc-def.trycloudflare.com)
+**Step 1: Create a free Twilio account**
+👉 https://www.twilio.com/try-twilio
+You get $15 free credit to start. No credit card required for trial.
 
-Reply with all four and I'll get you set up.`, nil
+**Step 2: Get your credentials**
+After signing up, go to your Twilio Console (console.twilio.com).
+Right on the home page you'll see:
+- **Account SID** — starts with "AC"
+- **Auth Token** — click the eye icon to reveal it
+
+**Step 3: Get a phone number**
+In the console: Phone Numbers → Manage → Buy a Number
+Search for a local number → Buy (~$1/month, covered by your trial credit)
+
+**Step 4: Paste them here**
+Reply with your Account SID, Auth Token, and the phone number you bought.
+That's it — I'll handle the rest automatically!
+
+> *Note: The tunnel for receiving calls runs automatically — you don't need to set that up yourself.*`, nil
 				}
 
 				// Validate credentials.

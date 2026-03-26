@@ -75,9 +75,9 @@ ElevenLabs free tier: 10,000 characters/month. Paid plans from $5/month.`,
 
 			case "status":
 				if deps.IsConfigured() {
-					return "ElevenLabs voice is configured and active.", nil
+					return "ElevenLabs voice is active — I'll respond with spoken audio on Telegram and phone calls use your configured voice.", nil
 				}
-				return "ElevenLabs voice is not configured. Provide an API key to set it up.", nil
+				return "ElevenLabs isn't set up yet. Say 'set up my voice' and I'll walk you through it — takes 2 minutes and the free tier is plenty for everyday use.", nil
 
 			case "list_voices":
 				if input.APIKey == "" {
@@ -101,7 +101,19 @@ ElevenLabs free tier: 10,000 characters/month. Paid plans from $5/month.`,
 
 			case "setup":
 				if input.APIKey == "" {
-					return "To set up voice responses, I need your ElevenLabs API key.\n\nGet one free at: https://elevenlabs.io/app/keys (10,000 characters/month free)", nil
+					return `I'll give you a voice! Here's how to get set up in about 2 minutes:
+
+**Step 1: Create a free ElevenLabs account**
+👉 https://elevenlabs.io (click "Sign Up Free")
+Free tier includes 10,000 characters/month — about 80–100 voice responses.
+
+**Step 2: Get your API key**
+Once signed in: click your profile icon (top right) → API Keys → Create API Key
+
+**Step 3: Paste it here**
+That's all I need. I'll pick a natural-sounding voice for you automatically, or you can choose one from your library.
+
+> *If you want a custom voice (clone your own voice or pick from hundreds), ElevenLabs paid plans start at $5/month.*`, nil
 				}
 
 				// Validate the key.

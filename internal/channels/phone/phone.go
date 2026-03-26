@@ -87,14 +87,39 @@ func (a *Adapter) HandleTwiML(w http.ResponseWriter, r *http.Request) {
 	if callSid == "" {
 		callSid = r.FormValue("CallSid")
 	}
-	greeting := r.URL.Query().Get("greeting")
+	// Read per-call context from query params set by MakeCall.
+	contact := r.URL.Query().Get("contact")
+	caller  := r.URL.Query().Get("caller")
+	purpose := r.URL.Query().Get("purpose")
+	opening := r.URL.Query().Get("opening")
 
 	wsURL := a.wsURL(callSid)
 	voice := a.elevenLabsVoice()
 
+	// Build welcomeGreeting — the first thing the phone agent says.
 	var welcomeAttr string
-	if greeting != "" {
-		welcomeAttr = fmt.Sprintf(`welcomeGreeting="%s"`, escapeXML(greeting))
+	if opening != "" {
+		welcomeAttr = fmt.Sprintf(`welcomeGreeting="%s"`, escapeXML(opening))
+	} else if contact != "" && caller != "" {
+		auto := fmt.Sprintf("Hi %s, this is Crayfish calling on behalf of %s.", contact, caller)
+		if purpose != "" {
+			auto += " I have a quick message for you."
+		}
+		welcomeAttr = fmt.Sprintf(`welcomeGreeting="%s"`, escapeXML(auto))
+	}
+
+	// Pass context as ConversationRelay <Parameter> elements — they arrive
+	// in the WebSocket setup message as customParameters so the session
+	// can build a per-call system prompt.
+	var params strings.Builder
+	if contact != "" {
+		params.WriteString(fmt.Sprintf(`      <Parameter name="contact" value="%s"/>`, escapeXML(contact)) + "\n")
+	}
+	if caller != "" {
+		params.WriteString(fmt.Sprintf(`      <Parameter name="caller" value="%s"/>`, escapeXML(caller)) + "\n")
+	}
+	if purpose != "" {
+		params.WriteString(fmt.Sprintf(`      <Parameter name="purpose" value="%s"/>`, escapeXML(purpose)) + "\n")
 	}
 
 	twiml := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
@@ -107,9 +132,10 @@ func (a *Adapter) HandleTwiML(w http.ResponseWriter, r *http.Request) {
       interruptible="any"
       interruptSensitivity="high"
       %s
-    />
+    >
+%s    </ConversationRelay>
   </Connect>
-</Response>`, wsURL, voice, welcomeAttr)
+</Response>`, wsURL, voice, welcomeAttr, params.String())
 
 	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
 	fmt.Fprint(w, twiml)
@@ -148,17 +174,35 @@ func (a *Adapter) UpdateTunnelURL(url string) {
 }
 
 // MakeCall initiates an outbound call via the Twilio REST API.
-func (a *Adapter) MakeCall(ctx context.Context, toNumber, greeting string) (string, error) {
+// contactName, callerName, purpose, and opening provide per-call context
+// that shapes how the phone agent introduces itself and conducts the call.
+func (a *Adapter) MakeCall(ctx context.Context, toNumber, contactName, callerName, purpose, opening string) (string, error) {
 	if a.config.TwilioAccountSID == "" {
 		return "", fmt.Errorf("Twilio not configured — run twilio_connect first")
 	}
 	if a.config.TunnelURL == "" {
-		return "", fmt.Errorf("tunnel URL not set — add tunnel_url to config or set CRAYFISH_TUNNEL_URL")
+		return "", fmt.Errorf("tunnel URL not set — phone calls need a public URL (Cloudflare Tunnel). Tell the user to set up a tunnel or set CRAYFISH_TUNNEL_URL.")
 	}
 
 	twimlURL := strings.TrimSuffix(a.config.TunnelURL, "/") + "/phone/twiml"
-	if greeting != "" {
-		twimlURL += "?greeting=" + url.QueryEscape(greeting)
+
+	// Encode call context as query params — TwiML handler reads them and
+	// passes them to the WebSocket session as ConversationRelay <Parameter> elements.
+	q := url.Values{}
+	if contactName != "" {
+		q.Set("contact", contactName)
+	}
+	if callerName != "" {
+		q.Set("caller", callerName)
+	}
+	if purpose != "" {
+		q.Set("purpose", purpose)
+	}
+	if opening != "" {
+		q.Set("opening", opening)
+	}
+	if len(q) > 0 {
+		twimlURL += "?" + q.Encode()
 	}
 
 	sid, err := twilioCall(ctx,
@@ -171,7 +215,7 @@ func (a *Adapter) MakeCall(ctx context.Context, toNumber, greeting string) (stri
 	if err != nil {
 		return "", err
 	}
-	a.logger.Info("outbound call initiated", "to", toNumber, "call_sid", sid)
+	a.logger.Info("outbound call initiated", "to", toNumber, "call_sid", sid, "purpose", purpose)
 	return sid, nil
 }
 
@@ -256,13 +300,14 @@ func escapeXML(s string) string {
 // --- ConversationRelay message types ---
 
 type twilioMsg struct {
-	Type                    string `json:"type"`
-	CallSid                 string `json:"callSid"`
-	From                    string `json:"from"`
-	To                      string `json:"to"`
-	VoicePrompt             string `json:"voicePrompt"`
-	UtteranceUntilInterrupt string `json:"utteranceUntilInterrupt"`
-	Description             string `json:"description"`
+	Type                    string            `json:"type"`
+	CallSid                 string            `json:"callSid"`
+	From                    string            `json:"from"`
+	To                      string            `json:"to"`
+	VoicePrompt             string            `json:"voicePrompt"`
+	UtteranceUntilInterrupt string            `json:"utteranceUntilInterrupt"`
+	Description             string            `json:"description"`
+	CustomParameters        map[string]string `json:"customParameters"`
 }
 
 // --- Session ---
@@ -306,6 +351,11 @@ func (s *Session) run() {
 		case "setup":
 			s.callSid = msg.CallSid
 			s.from = msg.From
+			// Build per-call system prompt from context passed via <Parameter> elements.
+			if p := msg.CustomParameters; len(p) > 0 {
+				s.systemPrompt = buildCallSystemPrompt(
+					s.systemPrompt, p["caller"], p["contact"], p["purpose"])
+			}
 			s.logger.Info("call connected", "call_sid", s.callSid, "from", s.from)
 
 		case "prompt":
@@ -406,6 +456,45 @@ func (s *Session) cancelCurrent() {
 func (s *Session) end() {
 	s.cancelCurrent()
 	s.ws.Close()
+}
+
+// buildCallSystemPrompt creates a per-call system prompt injected into the
+// phone agent's context. Layers on top of the base system prompt.
+func buildCallSystemPrompt(base, callerName, contactName, purpose string) string {
+	var sb strings.Builder
+
+	sb.WriteString("You are Crayfish, an AI voice assistant")
+	if callerName != "" {
+		sb.WriteString(" calling on behalf of " + callerName)
+	}
+	sb.WriteString(".\n\n")
+
+	if contactName != "" {
+		sb.WriteString("You are speaking with " + contactName + ".\n")
+	}
+
+	if purpose != "" {
+		sb.WriteString("Purpose of this call: " + purpose + "\n\n")
+		sb.WriteString("Deliver this message clearly and naturally. Answer any follow-up questions as best you can. ")
+		sb.WriteString("If they ask something you don't know (like specific plans or details), acknowledge it warmly and suggest they contact ")
+		if callerName != "" {
+			sb.WriteString(callerName)
+		} else {
+			sb.WriteString("the caller")
+		}
+		sb.WriteString(" directly.\n\n")
+	}
+
+	sb.WriteString("Phone call guidelines:\n")
+	sb.WriteString("- Keep responses short — this is a phone call, not a chat\n")
+	sb.WriteString("- Speak naturally, warmly, and conversationally\n")
+	sb.WriteString("- If the call purpose is complete and they have no more questions, wrap up politely\n")
+	sb.WriteString("- Don't mention being an AI unless directly asked\n")
+
+	if base != "" {
+		return base + "\n\n---\n\n" + sb.String()
+	}
+	return sb.String()
 }
 
 // ensure Adapter implements channels.ChannelAdapter at compile time.

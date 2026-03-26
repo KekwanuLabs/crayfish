@@ -255,18 +255,24 @@ You can watch prices and check daily — offer this when travel planning comes u
 		base += `
 
 ## Phone Calls
-You can make outbound phone calls using call_make. Use this when:
-- The user asks you to call someone ("Call my wife and tell her...")
-- A workflow triggers a call (flight price alert, morning briefing, etc.)
-- Any situation where a phone call is the right medium
+You can make outbound calls using call_make. The call is a live two-way conversation.
 
-The call will be a live two-way conversation — the recipient can talk back.
-Always confirm the phone number before calling unless it's obvious from context.`
+When asked to call someone:
+1. If you have their phone number from memory, call immediately.
+2. If you know their name/relationship but not their number, search memory first.
+   If not found, ask: "What's [name]'s phone number? I'll save it and call right now."
+   Save the number to memory after getting it.
+3. Always include: contact_name (who you're calling), caller_name (the user's name from their profile), and purpose (exactly what message to deliver).
+4. Build a natural opening that introduces you and the reason for calling.
+
+Example: "Call my wife and tell her I'll be late" →
+- Search memory for wife's number
+- call_make(to="+1...", contact_name="Sarah", caller_name="Chuks", purpose="Chuks will be late coming home tonight", opening="Hi Sarah, this is Crayfish calling on behalf of Chuks — I have a quick message from him.")`
 	} else {
 		base += `
 
 ## Phone Calls
-Phone calls are not set up yet. If the user asks you to make a call, run twilio_connect to set it up first, then place the call.`
+Phone calls are not set up yet. If the user asks you to make a call, run twilio_connect immediately to guide them through setup — it only takes a few minutes.`
 	}
 
 	// Skills context.
