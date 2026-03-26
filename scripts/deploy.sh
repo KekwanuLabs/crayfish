@@ -248,24 +248,64 @@ else
     echo "[deploy] cloudflared already installed"
 fi
 
-# Firewall — ensure ufw is active with correct rules.
+# Firewall — ensure ufw is installed and enabled.
+# Crayfish manages the per-subnet rules dynamically at runtime.
+# We also install a helper script that runs before Crayfish starts
+# (ExecStartPre) to handle the boot window when on a new network.
 if command -v ufw >/dev/null 2>&1; then
-    if sudo ufw status | grep -q "Status: active"; then
-        echo "[deploy] Firewall already active"
-    else
-        echo "[deploy] Configuring firewall..."
+    if ! sudo ufw status | grep -q "Status: active"; then
+        echo "[deploy] Enabling firewall..."
         sudo ufw --force reset >/dev/null 2>&1
         sudo ufw default deny incoming >/dev/null 2>&1
         sudo ufw default allow outgoing >/dev/null 2>&1
-        sudo ufw allow 22/tcp >/dev/null 2>&1
-        sudo ufw allow from 192.168.0.0/16 to any port 8119 proto tcp >/dev/null 2>&1
-        sudo ufw allow from 10.0.0.0/8     to any port 8119 proto tcp >/dev/null 2>&1
-        sudo ufw allow from 172.16.0.0/12  to any port 8119 proto tcp >/dev/null 2>&1
-        sudo ufw allow from 127.0.0.1      to any port 8119 proto tcp >/dev/null 2>&1
+        # Bootstrap with current subnets so SSH works before first start
+        SUBNETS=$(ip -4 addr show | awk '/inet / && !/127.0.0.1/ && !/169.254/ {print $2}' | \
+                  python3 -c "import sys,ipaddress; [print(str(ipaddress.ip_network(l.strip(),strict=False))) for l in sys.stdin]" 2>/dev/null || echo "")
+        for S in $SUBNETS; do
+            sudo ufw allow from "$S" to any port 22   proto tcp >/dev/null 2>&1
+            sudo ufw allow from "$S" to any port 8119 proto tcp >/dev/null 2>&1
+        done
         sudo ufw --force enable >/dev/null 2>&1
-        echo "[deploy] Firewall configured"
+        echo "[deploy] Firewall enabled"
+    else
+        echo "[deploy] Firewall already active"
     fi
 fi
+
+# Install the pre-start firewall sync script.
+# This runs before Crayfish starts so rules are correct even on a new network.
+sudo tee /usr/local/bin/crayfish-firewall-sync > /dev/null << 'FWSCRIPT'
+#!/bin/bash
+# Pre-start firewall sync — detects all current subnets and ensures
+# SSH + Crayfish dashboard are accessible from the current network.
+# Run by systemd as ExecStartPre before Crayfish starts.
+PORTS="22 8119"
+
+# Get all non-loopback IPv4 subnets for all active interfaces.
+CURRENT=$(ip -4 addr show | awk '/inet / && !/127.0.0.1/ && !/169.254/ {print $2}' | \
+          python3 -c "import sys,ipaddress; [print(str(ipaddress.ip_network(l.strip(),strict=False))) for l in sys.stdin]" 2>/dev/null)
+
+[ -z "$CURRENT" ] && exit 0
+
+for PORT in $PORTS; do
+  # Get existing rules for this port (subnets that have explicit allow rules).
+  EXISTING=$(sudo ufw status | awk -v p="/$PORT" '$0 ~ p && /ALLOW/ {print $3}' | grep '/')
+
+  # Add rules for subnets not yet in ufw.
+  for SUBNET in $CURRENT; do
+    echo "$EXISTING" | grep -qF "$SUBNET" || \
+      sudo ufw allow from "$SUBNET" to any port "$PORT" proto tcp >/dev/null 2>&1
+  done
+
+  # Remove stale rules for subnets no longer active.
+  for OLD in $EXISTING; do
+    echo "$CURRENT" | grep -qF "$OLD" || \
+      sudo ufw --force delete allow from "$OLD" to any port "$PORT" proto tcp >/dev/null 2>&1
+  done
+done
+FWSCRIPT
+sudo chmod +x /usr/local/bin/crayfish-firewall-sync
+echo "[deploy] Firewall sync script installed"
 DEPS_SCRIPT
 
     info "Dependencies checked"
@@ -322,6 +362,8 @@ ExecStartPre=/bin/mkdir -p ${crayfish_data}/bin
 ExecStartPre=/bin/mkdir -p ${crayfish_data}/skills
 ExecStartPre=/bin/mkdir -p ${crayfish_config}
 ExecStartPre=/bin/sh -c 'test -f ${crayfish_config}/env || echo "# Crayfish secrets" > ${crayfish_config}/env'
+# Sync firewall rules for current network before starting — handles boot on a new LAN.
+ExecStartPre=-/usr/local/bin/crayfish-firewall-sync
 
 ExecStart=${crayfish_data}/bin/crayfish
 WorkingDirectory=${crayfish_data}

@@ -21,6 +21,7 @@ import (
 	"github.com/KekwanuLabs/crayfish/internal/channels/cli"
 	"github.com/KekwanuLabs/crayfish/internal/channels/phone"
 	"github.com/KekwanuLabs/crayfish/internal/channels/telegram"
+	"github.com/KekwanuLabs/crayfish/internal/firewall"
 	"github.com/KekwanuLabs/crayfish/internal/tunnel"
 	"github.com/KekwanuLabs/crayfish/internal/drive"
 	"github.com/KekwanuLabs/crayfish/internal/gateway"
@@ -1281,6 +1282,19 @@ func (a *App) Start(ctx context.Context) error {
 	} else if a.Config.TwilioAccountSID != "" && !tunnel.IsAvailable() {
 		a.Logger.Warn("cloudflared not installed — phone calls need a public URL",
 			"hint", "Install with: curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm -o /usr/local/bin/cloudflared && chmod +x /usr/local/bin/cloudflared")
+	}
+
+	// Dynamic firewall manager — detects all active network interfaces and
+	// keeps ufw rules in sync. Updates every 3 minutes and immediately on change.
+	// This ensures SSH and dashboard access always work regardless of which
+	// network the Pi is on, without hard-coding any IP ranges.
+	if firewall.IsAvailable() {
+		fwMgr := firewall.New(a.Logger.With("component", "firewall"))
+		if err := firewall.EnsureEnabled(); err != nil {
+			a.Logger.Warn("firewall: could not enable ufw (non-fatal)", "error", err)
+		}
+		go fwMgr.Start(ctx)
+		a.Logger.Info("firewall manager started — rules will track network changes automatically")
 	}
 
 	if err := a.gateway.Start(ctx, rt, a.bus); err != nil {

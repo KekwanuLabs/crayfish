@@ -383,6 +383,7 @@ Wants=network-online.target
 Type=simple
 User=${CRAYFISH_USER}
 Group=${CRAYFISH_USER}
+ExecStartPre=-/usr/local/bin/crayfish-firewall-sync
 ExecStart=${CRAYFISH_BIN}
 WorkingDirectory=${CRAYFISH_HOME}
 Restart=always
@@ -520,21 +521,23 @@ if [ "$OS" = "linux" ] && command -v apt-get &>/dev/null; then
 
     if command -v ufw &>/dev/null; then
         if sudo ufw status | grep -q "Status: active"; then
-            info "Firewall already active — skipping reconfiguration"
+            info "Firewall already active"
         else
-            info "Configuring firewall..."
+            info "Enabling firewall (Crayfish will manage per-interface rules dynamically)..."
+            # Set default policies — Crayfish detects current subnets and adds
+            # specific allow rules for SSH + dashboard on every startup.
             sudo ufw --force reset >/dev/null 2>&1
             sudo ufw default deny incoming >/dev/null 2>&1
             sudo ufw default allow outgoing >/dev/null 2>&1
-            # SSH — essential for remote management
-            sudo ufw allow 22/tcp >/dev/null 2>&1
-            # Crayfish dashboard — local network only (Cloudflare Tunnel handles external)
-            sudo ufw allow from 192.168.0.0/16 to any port 8119 proto tcp >/dev/null 2>&1
-            sudo ufw allow from 10.0.0.0/8     to any port 8119 proto tcp >/dev/null 2>&1
-            sudo ufw allow from 172.16.0.0/12  to any port 8119 proto tcp >/dev/null 2>&1
-            sudo ufw allow from 127.0.0.1      to any port 8119 proto tcp >/dev/null 2>&1
+            # Bootstrap: add current subnet rules so SSH works before first Crayfish start.
+            CURRENT_SUBNETS=$(ip -4 addr show | awk '/inet / && !/127.0.0.1/ && !/169.254/ {print $2}' | \
+                              python3 -c "import sys,ipaddress; [print(str(ipaddress.ip_network(l.strip(),strict=False))) for l in sys.stdin]" 2>/dev/null || echo "")
+            for SUBNET in $CURRENT_SUBNETS; do
+                sudo ufw allow from "$SUBNET" to any port 22   proto tcp >/dev/null 2>&1
+                sudo ufw allow from "$SUBNET" to any port 8119 proto tcp >/dev/null 2>&1
+            done
             sudo ufw --force enable >/dev/null 2>&1
-            info "Firewall active (SSH open, dashboard LAN-only, all else blocked)"
+            info "Firewall active — Crayfish updates rules automatically as networks change"
         fi
     fi
 fi
