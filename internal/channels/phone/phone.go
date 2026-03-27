@@ -43,6 +43,7 @@ type Adapter struct {
 	sessions   sync.Map // callSid → *Session
 	mu         sync.RWMutex
 	smsHandler func(from, body string) // set by app.go for async SMS processing
+	started    bool                    // guards against duplicate Start() calls
 }
 
 // New creates a phone channel adapter.
@@ -54,7 +55,14 @@ func New(cfg Config, llm provider.Provider, logger *slog.Logger) *Adapter {
 func (a *Adapter) Name() string { return "phone" }
 
 // Start implements channels.ChannelAdapter. Phone sessions are driven by WebSocket, not the bus.
+// Idempotent — safe to call multiple times (the gateway calls it once per registered name).
 func (a *Adapter) Start(_ context.Context, _ bus.Bus) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.started {
+		return nil // already started under a different adapter name ("phone" vs "sms")
+	}
+	a.started = true
 	a.logger.Info("phone channel ready",
 		"from", a.config.TwilioFromNumber,
 		"tunnel", a.config.TunnelURL)

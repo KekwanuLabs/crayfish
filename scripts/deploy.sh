@@ -279,7 +279,8 @@ sudo tee /usr/local/bin/crayfish-firewall-sync > /dev/null << 'FWSCRIPT'
 #!/bin/bash
 # Pre-start firewall sync — detects all current subnets and ensures
 # SSH + Crayfish dashboard are accessible from the current network.
-# Run by systemd as ExecStartPre before Crayfish starts.
+# Run by systemd as ExecStartPre+ (root, no security restrictions).
+# No sudo needed — this script runs as root.
 PORTS="22 8119"
 
 # Get all non-loopback IPv4 subnets for all active interfaces.
@@ -290,18 +291,18 @@ CURRENT=$(ip -4 addr show | awk '/inet / && !/127.0.0.1/ && !/169.254/ {print $2
 
 for PORT in $PORTS; do
   # Get existing rules for this port (subnets that have explicit allow rules).
-  EXISTING=$(sudo ufw status | awk -v p="/$PORT" '$0 ~ p && /ALLOW/ {print $3}' | grep '/')
+  EXISTING=$(ufw status | awk -v p="/$PORT" '$0 ~ p && /ALLOW/ {print $3}' | grep '/')
 
   # Add rules for subnets not yet in ufw.
   for SUBNET in $CURRENT; do
     echo "$EXISTING" | grep -qF "$SUBNET" || \
-      sudo ufw allow from "$SUBNET" to any port "$PORT" proto tcp >/dev/null 2>&1
+      ufw allow from "$SUBNET" to any port "$PORT" proto tcp >/dev/null 2>&1
   done
 
   # Remove stale rules for subnets no longer active.
   for OLD in $EXISTING; do
     echo "$CURRENT" | grep -qF "$OLD" || \
-      sudo ufw --force delete allow from "$OLD" to any port "$PORT" proto tcp >/dev/null 2>&1
+      ufw --force delete allow from "$OLD" to any port "$PORT" proto tcp >/dev/null 2>&1
   done
 done
 FWSCRIPT
@@ -364,7 +365,7 @@ ExecStartPre=/bin/mkdir -p ${crayfish_data}/skills
 ExecStartPre=/bin/mkdir -p ${crayfish_config}
 ExecStartPre=/bin/sh -c 'test -f ${crayfish_config}/env || echo "# Crayfish secrets" > ${crayfish_config}/env'
 # Sync firewall rules for current network before starting — handles boot on a new LAN.
-ExecStartPre=-/usr/local/bin/crayfish-firewall-sync
+ExecStartPre=+-/usr/local/bin/crayfish-firewall-sync
 
 ExecStart=${crayfish_data}/bin/crayfish
 WorkingDirectory=${crayfish_data}

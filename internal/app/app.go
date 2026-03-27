@@ -1806,7 +1806,7 @@ func (a *App) wireCloudSTT(tgAdapter *telegram.Adapter) {
 // Any failure is logged AND sent to the user via Telegram so they know.
 func (a *App) runTunnelManager(ctx context.Context, phoneAdapter *phone.Adapter) {
 	notify := func(msg string) {
-		a.Logger.Warn("tunnel", "msg", msg)
+		a.Logger.Info("tunnel", "msg", msg)
 		// Push to Telegram so the user knows something happened.
 		if a.gateway != nil {
 			_ = a.gateway.NotifyOperator(ctx, "📡 "+msg)
@@ -1825,9 +1825,6 @@ func (a *App) runTunnelManager(ctx context.Context, phoneAdapter *phone.Adapter)
 		if phoneAdapter != nil {
 			phoneAdapter.UpdateTunnelURL(tunnelURL)
 		}
-
-		// Log the tunnel URL so it's visible even without Twilio configured.
-		a.Logger.Info("tunnel URL assigned", "url", tunnelURL)
 
 		// Skip Twilio webhook sync if Twilio isn't configured yet.
 		a.configMu.RLock()
