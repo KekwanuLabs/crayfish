@@ -212,13 +212,17 @@ func (e *Engine) synthesizeToFileStandalone(ctx context.Context, text, filename 
 	return nil
 }
 
-// piperEnv sets the library search path so piper finds its bundled .so/.dll files.
-// Linux/macOS uses LD_LIBRARY_PATH; Windows uses PATH for DLL discovery.
+// piperEnv sets the library search path so piper finds its bundled shared libraries.
+// Linux: LD_LIBRARY_PATH (.so files)
+// macOS: DYLD_LIBRARY_PATH (.dylib files)
+// Windows: PATH (.dll files)
 func piperEnv(binaryPath string) []string {
 	piperDir := filepath.Dir(binaryPath)
 	env := os.Environ()
 
-	if runtime.GOOS == "windows" {
+	var varName string
+	switch runtime.GOOS {
+	case "windows":
 		for i, e := range env {
 			if strings.HasPrefix(strings.ToUpper(e), "PATH=") {
 				env[i] = e + string(filepath.ListSeparator) + piperDir
@@ -226,22 +230,26 @@ func piperEnv(binaryPath string) []string {
 			}
 		}
 		return append(env, "PATH="+piperDir)
+	case "darwin":
+		varName = "DYLD_LIBRARY_PATH"
+	default:
+		varName = "LD_LIBRARY_PATH"
 	}
 
-	existing := os.Getenv("LD_LIBRARY_PATH")
-	var ldPath string
+	existing := os.Getenv(varName)
+	var libPath string
 	if existing != "" {
-		ldPath = piperDir + ":" + existing
+		libPath = piperDir + ":" + existing
 	} else {
-		ldPath = piperDir
+		libPath = piperDir
 	}
 	for i, e := range env {
-		if strings.HasPrefix(e, "LD_LIBRARY_PATH=") {
-			env[i] = "LD_LIBRARY_PATH=" + ldPath
+		if strings.HasPrefix(e, varName+"=") {
+			env[i] = varName + "=" + libPath
 			return env
 		}
 	}
-	return append(env, "LD_LIBRARY_PATH="+ldPath)
+	return append(env, varName+"="+libPath)
 }
 
 func (e *Engine) synthesizeToFilePython(ctx context.Context, text, filename string) error {

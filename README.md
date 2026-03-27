@@ -66,22 +66,32 @@ And if you're technical? You'll love the codebase. It's Go, it's clean, and PRs 
 - **$5 Pi Zero** — tiny and perfect
 - **$35 Pi 4** — the sweet spot
 - **Old laptop** — give it new life
-- **Mac or PC** — works great too
+- **Mac** (Intel or Apple Silicon) — works great too
+- **Windows PC** — native support, no WSL needed
+- **Linux PC/server** — any distro with apt
 - **Cloud server** — if that's your thing
 
 Got old hardware collecting dust? Perfect.
 
 ### Step 2: Install Crayfish
 
-**Option A: One-Line Install (Recommended)**
-
-If you can access your device directly (keyboard + monitor, or remote desktop):
+**Linux / macOS (one-line)**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/KekwanuLabs/crayfish/main/scripts/install.sh | bash
 ```
 
-That's it. The script downloads everything, sets it up, and starts it automatically.
+**Windows (PowerShell)**
+
+```powershell
+# Allow running scripts (one-time)
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+
+# Install Crayfish
+iwr https://raw.githubusercontent.com/KekwanuLabs/crayfish/main/scripts/install.ps1 | iex
+```
+
+That's it. The installer downloads everything, sets it up, and starts it automatically.
 
 **Option B: Install from Another Computer**
 
@@ -153,6 +163,8 @@ On first conversation, Crayfish naturally asks about you — your name, what you
 
 ### Voice Messages
 Send a voice note on Telegram. Crayfish transcribes it and responds. No typing required.
+
+On **Pi 3/4/5, Mac, Linux PC, and Windows PC**: voice transcription uses local whisper.cpp (Pi 3+) or cloud STT (Groq/OpenAI). Cloud STT requires a Groq or OpenAI API key — if you're already using either as your LLM provider, the same key is reused automatically (zero extra setup). Otherwise run `stt_connect` in Telegram to set up a free Groq key (10h audio/day free).
 
 ### Admin Dashboard
 Manage everything from your browser at `http://your-device:8119`. View sessions, search memories, configure settings, manage skills, and monitor events — all from a single page. Settings like name and personality apply instantly; provider changes show a "restart needed" indicator.
