@@ -26,12 +26,14 @@ AI assistants today are like lobster dinners — powerful, impressive, and price
 
 Crayfish is an AI assistant that:
 
-- **Runs on a Raspberry Pi** sitting in your home
+- **Runs on your own hardware** — Pi Zero to Windows PC, it's your device
 - **Works out of the box** — plug in, open browser, done
 - **Talks to you on Telegram** from anywhere in the world
 - **Manages your email and calendar** so you don't have to
+- **Makes phone calls on your behalf** — "Call my wife and tell her I'll be late"
 - **Checks in proactively** — "Hey, you have a meeting in 15 minutes"
-- **Understands voice messages** — just talk, it transcribes
+- **Understands voice messages** — just talk, it transcribes and responds
+- **Searches the web and checks the weather** in real time
 - **Costs nothing after setup** — or pennies if using cloud AI
 
 No command line. No config files. No "just SSH into your server and..."
@@ -68,7 +70,7 @@ And if you're technical? You'll love the codebase. It's Go, it's clean, and PRs 
 - **Old laptop** — give it new life
 - **Mac** (Intel or Apple Silicon) — works great too
 - **Windows PC** — native support, no WSL needed
-- **Linux PC/server** — any distro with apt
+- **Linux PC/server** — Debian/Ubuntu-based (apt)
 - **Cloud server** — if that's your thing
 
 Got old hardware collecting dust? Perfect.
@@ -122,8 +124,8 @@ It remembers your answers, so next time you just run `make deploy` again.
 
 Once installed, open your web browser and go to:
 
-- **Windows:** `http://localhost:8119`
-- **Pi / Linux / Mac:** `http://your-device-ip:8119` (e.g. `http://192.168.1.42:8119` or `http://raspberrypi.local:8119`)
+- **Same device (Windows, Mac, Linux PC):** `http://localhost:8119`
+- **Pi or remote device:** `http://your-device-ip:8119` (e.g. `http://192.168.1.42:8119` or `http://raspberrypi.local:8119`)
 
 ### Step 4: Follow the Wizard
 
@@ -166,10 +168,16 @@ Send a voice note on Telegram. Crayfish transcribes it and responds. No typing r
 Voice transcription works automatically on all platforms. If you're already using Groq or OpenAI as your AI provider, the same key handles voice too — nothing extra to set up. On a Pi 3+ it can run fully local (offline). On other hardware it uses free cloud transcription.
 
 ### Admin Dashboard
-Manage everything from your browser at `http://your-device:8119`. View sessions, search memories, configure settings, manage skills, and monitor events — all from a single page. Settings like name and personality apply instantly; provider changes show a "restart needed" indicator.
+Manage everything from your browser at `http://localhost:8119` (or your Pi's IP). View sessions, search memories, configure settings, manage contacts, manage skills, and monitor events — all from a single page. Settings apply instantly; provider changes show a "restart needed" indicator.
 
 ### Privacy First
-Your data lives on your Pi, in your home. Conversations aren't training someone else's AI. You own everything.
+Your data lives on your device, in your home. Conversations aren't training someone else's AI. You own everything.
+
+### Phone Calls
+"Call my wife and tell her I'll be late." Crayfish dials the number, speaks the message in your configured voice, and handles the conversation. Powered by Twilio — set up once in the dashboard, works automatically after that.
+
+### Real-Time Weather
+"Will it rain in Orcas Island today?" Instant, accurate weather from Open-Meteo — free, no API key, works anywhere in the world.
 
 ### Works Offline (Optional)
 Got a beefier Pi or don't want to pay for cloud AI? Run local models with Ollama. Completely offline, completely free.
@@ -185,7 +193,7 @@ Got a beefier Pi or don't want to pay for cloud AI? Run local models with Ollama
 | **Technical skill** | "Just edit the YAML and..." | None. Point, click, done. |
 | **Monthly cost** | $20-100/month | $0-5/month |
 | **Your data** | In their cloud | On your device |
-| **Runs 24/7** | Drains your laptop | Sips 2-5 watts |
+| **Runs 24/7** | Drains your laptop | 2-5W on a Pi; runs as a service on PC |
 | **Community** | "Read the docs" | Built for everyone, with everyone |
 
 ---
@@ -206,12 +214,12 @@ A few ways:
 
 ### Is it really free?
 The software is free and open source. You pay for:
-- A Raspberry Pi (~$35-80 one-time)
-- Cloud AI usage (~$0-5/month depending on use) OR
-- Nothing extra if you run local models
+- Hardware if you don't have any (a Pi 4 is ~$35–80 one-time; a Windows/Mac you likely already own)
+- Cloud AI usage (~$0–5/month depending on use) OR
+- Nothing if you run local models with Ollama
 
 ### What about privacy?
-Your Pi sits in your home. Your conversations, emails, and calendar data stay on your Pi. We don't run any cloud services. There's nothing to phone home to.
+Your device, your data. Conversations, emails, and calendar data stay on your hardware — whether that's a Pi in your home or your Windows laptop. We don't run any cloud services. There's nothing to phone home to.
 
 ### Can I use it without Telegram?
 Yes! There's a web interface and CLI too. But Telegram is the magic — it means you can chat with your Crayfish from anywhere.
@@ -232,8 +240,10 @@ Want to hack on Crayfish? Welcome!
 ```bash
 git clone https://github.com/KekwanuLabs/crayfish.git
 cd crayfish
-make build      # Build for your current machine
-make run        # Build and run locally
+make build               # Build for your current machine
+make run                 # Build and run locally
+make build-windows-amd64 # Cross-compile for Windows (produces .exe)
+make build-all           # All platforms: Linux, macOS, Windows
 ```
 
 ### Deploy to a Pi
@@ -264,23 +274,25 @@ internal/               # Core packages
   bus/                  # Event bus (SQLite-backed)
   channels/             # Channel adapters (Telegram, CLI, Phone/SMS)
   contacts/             # Private contacts store (phone book)
+  device/               # Hardware detection (Pi model, RAM, arch)
   firewall/             # Cross-platform firewall management (ufw/netsh)
   gateway/              # HTTP server, dashboard, skills API
-  gmail/                # Email integration
+  gmail/                # Email integration (IMAP + OAuth)
   calendar/             # Google Calendar
   heartbeat/            # Proactive check-ins
   identity/             # Agent personality + user knowledge (SOUL.md, USER.md)
+  oauth/                # Google OAuth2 device flow (Calendar, Drive, Contacts)
   provider/             # LLM providers (Anthropic, OpenAI, Groq, Ollama, etc.)
   runtime/              # Agent brain, tool execution, memory
   security/             # Trust tiers, pairing, guardrails
   setup/                # Web setup wizard
   skills/               # YAML-defined workflows
   storage/              # SQLite wrapper
-  tools/                # Built-in tool registry
-  tunnel/               # Cloudflare Tunnel manager
+  tools/                # Built-in tool registry (60+ tools)
+  tunnel/               # Cloudflare Tunnel manager (auto phone webhook sync)
   voice/                # TTS (Piper, ElevenLabs) + STT (whisper.cpp, cloud)
 scripts/                # Install scripts (install.sh, install.ps1, deploy.sh)
-docs/                   # Architecture documentation
+docs/                   # Architecture & network documentation
 ```
 
 ### Contributing
