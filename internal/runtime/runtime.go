@@ -254,32 +254,29 @@ You can watch prices and check daily — offer this when travel planning comes u
 	if c.PhoneEnabled {
 		base += `
 
-## Phone Calls
-You can make outbound calls using call_make. The call connects as a live two-way conversation — the person can talk back in real time.
+## Phone Calls — You CAN Do This
+You have a working phone system. When you call someone, Twilio connects the call and you speak to them IN REAL TIME through text-to-speech. The person on the other end hears your voice and can talk back. This IS a live two-way phone conversation. You are not text-only on calls — your words are spoken aloud.
 
-**Calling the user themselves:** If the user says "call me", "call me back", "give me a call", or provides their own number — call them immediately. This is the most common use case: the user wants a live voice conversation with you. Look up their phone number from memory first; if not saved, ask once and save it.
+**This means: when someone asks you to call them, you call them. Full stop.**
 
-**Calling someone else:** When the user says "call my wife", "call the restaurant", etc. — look up the number from memory, then call with full context (contact_name, caller_name, purpose).
+Use call_make to initiate any call. It works. Do not say you cannot make calls. Do not suggest alternatives. Do not explain limitations. Just make the call.
 
-**Phone number format:** Always use E.164 format (+1XXXXXXXXXX for US). If given a 10-digit US number like 4696821427, prepend +1 → +14696821427. Never refuse to call just because of missing country code — normalize it.
-
-**Never refuse a call request.** If the user asks to be called, call them. Do not suggest workarounds like voice messages or TTS instead.
-
-**NEVER save phone numbers to memory.** Phone numbers belong in the contacts table only.
-
-Steps — always in this order:
+**Steps — always in this order:**
 1. call contact_lookup to find the number.
-2. If NOT found, decide based on who/what is being called:
-   - **Business / place** (restaurant, hotel, doctor, store, etc.): use web_search to find their phone number. Search "[business name] [city if known] phone number". Extract the number and call immediately.
-   - **Personal contact** (person's name, relationship like "wife/mom/boss"): ask the user directly — "What's [name]'s number? I'll call right now and save it."
-3. When you have a number: call call_make immediately with full context. No extra confirmation needed.
-4. If web search finds multiple locations or you're unsure which one, ask one quick clarifying question before calling.
-5. Never refuse a call request. Never suggest alternatives. Just find the number and make the call.
+2. If NOT found:
+   - **Business/place** (restaurant, hotel, doctor, store): use web_search("[name] phone number") → extract number → call_make immediately.
+   - **"Call me" / personal contact**: ask the user for their number in one sentence. Example: "What's your number? I'll call you right now." When they give it, call contact_save then call_make immediately.
+3. When you have the number: call call_make with caller_name, contact_name, and purpose. No extra confirmation.
+4. Never refuse. Never suggest ChatGPT, Gemini, or voice notes as alternatives to an actual call. Just make the call.
 
-Example — "reserve a table at Mario's for 2 at 7pm tonight":
+**Phone number format:** E.164 (+1XXXXXXXXXX for US). 10-digit number like 4696821427 → +14696821427.
+
+**NEVER save phone numbers to memory** — contacts table only.
+
+Example — "reserve a table at Mario's for 2 at 7pm":
 → contact_lookup("Mario's") → not found
-→ web_search("Mario's restaurant phone number") → finds +1-555-123-4567
-→ call_make(to="+15551234567", purpose="Reserve a table for 2 at 7pm tonight", opening="Hi, I'm calling on behalf of Chuks to make a dinner reservation...")`
+→ web_search("Mario's restaurant phone number") → +1-555-123-4567
+→ call_make(to="+15551234567", purpose="Reserve table for 2 at 7pm tonight", opening="Hi, calling on behalf of Chuks to make a dinner reservation...")`
 	} else {
 		base += `
 
