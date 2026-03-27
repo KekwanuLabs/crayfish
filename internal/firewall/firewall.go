@@ -77,7 +77,9 @@ func (m *Manager) Start(ctx context.Context) {
 	}
 }
 
-// sync detects current subnets and updates ufw if anything changed.
+// sync detects current subnets and triggers the firewall sync script if
+// anything changed. The script runs via systemd-run to escape the
+// NoNewPrivileges boundary that prevents sudo inside the service process.
 func (m *Manager) sync() {
 	current, err := GetLocalSubnets()
 	if err != nil {
@@ -97,37 +99,39 @@ func (m *Manager) sync() {
 		return
 	}
 
-	m.logger.Info("network change detected — updating firewall rules",
+	m.logger.Info("network change detected — triggering firewall sync",
 		"added", added(previous, current),
 		"removed", removed(previous, current),
 		"active", current)
 
-	if err := ApplyRules(previous, current, managedPorts); err != nil {
-		m.logger.Warn("firewall rule update failed", "error", err)
+	// The service runs with NoNewPrivileges=true so sudo is blocked.
+	// Delegate to systemd-run which spawns a transient privileged unit
+	// that can run the sync script as root.
+	if err := runFirewallSync(); err != nil {
+		m.logger.Info("firewall sync deferred to next restart (runtime privilege escalation unavailable)",
+			"subnets", current,
+			"hint", "rules will be updated by ExecStartPre on next service restart")
 	} else {
 		m.logger.Info("firewall rules updated", "subnets", current, "ports", managedPorts)
 	}
 }
 
-// ApplyRules removes rules for subnets no longer active and adds rules for
-// new subnets. Only touches rules for managedPorts — user-added rules are
-// left untouched.
-func ApplyRules(previous, current []string, ports []int) error {
-	toRemove := removed(previous, current)
-	toAdd := added(previous, current)
+// runFirewallSync triggers the crayfish-firewall-sync script via systemd-run,
+// which escapes the NoNewPrivileges boundary by creating a transient unit.
+func runFirewallSync() error {
+	const script = "/usr/local/bin/crayfish-firewall-sync"
+	if _, err := os.Stat(script); err != nil {
+		return fmt.Errorf("sync script not installed: %w", err)
+	}
 
-	for _, port := range ports {
-		for _, subnet := range toRemove {
-			if err := deleteRule(subnet, port); err != nil {
-				// Non-fatal: rule might not exist (e.g. first run)
-				continue
-			}
-		}
-		for _, subnet := range toAdd {
-			if err := addRule(subnet, port); err != nil {
-				return fmt.Errorf("ufw allow from %s port %d: %w", subnet, port, err)
-			}
-		}
+	// systemd-run creates a transient service unit that runs without the
+	// NoNewPrivileges restriction inherited from the parent service.
+	cmd := exec.Command("systemd-run", "--no-block", "--quiet",
+		"--unit=crayfish-firewall-sync",
+		script)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("systemd-run: %w: %s", err, strings.TrimSpace(string(out)))
 	}
 	return nil
 }
@@ -205,28 +209,6 @@ func GetLocalSubnets() ([]string, error) {
 	return dedup(subnets), nil
 }
 
-func addRule(subnet string, port int) error {
-	out, err := exec.Command("sudo", "ufw", "allow",
-		"from", subnet, "to", "any",
-		"port", fmt.Sprintf("%d", port),
-		"proto", "tcp",
-	).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
-}
-
-func deleteRule(subnet string, port int) error {
-	// ufw delete allow from <subnet> to any port <port> proto tcp
-	// Returns non-zero if rule doesn't exist — that's fine.
-	exec.Command("sudo", "ufw", "--force", "delete", "allow",
-		"from", subnet, "to", "any",
-		"port", fmt.Sprintf("%d", port),
-		"proto", "tcp",
-	).Run()
-	return nil
-}
 
 // EnsureEnabled enables ufw if it isn't already active.
 // Uses IsEnabled() (reads /etc/ufw/ufw.conf) for status check — no sudo needed there.
