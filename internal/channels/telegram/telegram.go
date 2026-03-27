@@ -137,6 +137,7 @@ type Adapter struct {
 	ttsEngine      TTSSynthesizer // Optional: for text-to-speech responses
 	typingMu       sync.Mutex
 	typingCancel   map[int64]context.CancelFunc // chatID -> cancel typing ticker
+	voiceChats     sync.Map                     // chatID (int64) → true if last message was voice
 }
 
 // STTTranscriber is the interface for speech-to-text engines.
@@ -235,20 +236,18 @@ func (a *Adapter) Send(ctx context.Context, msg channels.OutboundMessage) error 
 	// Stop the typing indicator — the response is about to land
 	a.stopTypingLoop(chatID)
 
-	// Attempt TTS voice response if engine is available and text is short enough.
-	// Long responses (email summaries, lists, etc.) stay as text — voice UX breaks
-	// down past ~500 chars and synthesis is slow on low-end hardware.
+	// Respond with voice only if the user's last message was a voice message.
+	// Text in → text back. Voice in → voice back. Never send unsolicited voice notes.
+	lastWasVoice, _ := a.voiceChats.Load(chatID)
 	const maxTTSChars = 500
-	if a.ttsEngine != nil && a.ttsEngine.Enabled() && len(msg.Text) <= maxTTSChars {
-		a.logger.Info("synthesizing voice response", "chars", len(msg.Text))
+	if a.ttsEngine != nil && a.ttsEngine.Enabled() && lastWasVoice == true && len(msg.Text) <= maxTTSChars {
+		a.logger.Info("synthesizing voice response (user sent voice)", "chars", len(msg.Text))
 		if err := a.sendTTSVoice(ctx, chatID, msg.Text); err != nil {
 			a.logger.Warn("TTS voice send failed, falling back to text", "error", err)
 			// Fall through to text below.
 		} else {
 			return nil
 		}
-	} else if a.ttsEngine != nil && a.ttsEngine.Enabled() && len(msg.Text) > maxTTSChars {
-		a.logger.Info("response too long for voice, sending as text", "chars", len(msg.Text), "limit", maxTTSChars)
 	}
 
 	// Apply rate limiting
@@ -601,6 +600,7 @@ func (a *Adapter) handleUpdate(ctx context.Context, update Update) {
 	// Handle voice messages — transcribe async so the poll loop stays unblocked.
 	// If STT isn't configured, route through the LLM so it can guide the user to set it up.
 	if update.Message.Voice != nil {
+		a.voiceChats.Store(chatID, true) // voice in → voice response
 		if a.sttEngine == nil || !a.sttEngine.STTEnabled() {
 			a.publishInbound(ctx, chatID, sessionID, "[The user sent a voice message but voice transcription isn't set up yet. Use the stt_connect tool to help them enable it.]", nil)
 			return
@@ -608,6 +608,7 @@ func (a *Adapter) handleUpdate(ctx context.Context, update Update) {
 		go a.transcribeAndPublish(ctx, chatID, sessionID, update.Message.Voice, "voice")
 		return
 	} else if update.Message.Audio != nil {
+		a.voiceChats.Store(chatID, true)
 		if a.sttEngine == nil || !a.sttEngine.STTEnabled() {
 			a.publishInbound(ctx, chatID, sessionID, "[The user sent an audio file but voice transcription isn't set up yet. Use the stt_connect tool to help them enable it.]", nil)
 			return
@@ -620,6 +621,7 @@ func (a *Adapter) handleUpdate(ctx context.Context, update Update) {
 		go a.transcribeAndPublish(ctx, chatID, sessionID, v, "audio")
 		return
 	} else if update.Message.VideoNote != nil {
+		a.voiceChats.Store(chatID, true)
 		if a.sttEngine == nil || !a.sttEngine.STTEnabled() {
 			a.publishInbound(ctx, chatID, sessionID, "[The user sent a video note but voice transcription isn't set up yet. Use the stt_connect tool to help them enable it.]", nil)
 			return
@@ -632,6 +634,7 @@ func (a *Adapter) handleUpdate(ctx context.Context, update Update) {
 		go a.transcribeAndPublish(ctx, chatID, sessionID, v, "video")
 		return
 	} else if len(update.Message.Photo) > 0 {
+		a.voiceChats.Store(chatID, false) // photo = text context, text response
 		// Photos: pick the largest size (last in Telegram's array).
 		largest := update.Message.Photo[len(update.Message.Photo)-1]
 		photoData, err := a.downloadFile(ctx, largest.FileID)
@@ -653,6 +656,7 @@ func (a *Adapter) handleUpdate(ctx context.Context, update Update) {
 
 		a.logger.Info("photo received", "chat_id", chatID, "size_bytes", len(photoData))
 	} else if update.Message.Text != "" {
+		a.voiceChats.Store(chatID, false) // text in → text response
 		text = strings.TrimSpace(update.Message.Text)
 	} else {
 		// Ignore updates without text, voice, or photo
