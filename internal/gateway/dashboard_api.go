@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -57,6 +58,7 @@ func (api *DashboardAPI) RegisterRoutes(mux *http.ServeMux, wrap func(http.Handl
 	mux.HandleFunc("/api/contacts", wrap(api.handleContacts))
 	mux.HandleFunc("/api/contacts/", wrap(api.handleContactByID))
 	mux.HandleFunc("/api/contacts/sync/google", wrap(api.handleContactsGoogleSync))
+	mux.HandleFunc("/api/contacts/import/vcard", wrap(api.handleContactsVCardImport))
 }
 
 // GET /api/network/status — returns full network topology for the dashboard.
@@ -703,4 +705,125 @@ func (api *DashboardAPI) handleContactsGoogleSync(w http.ResponseWriter, r *http
 		return
 	}
 	api.writeJSON(w, map[string]any{"synced": n, "message": "Synced " + strconv.Itoa(n) + " contacts from Google"})
+}
+
+// POST /api/contacts/import/vcard — parse a vCard (.vcf) file and import contacts
+func (api *DashboardAPI) handleContactsVCardImport(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		api.writeError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, 10<<20)) // 10MB max
+	if err != nil {
+		api.writeError(w, "read body: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	contacts := parseVCard(string(body))
+	imported := 0
+	for _, c := range contacts {
+		if c.Name == "" || (c.Phone == "" && c.Email == "") {
+			continue
+		}
+		_, err := api.db.Inner().ExecContext(r.Context(),
+			`INSERT OR IGNORE INTO contacts (name, phone, email, notes)
+			 VALUES (?, ?, ?, ?)`,
+			c.Name, c.Phone, c.Email, c.Notes)
+		if err == nil {
+			imported++
+		}
+	}
+	api.writeJSON(w, map[string]any{
+		"imported": imported,
+		"total":    len(contacts),
+		"message":  strconv.Itoa(imported) + " contacts imported (" + strconv.Itoa(len(contacts)-imported) + " skipped — already exist or missing phone/email)",
+	})
+}
+
+type vcardContact struct {
+	Name  string
+	Phone string
+	Email string
+	Notes string
+}
+
+// parseVCard parses a vCard (.vcf) file and returns contacts.
+// Handles both vCard 2.1 and 3.0/4.0 formats.
+func parseVCard(data string) []vcardContact {
+	var contacts []vcardContact
+	var current *vcardContact
+
+	for _, line := range strings.Split(data, "\n") {
+		line = strings.TrimRight(line, "\r")
+
+		upper := strings.ToUpper(line)
+		switch {
+		case upper == "BEGIN:VCARD":
+			current = &vcardContact{}
+
+		case upper == "END:VCARD":
+			if current != nil {
+				contacts = append(contacts, *current)
+				current = nil
+			}
+
+		case current == nil:
+			continue
+
+		case strings.HasPrefix(upper, "FN:"):
+			current.Name = strings.TrimSpace(line[3:])
+
+		case strings.HasPrefix(upper, "N:") && current.Name == "":
+			// Fallback: parse N field (Last;First;Middle;Prefix;Suffix)
+			parts := strings.SplitN(line[2:], ";", 3)
+			if len(parts) >= 2 {
+				last := strings.TrimSpace(parts[0])
+				first := strings.TrimSpace(parts[1])
+				if first != "" && last != "" {
+					current.Name = first + " " + last
+				} else if first != "" {
+					current.Name = first
+				} else {
+					current.Name = last
+				}
+			}
+
+		case strings.HasPrefix(upper, "TEL") && current.Phone == "":
+			// TEL;TYPE=CELL:+12025551234 or TEL:+12025551234
+			idx := strings.LastIndex(line, ":")
+			if idx >= 0 {
+				phone := strings.TrimSpace(line[idx+1:])
+				current.Phone = normalizeVCardPhone(phone)
+			}
+
+		case strings.HasPrefix(upper, "EMAIL") && current.Email == "":
+			idx := strings.LastIndex(line, ":")
+			if idx >= 0 {
+				current.Email = strings.TrimSpace(line[idx+1:])
+			}
+
+		case strings.HasPrefix(upper, "NOTE:"):
+			current.Notes = strings.TrimSpace(line[5:])
+		}
+	}
+	return contacts
+}
+
+func normalizeVCardPhone(s string) string {
+	clean := ""
+	for _, c := range s {
+		if (c >= '0' && c <= '9') || c == '+' {
+			clean += string(c)
+		}
+	}
+	if len(clean) == 10 {
+		return "+1" + clean
+	}
+	if len(clean) == 11 && len(clean) > 0 && clean[0] == '1' {
+		return "+" + clean
+	}
+	if len(clean) > 0 && clean[0] != '+' {
+		return "+" + clean
+	}
+	return clean
 }

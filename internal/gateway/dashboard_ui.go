@@ -418,7 +418,6 @@ const dashboardPageHTML = `<!DOCTYPE html>
         </div>
         <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
           <button class="btn btn-secondary" id="google-connect-btn" onclick="connectGoogle()" style="display:none;">Connect Google</button>
-          <button class="btn btn-secondary" id="google-contacts-btn" onclick="connectGoogleContacts()" style="display:none;">+ Add Contacts Access</button>
           <button class="btn btn-secondary" id="google-drive-btn" onclick="connectGoogleDrive()" style="display:none;">+ Add Drive &amp; Docs</button>
         </div>
         <div id="google-auth-box" style="display:none;margin-top:0.875rem;padding:0.875rem 1rem;border-radius:10px;background:rgba(249,115,22,0.08);border:1px solid rgba(249,115,22,0.2);">
@@ -687,11 +686,32 @@ sudo systemctl restart sshd</pre>
           <div style="font-size:0.8125rem;color:#64748b;margin-top:0.125rem;">Phone numbers stored privately on your device — never in the AI's searchable memory.</div>
         </div>
         <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
-          <button class="btn btn-secondary" onclick="syncGoogleContacts()" id="google-sync-btn" style="white-space:nowrap;">🔄 Sync from Google</button>
+          <button class="btn btn-secondary" onclick="showVCardImport()" style="white-space:nowrap;">📥 Import vCard</button>
           <button class="btn btn-primary" onclick="showAddContact()" style="white-space:nowrap;">+ Add Contact</button>
         </div>
       </div>
-      <div id="google-sync-status" style="display:none;margin-bottom:0.75rem;padding:0.5rem 0.75rem;border-radius:8px;font-size:0.8125rem;"></div>
+
+      <!-- vCard import panel -->
+      <div id="vcard-import-panel" style="display:none;margin-bottom:1rem;padding:0.875rem 1rem;border-radius:10px;background:rgba(15,23,42,0.6);border:1px solid rgba(71,85,105,0.4);">
+        <div style="font-weight:500;color:#f8fafc;margin-bottom:0.375rem;">Import from vCard (.vcf)</div>
+        <div style="font-size:0.8125rem;color:#64748b;margin-bottom:0.75rem;">
+          Export a .vcf file from your contacts app and paste or upload it here. Works with Google, iPhone, Android, Outlook — any contact system.
+          <br>• <b>Google:</b> contacts.google.com → Export → vCard
+          <br>• <b>iPhone:</b> iCloud.com → Contacts → Select All → Export vCard
+          <br>• <b>Android:</b> Contacts app → Settings → Export
+        </div>
+        <input type="file" id="vcard-file" accept=".vcf,text/vcard" style="display:none;" onchange="readVCardFile(event)">
+        <div style="display:flex;gap:0.5rem;margin-bottom:0.75rem;">
+          <button class="btn btn-secondary" onclick="document.getElementById('vcard-file').click()">📂 Choose File</button>
+          <span id="vcard-file-name" style="font-size:0.8125rem;color:#64748b;align-self:center;"></span>
+        </div>
+        <textarea id="vcard-text" placeholder="Or paste vCard content here (BEGIN:VCARD...)" style="width:100%;height:120px;font-family:monospace;font-size:0.75rem;padding:0.5rem;border-radius:8px;border:1px solid #475569;background:rgba(15,23,42,0.8);color:#f8fafc;resize:vertical;margin-bottom:0.75rem;"></textarea>
+        <div id="vcard-import-status" style="display:none;margin-bottom:0.75rem;padding:0.5rem 0.75rem;border-radius:8px;font-size:0.8125rem;"></div>
+        <div style="display:flex;gap:0.5rem;">
+          <button class="btn btn-primary" onclick="importVCard()">Import</button>
+          <button class="btn btn-secondary" onclick="hideVCardImport()">Cancel</button>
+        </div>
+      </div>
 
       <!-- Add/Edit form -->
       <div id="contact-form" style="display:none;padding:1rem;margin-bottom:1rem;border-radius:10px;background:rgba(15,23,42,0.6);border:1px solid rgba(71,85,105,0.4);">
@@ -955,7 +975,6 @@ async function loadGoogleStatus() {
     const line = document.getElementById('google-status-line');
     const scopes = document.getElementById('google-scopes-line');
     const connectBtn = document.getElementById('google-connect-btn');
-    const contactsBtn = document.getElementById('google-contacts-btn');
     const driveBtn = document.getElementById('google-drive-btn');
     if (!line) return;
 
@@ -965,12 +984,11 @@ async function loadGoogleStatus() {
       const activeScopes = [];
       if (s.has_calendar) activeScopes.push('Calendar');
       if (s.has_drive) activeScopes.push('Drive & Docs');
-      if (s.has_contacts) activeScopes.push('Contacts');
-      scopes.textContent = activeScopes.length ? 'Access: ' + activeScopes.join(', ') : 'No scopes active';
-      if (!s.has_contacts) contactsBtn.style.display = 'inline-flex';
+      scopes.innerHTML = (activeScopes.length ? 'Access: ' + activeScopes.join(', ') : 'Calendar access active') +
+        ' &nbsp;·&nbsp; <span style="color:#64748b;">For contacts, use the <b>Import vCard</b> button in the Contacts tab</span>';
       if (!s.has_drive) driveBtn.style.display = 'inline-flex';
     } else {
-      line.innerHTML = '<span style="color:#94a3b8;">Not connected</span> — connect for Calendar, Contacts, Drive & Docs';
+      line.innerHTML = '<span style="color:#94a3b8;">Not connected</span> — connect for Calendar and Drive & Docs access';
       scopes.textContent = '';
       connectBtn.style.display = 'inline-flex';
     }
@@ -1284,6 +1302,51 @@ async function saveContact() {
   hideContactForm();
   showToast(id ? 'Contact updated' : 'Contact saved', 'success');
   await loadContacts();
+}
+
+function showVCardImport() {
+  document.getElementById('vcard-import-panel').style.display = 'block';
+  document.getElementById('vcard-import-status').style.display = 'none';
+}
+function hideVCardImport() {
+  document.getElementById('vcard-import-panel').style.display = 'none';
+  document.getElementById('vcard-text').value = '';
+  document.getElementById('vcard-file-name').textContent = '';
+}
+function readVCardFile(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  document.getElementById('vcard-file-name').textContent = file.name;
+  const reader = new FileReader();
+  reader.onload = ev => { document.getElementById('vcard-text').value = ev.target.result; };
+  reader.readAsText(file);
+}
+async function importVCard() {
+  const text = document.getElementById('vcard-text').value.trim();
+  const status = document.getElementById('vcard-import-status');
+  if (!text) { showToast('Paste or upload a vCard file first', 'error'); return; }
+  status.style.display = 'block';
+  status.style.background = 'rgba(15,23,42,0.6)';
+  status.style.border = '1px solid rgba(71,85,105,0.3)';
+  status.style.color = '#94a3b8';
+  status.textContent = 'Importing…';
+  try {
+    const r = await fetchJSON('/api/contacts/import/vcard', {
+      method: 'POST',
+      headers: {'Content-Type':'text/plain'},
+      body: text
+    });
+    status.style.background = 'rgba(16,185,129,0.08)';
+    status.style.border = '1px solid rgba(16,185,129,0.2)';
+    status.style.color = '#6ee7b7';
+    status.textContent = r.message || ('Imported ' + r.imported + ' contacts');
+    await loadContacts();
+  } catch(e) {
+    status.style.background = 'rgba(239,68,68,0.08)';
+    status.style.border = '1px solid rgba(239,68,68,0.2)';
+    status.style.color = '#fca5a5';
+    status.textContent = 'Import failed: ' + (e.message || e);
+  }
 }
 
 async function syncGoogleContacts() {

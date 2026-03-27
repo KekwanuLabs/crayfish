@@ -470,10 +470,10 @@ func (g *Gateway) handleGoogleConnect(w http.ResponseWriter, r *http.Request) {
 	json.NewDecoder(r.Body).Decode(&body)
 
 	// Build scope list based on purpose.
+	// Note: contacts.readonly is NOT supported by Google's device flow
+	// (limited-input device policy). Use vCard import for contacts instead.
 	var scopes []string
 	switch body.Purpose {
-	case "contacts":
-		scopes = append(oauth.ScopesBase, oauth.ContactsScope)
 	case "drive", "drive_and_docs":
 		scopes = append(oauth.ScopesBase, oauth.DriveScope)
 	default:
