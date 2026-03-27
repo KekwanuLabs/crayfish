@@ -508,6 +508,9 @@ var migrations = []migration{
 	},
 	{
 		name: "contacts — private phone book separate from memory system",
+		// NOTE: idx_contacts_name must be UNIQUE for ON CONFLICT(name) upserts.
+		// Migration 12 below ensures this even on installs that ran this migration
+		// before the index was made unique.
 		sql: `
 		CREATE TABLE IF NOT EXISTS contacts (
 			id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -522,6 +525,15 @@ var migrations = []migration{
 		);
 		CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_name ON contacts(name);
 		CREATE INDEX IF NOT EXISTS idx_contacts_owner ON contacts(is_owner);
+		`,
+	},
+	{
+		name: "contacts — ensure name index is UNIQUE (fix for installs with non-unique index)",
+		sql: `
+		-- Drop the non-unique index if it exists (created by the original contacts migration).
+		-- Re-create as UNIQUE so ON CONFLICT(name) upserts work in contact_save.
+		DROP INDEX IF EXISTS idx_contacts_name;
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_contacts_name ON contacts(name);
 		`,
 	},
 }
