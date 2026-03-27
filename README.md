@@ -75,16 +75,18 @@ Got old hardware collecting dust? Perfect.
 
 ### Step 2: Install Crayfish
 
-**Linux / macOS (one-line)**
+**Option A: Direct Install (Recommended)**
 
+Run this on the device you want Crayfish to live on:
+
+*Linux / macOS:*
 ```bash
 curl -fsSL https://raw.githubusercontent.com/KekwanuLabs/crayfish/main/scripts/install.sh | bash
 ```
 
-**Windows (PowerShell)**
-
+*Windows (PowerShell):*
 ```powershell
-# Allow running scripts (one-time)
+# Allow running scripts (one-time, if not already set)
 Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 
 # Install Crayfish
@@ -93,7 +95,7 @@ iwr https://raw.githubusercontent.com/KekwanuLabs/crayfish/main/scripts/install.
 
 That's it. The installer downloads everything, sets it up, and starts it automatically.
 
-**Option B: Install from Another Computer**
+**Option B: Install Remotely from Another Computer (Pi/headless devices)**
 
 Don't want to plug a keyboard into your Pi? Install remotely from your Mac or PC:
 
@@ -120,11 +122,8 @@ It remembers your answers, so next time you just run `make deploy` again.
 
 Once installed, open your web browser and go to:
 
-```
-http://your-device-ip:8119
-```
-
-For example: `http://192.168.1.42:8119` or `http://raspberrypi.local:8119`
+- **Windows:** `http://localhost:8119`
+- **Pi / Linux / Mac:** `http://your-device-ip:8119` (e.g. `http://192.168.1.42:8119` or `http://raspberrypi.local:8119`)
 
 ### Step 4: Follow the Wizard
 
@@ -164,7 +163,7 @@ On first conversation, Crayfish naturally asks about you — your name, what you
 ### Voice Messages
 Send a voice note on Telegram. Crayfish transcribes it and responds. No typing required.
 
-On **Pi 3/4/5, Mac, Linux PC, and Windows PC**: voice transcription uses local whisper.cpp (Pi 3+) or cloud STT (Groq/OpenAI). Cloud STT requires a Groq or OpenAI API key — if you're already using either as your LLM provider, the same key is reused automatically (zero extra setup). Otherwise run `stt_connect` in Telegram to set up a free Groq key (10h audio/day free).
+Voice transcription works automatically on all platforms. If you're already using Groq or OpenAI as your AI provider, the same key handles voice too — nothing extra to set up. On a Pi 3+ it can run fully local (offline). On other hardware it uses free cloud transcription.
 
 ### Admin Dashboard
 Manage everything from your browser at `http://your-device:8119`. View sessions, search memories, configure settings, manage skills, and monitor events — all from a single page. Settings like name and personality apply instantly; provider changes show a "restart needed" indicator.
@@ -263,21 +262,24 @@ cmd/crayfish/           # Main entry point
 internal/               # Core packages
   app/                  # Application orchestration & config
   bus/                  # Event bus (SQLite-backed)
-  channels/             # Channel adapters (Telegram, CLI)
+  channels/             # Channel adapters (Telegram, CLI, Phone/SMS)
+  contacts/             # Private contacts store (phone book)
+  firewall/             # Cross-platform firewall management (ufw/netsh)
   gateway/              # HTTP server, dashboard, skills API
   gmail/                # Email integration
   calendar/             # Google Calendar
   heartbeat/            # Proactive check-ins
   identity/             # Agent personality + user knowledge (SOUL.md, USER.md)
-  provider/             # LLM providers (Anthropic, OpenAI, etc.)
+  provider/             # LLM providers (Anthropic, OpenAI, Groq, Ollama, etc.)
   runtime/              # Agent brain, tool execution, memory
   security/             # Trust tiers, pairing, guardrails
   setup/                # Web setup wizard
   skills/               # YAML-defined workflows
   storage/              # SQLite wrapper
   tools/                # Built-in tool registry
-  voice/                # Speech recognition (whisper.cpp)
-scripts/                # Install and deploy scripts
+  tunnel/               # Cloudflare Tunnel manager
+  voice/                # TTS (Piper, ElevenLabs) + STT (whisper.cpp, cloud)
+scripts/                # Install scripts (install.sh, install.ps1, deploy.sh)
 docs/                   # Architecture documentation
 ```
 
@@ -290,8 +292,9 @@ PRs welcome! The codebase is intentionally simple — no frameworks, minimal dep
 ## Quick Links
 
 - **Website:** [crayfish-ai.com](https://crayfish-ai.com/)
-- **Install on device:** `curl -fsSL https://raw.githubusercontent.com/KekwanuLabs/crayfish/main/scripts/install.sh | bash`
-- **Install from laptop:** `git clone ... && make deploy`
+- **Install (Linux/Mac):** `curl -fsSL https://raw.githubusercontent.com/KekwanuLabs/crayfish/main/scripts/install.sh | bash`
+- **Install (Windows):** `iwr https://raw.githubusercontent.com/KekwanuLabs/crayfish/main/scripts/install.ps1 | iex`
+- **Install from laptop (Pi/headless):** `git clone ... && make deploy`
 - **Issues:** [GitHub Issues](https://github.com/KekwanuLabs/crayfish/issues)
 - **License:** MIT
 
