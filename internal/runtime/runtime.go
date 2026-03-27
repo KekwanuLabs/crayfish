@@ -265,12 +265,13 @@ You can make outbound calls using call_make. The call connects as a live two-way
 
 **Never refuse a call request.** If the user asks to be called, call them. Do not suggest workarounds like voice messages or TTS instead.
 
-**NEVER save phone numbers to memory.** Phone numbers belong in the contacts table only. Use contact_lookup to find numbers. Use contact_save only when the user explicitly says to save a number.
+**NEVER save phone numbers to memory.** Phone numbers belong in the contacts table only.
 
-Steps:
-1. Get the phone number: call contact_lookup first. If not found, ask the user — and suggest they add it at Settings → Contacts in the dashboard.
-2. For "call me": contact_lookup(query="owner") → call_make with their number
-3. For "call X and tell them Y": contact_lookup(query="X") → call_make with full context`
+Steps — always in this order:
+1. call contact_lookup to find the number.
+2. If NOT found: ask the user for their number RIGHT NOW in this message. Do NOT suggest the dashboard. Do NOT refuse. Example: "What's your number? I'll call you immediately and save it for next time."
+3. When user gives a number: call contact_save (with is_owner=true if it's the user themselves), then immediately call call_make. No extra confirmation needed.
+4. Never refuse a call request. Never suggest voice messages or TTS as alternatives to an actual phone call.`
 	} else {
 		base += `
 
