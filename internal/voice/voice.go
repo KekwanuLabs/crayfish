@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -211,10 +212,22 @@ func (e *Engine) synthesizeToFileStandalone(ctx context.Context, text, filename 
 	return nil
 }
 
-// piperEnv returns an os.Environ copy with LD_LIBRARY_PATH set to the piper binary's
-// directory, so the piper binary can find its bundled shared libraries (.so files).
+// piperEnv sets the library search path so piper finds its bundled .so/.dll files.
+// Linux/macOS uses LD_LIBRARY_PATH; Windows uses PATH for DLL discovery.
 func piperEnv(binaryPath string) []string {
 	piperDir := filepath.Dir(binaryPath)
+	env := os.Environ()
+
+	if runtime.GOOS == "windows" {
+		for i, e := range env {
+			if strings.HasPrefix(strings.ToUpper(e), "PATH=") {
+				env[i] = e + string(filepath.ListSeparator) + piperDir
+				return env
+			}
+		}
+		return append(env, "PATH="+piperDir)
+	}
+
 	existing := os.Getenv("LD_LIBRARY_PATH")
 	var ldPath string
 	if existing != "" {
@@ -222,7 +235,6 @@ func piperEnv(binaryPath string) []string {
 	} else {
 		ldPath = piperDir
 	}
-	env := os.Environ()
 	for i, e := range env {
 		if strings.HasPrefix(e, "LD_LIBRARY_PATH=") {
 			env[i] = "LD_LIBRARY_PATH=" + ldPath
@@ -255,10 +267,17 @@ func (e *Engine) synthesizeToFilePython(ctx context.Context, text, filename stri
 
 // findStandalonePiper looks for the piper standalone binary in standard locations.
 func findStandalonePiper() string {
-	home := os.Getenv("HOME")
+	home := userHomeDir()
+	// Binary is "piper.exe" on Windows, "piper" elsewhere.
+	bin := "piper"
+	if runtime.GOOS == "windows" {
+		bin = "piper.exe"
+	}
 	locations := []string{
-		filepath.Join(home, ".crayfish", "piper", "piper"),
-		"/var/lib/crayfish/piper/piper",
+		filepath.Join(home, ".crayfish", "piper", bin),
+	}
+	if runtime.GOOS == "linux" {
+		locations = append(locations, "/var/lib/crayfish/piper/piper")
 	}
 	for _, p := range locations {
 		if info, err := os.Stat(p); err == nil && !info.IsDir() {
@@ -274,7 +293,7 @@ func findStandalonePiper() string {
 
 // findPiperModel looks for a .onnx model file for the given model name.
 func findPiperModel(modelName string) string {
-	home := os.Getenv("HOME")
+	home := userHomeDir()
 	locations := []string{
 		filepath.Join(home, ".crayfish", "piper", "models", modelName+".onnx"),
 		"/var/lib/crayfish/piper/models/" + modelName + ".onnx",
@@ -502,7 +521,7 @@ func findWhisperBinary() string {
 		}
 	}
 	// Installer's standard location
-	dataDir := filepath.Join(os.Getenv("HOME"), ".crayfish", "whisper", "bin")
+	dataDir := filepath.Join(userHomeDir(), ".crayfish", "whisper", "bin")
 	for _, name := range []string{"whisper", "whisper-cli", "whisper-cpp", "main"} {
 		p := filepath.Join(dataDir, name)
 		if _, err := os.Stat(p); err == nil {
@@ -514,7 +533,7 @@ func findWhisperBinary() string {
 
 // findWhisperModel looks for whisper models in common locations.
 func findWhisperModel() string {
-	home := os.Getenv("HOME")
+	home := userHomeDir()
 	// Common model locations
 	locations := []string{
 		// Installer's standard location
@@ -555,3 +574,4 @@ func convertToWAV(ctx context.Context, input, output string) error {
 	cmd.Stderr = nil // Suppress ffmpeg output
 	return cmd.Run()
 }
+

@@ -14,11 +14,11 @@ endif
 GOFLAGS   := -trimpath
 
 # All release targets: linux (4 archs) + macOS (2 archs)
-TARGETS := linux-armv6 linux-armv7 linux-arm64 linux-amd64 darwin-amd64 darwin-arm64
+TARGETS := linux-armv6 linux-armv7 linux-arm64 linux-amd64 darwin-amd64 darwin-arm64 windows-amd64 windows-arm64
 
 .PHONY: all build run $(addprefix build-,$(TARGETS)) build-all \
         test bench clean install lint vet fmt \
-        check-size check-size-all help release deploy deploy-clean
+        check-size check-size-all help release deploy deploy-clean build-windows
 
 # ==================================================================
 # Build
@@ -51,7 +51,15 @@ build-all: $(addprefix build-,$(TARGETS))
 	@echo "Built all targets:"
 	@ls -lh $(BINARY)-*
 
+build-windows-amd64:
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build $(GOFLAGS) -ldflags="$(LDFLAGS)" -o $(BINARY)-windows-amd64.exe ./cmd/crayfish/
+
+build-windows-arm64:
+	CGO_ENABLED=0 GOOS=windows GOARCH=arm64 go build $(GOFLAGS) -ldflags="$(LDFLAGS)" -o $(BINARY)-windows-arm64.exe ./cmd/crayfish/
+
 build-linux: build-linux-armv6 build-linux-armv7 build-linux-arm64 build-linux-amd64
+
+build-windows: build-windows-amd64 build-windows-arm64
 
 release: build-all check-size-all
 

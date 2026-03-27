@@ -39,7 +39,7 @@ type InstallerConfig struct {
 
 // DefaultInstallerConfig returns sensible defaults.
 func DefaultInstallerConfig() InstallerConfig {
-	dataDir := filepath.Join(os.Getenv("HOME"), ".crayfish", "whisper")
+	dataDir := filepath.Join(userHomeDir(), ".crayfish", "whisper")
 	if runtime.GOOS == "linux" {
 		// On Linux, prefer /var/lib for system-wide installs
 		if os.Getuid() == 0 {
@@ -725,4 +725,11 @@ func copyFile(src, dst string) error {
 
 	_, err = io.Copy(out, in)
 	return err
+}
+
+func userHomeDir() string {
+	if h, err := os.UserHomeDir(); err == nil {
+		return h
+	}
+	return os.TempDir()
 }

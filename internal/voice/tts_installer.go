@@ -32,7 +32,7 @@ type TTSInstallerConfig struct {
 
 // DefaultTTSInstallerConfig returns sensible defaults.
 func DefaultTTSInstallerConfig() TTSInstallerConfig {
-	dataDir := filepath.Join(os.Getenv("HOME"), ".crayfish", "piper")
+	dataDir := filepath.Join(userHomeDir(), ".crayfish", "piper")
 	if runtime.GOOS == "linux" && os.Getuid() == 0 {
 		dataDir = "/var/lib/crayfish/piper"
 	}
@@ -115,7 +115,7 @@ func (i *TTSInstaller) Progress() TTSInstallProgress {
 
 // BinaryPath returns the expected path to the piper binary.
 func (i *TTSInstaller) BinaryPath() string {
-	return filepath.Join(i.config.DataDir, "piper")
+	return filepath.Join(i.config.DataDir, piperBinaryName())
 }
 
 // ModelPath returns the expected path to a voice model file.
@@ -256,8 +256,23 @@ func piperPlatform() (string, error) {
 		case "arm64":
 			return "macos_aarch64", nil
 		}
+	case "windows":
+		switch runtime.GOARCH {
+		case "amd64":
+			return "windows_amd64", nil
+		case "arm64":
+			return "windows_arm64", nil
+		}
 	}
 	return "", fmt.Errorf("unsupported platform: %s/%s", runtime.GOOS, runtime.GOARCH)
+}
+
+// piperBinaryName returns the correct piper binary filename for the current OS.
+func piperBinaryName() string {
+	if runtime.GOOS == "windows" {
+		return "piper.exe"
+	}
+	return "piper"
 }
 
 // downloadBinary downloads and extracts the piper binary tarball.

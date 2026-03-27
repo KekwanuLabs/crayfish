@@ -878,7 +878,7 @@ func (w *Wizard) handleVoiceStatus(rw http.ResponseWriter, r *http.Request) {
 	}
 
 	// Also check our install directory
-	whisperPath := filepath.Join(os.Getenv("HOME"), ".crayfish", "whisper", "bin", "whisper")
+	whisperPath := filepath.Join(userHomeDir(), ".crayfish", "whisper", "bin", "whisper")
 	if _, err := os.Stat(whisperPath); err == nil {
 		status.Installed = true
 	}
@@ -934,7 +934,7 @@ func (w *Wizard) handleVoiceInstall(rw http.ResponseWriter, r *http.Request) {
 		model = "small"
 	}
 
-	whisperDir := filepath.Join(os.Getenv("HOME"), ".crayfish", "whisper")
+	whisperDir := filepath.Join(userHomeDir(), ".crayfish", "whisper")
 	binDir := filepath.Join(whisperDir, "bin")
 	modelsDir := filepath.Join(whisperDir, "models")
 	srcDir := filepath.Join(whisperDir, "src", "whisper.cpp")
@@ -1066,4 +1066,11 @@ func copyFileSimple(src, dst string) error {
 
 	_, err = io.Copy(out, in)
 	return err
+}
+
+func userHomeDir() string {
+	if h, err := os.UserHomeDir(); err == nil {
+		return h
+	}
+	return os.TempDir()
 }

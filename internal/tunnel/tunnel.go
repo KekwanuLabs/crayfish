@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"os/exec"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -75,11 +76,12 @@ var urlPattern = regexp.MustCompile(`https://[a-z0-9\-]+\.trycloudflare\.com`)
 
 // runOnce starts cloudflared once and blocks until it exits.
 func (m *Manager) runOnce(ctx context.Context) error {
-	cmd := exec.CommandContext(ctx, "cloudflared", "tunnel",
-		"--url", m.localAddr,
-		"--no-autoupdate",
-		"--logfile", "/dev/null", // suppress file logging, we read stderr
-	)
+	args := []string{"tunnel", "--url", m.localAddr, "--no-autoupdate"}
+	// Suppress file logging on Unix; /dev/null doesn't exist on Windows.
+	if runtime.GOOS != "windows" {
+		args = append(args, "--logfile", "/dev/null")
+	}
+	cmd := exec.CommandContext(ctx, "cloudflared", args...)
 
 	// cloudflared logs to stderr.
 	stderr, err := cmd.StderrPipe()

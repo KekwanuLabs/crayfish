@@ -23,6 +23,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -44,17 +45,24 @@ func New(logger *slog.Logger) *Manager {
 	return &Manager{logger: logger}
 }
 
-// IsAvailable returns true if ufw is installed.
-// Checks common binary locations directly rather than using exec.LookPath
-// to avoid issues with PATH differences in systemd environments.
+// IsAvailable returns true if a supported firewall tool is installed.
+// Linux: checks for ufw. Windows: checks for netsh. macOS: returns false
+// (pf is present but Crayfish doesn't manage it — macOS doesn't need it
+// for home use since it defaults to blocking inbound connections).
 func IsAvailable() bool {
-	for _, p := range []string{"/usr/sbin/ufw", "/sbin/ufw", "/usr/bin/ufw"} {
-		if _, err := os.Stat(p); err == nil {
+	switch runtime.GOOS {
+	case "windows":
+		_, err := exec.LookPath("netsh")
+		return err == nil
+	case "linux":
+		for _, p := range []string{"/usr/sbin/ufw", "/sbin/ufw", "/usr/bin/ufw"} {
+			if _, err := os.Stat(p); err == nil {
+				return true
+			}
+		}
+		if _, err := exec.LookPath("ufw"); err == nil {
 			return true
 		}
-	}
-	if _, err := exec.LookPath("ufw"); err == nil {
-		return true
 	}
 	return false
 }
@@ -116,22 +124,63 @@ func (m *Manager) sync() {
 	}
 }
 
-// runFirewallSync triggers the crayfish-firewall-sync script via systemd-run,
-// which escapes the NoNewPrivileges boundary by creating a transient unit.
+// runFirewallSync updates firewall rules for the current network subnets.
+// Linux: triggers the crayfish-firewall-sync script via systemd-run.
+// Windows: applies netsh rules directly (no privilege boundary issue on Windows).
 func runFirewallSync() error {
-	const script = "/usr/local/bin/crayfish-firewall-sync"
-	if _, err := os.Stat(script); err != nil {
-		return fmt.Errorf("sync script not installed: %w", err)
+	switch runtime.GOOS {
+	case "windows":
+		return runWindowsFirewallSync()
+	case "linux":
+		const script = "/usr/local/bin/crayfish-firewall-sync"
+		if _, err := os.Stat(script); err != nil {
+			return fmt.Errorf("sync script not installed: %w", err)
+		}
+		cmd := exec.Command("systemd-run", "--no-block", "--quiet",
+			"--unit=crayfish-firewall-sync", script)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("systemd-run: %w: %s", err, strings.TrimSpace(string(out)))
+		}
+		return nil
+	}
+	return fmt.Errorf("firewall sync not supported on %s", runtime.GOOS)
+}
+
+// runWindowsFirewallSync adds Windows Defender Firewall rules for the current
+// local subnets. Uses netsh advfirewall, which doesn't require elevation when
+// running as a service (services run with elevated privileges on Windows).
+func runWindowsFirewallSync() error {
+	subnets, err := GetLocalSubnets()
+	if err != nil {
+		return fmt.Errorf("detect subnets: %w", err)
 	}
 
-	// systemd-run creates a transient service unit that runs without the
-	// NoNewPrivileges restriction inherited from the parent service.
-	cmd := exec.Command("systemd-run", "--no-block", "--quiet",
-		"--unit=crayfish-firewall-sync",
-		script)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("systemd-run: %w: %s", err, strings.TrimSpace(string(out)))
+	for _, port := range managedPorts {
+		ruleName := fmt.Sprintf("Crayfish-Port%d", port)
+
+		// Delete existing rule (ignore failure — rule may not exist yet).
+		exec.Command("netsh", "advfirewall", "firewall", "delete", "rule",
+			"name="+ruleName, "protocol=TCP", "dir=in").Run()
+
+		// Build remote IP list from subnets.
+		remoteIP := strings.Join(subnets, ",")
+		if len(subnets) == 0 {
+			remoteIP = "LocalSubnet"
+		}
+
+		// Add new rule.
+		out, err := exec.Command("netsh", "advfirewall", "firewall", "add", "rule",
+			"name="+ruleName,
+			"protocol=TCP",
+			"dir=in",
+			fmt.Sprintf("localport=%d", port),
+			"action=allow",
+			"remoteip="+remoteIP,
+		).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("netsh add rule port %d: %w: %s", port, err, strings.TrimSpace(string(out)))
+		}
 	}
 	return nil
 }
@@ -210,41 +259,61 @@ func GetLocalSubnets() ([]string, error) {
 }
 
 
-// EnsureEnabled enables ufw if it isn't already active.
-// Uses IsEnabled() (reads /etc/ufw/ufw.conf) for status check — no sudo needed there.
-// The enable commands use sudo; these work from install scripts and ExecStartPre
-// which run outside the systemd NoNewPrivileges boundary.
+// EnsureEnabled enables the system firewall if not already active.
+// Linux: uses ufw. Windows: enables Windows Defender Firewall via netsh.
+// macOS: no-op (firewall is managed via System Preferences).
 func EnsureEnabled() error {
 	if IsEnabled() {
 		return nil
 	}
-
-	cmds := [][]string{
-		{"sudo", "ufw", "--force", "reset"},
-		{"sudo", "ufw", "default", "deny", "incoming"},
-		{"sudo", "ufw", "default", "allow", "outgoing"},
-		{"sudo", "ufw", "--force", "enable"},
-	}
-	for _, args := range cmds {
-		if out, err := exec.Command(args[0], args[1:]...).CombinedOutput(); err != nil {
-			return fmt.Errorf("ufw %s: %w: %s", args[1], err, strings.TrimSpace(string(out)))
+	switch runtime.GOOS {
+	case "linux":
+		cmds := [][]string{
+			{"sudo", "ufw", "--force", "reset"},
+			{"sudo", "ufw", "default", "deny", "incoming"},
+			{"sudo", "ufw", "default", "allow", "outgoing"},
+			{"sudo", "ufw", "--force", "enable"},
+		}
+		for _, args := range cmds {
+			if out, err := exec.Command(args[0], args[1:]...).CombinedOutput(); err != nil {
+				return fmt.Errorf("ufw %s: %w: %s", args[1], err, strings.TrimSpace(string(out)))
+			}
+		}
+	case "windows":
+		// Enable Windows Defender Firewall on all profiles.
+		out, err := exec.Command("netsh", "advfirewall", "set", "allprofiles", "state", "on").CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("netsh advfirewall: %w: %s", err, strings.TrimSpace(string(out)))
 		}
 	}
 	return nil
 }
 
-// IsEnabled returns true if ufw is active by reading /etc/ufw/ufw.conf.
-// Does NOT use sudo — safe to call from within the systemd service which
-// runs with NoNewPrivileges=true (sudo would fail there).
+// IsEnabled returns true if the system firewall is active.
+// Linux: reads /etc/ufw/ufw.conf (no sudo needed, safe inside systemd NoNewPrivileges).
+// Windows: queries Windows Defender Firewall state via netsh.
+// macOS: always returns true (firewall is assumed enabled by the OS).
 func IsEnabled() bool {
-	data, err := os.ReadFile("/etc/ufw/ufw.conf")
-	if err != nil {
-		return false
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		if strings.TrimSpace(line) == "ENABLED=yes" {
-			return true
+	switch runtime.GOOS {
+	case "linux":
+		data, err := os.ReadFile("/etc/ufw/ufw.conf")
+		if err != nil {
+			return false
 		}
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.TrimSpace(line) == "ENABLED=yes" {
+				return true
+			}
+		}
+		return false
+	case "windows":
+		out, err := exec.Command("netsh", "advfirewall", "show", "currentprofile", "state").Output()
+		if err != nil {
+			return false
+		}
+		return strings.Contains(string(out), "ON")
+	case "darwin":
+		return true // macOS manages its own firewall; we don't override it
 	}
 	return false
 }
