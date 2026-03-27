@@ -604,6 +604,7 @@ func (api *DashboardAPI) handleContacts(w http.ResponseWriter, r *http.Request) 
 			api.writeError(w, "invalid JSON", http.StatusBadRequest)
 			return
 		}
+		body.Name = strings.TrimSpace(body.Name)
 		if body.Name == "" {
 			api.writeError(w, "name required", http.StatusBadRequest)
 			return
@@ -635,6 +636,11 @@ func (api *DashboardAPI) handleContactByID(w http.ResponseWriter, r *http.Reques
 		api.writeError(w, "id required", http.StatusBadRequest)
 		return
 	}
+	// Validate ID is a positive integer — reject path traversal attempts.
+	if _, err := strconv.ParseInt(idStr, 10, 64); err != nil {
+		api.writeError(w, "invalid contact ID", http.StatusBadRequest)
+		return
+	}
 
 	switch r.Method {
 	case http.MethodPut:
@@ -648,6 +654,11 @@ func (api *DashboardAPI) handleContactByID(w http.ResponseWriter, r *http.Reques
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			api.writeError(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		body.Name = strings.TrimSpace(body.Name)
+		if body.Name == "" {
+			api.writeError(w, "name required", http.StatusBadRequest)
 			return
 		}
 		isOwner := 0

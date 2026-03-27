@@ -153,6 +153,13 @@ func (ws *WSConn) readFrame() (payload []byte, opcode byte, err error) {
 		payloadLen = int64(ext)
 	}
 
+	// Guard against malicious oversized frames that would cause OOM.
+	// Twilio ConversationRelay sends JSON text frames, never more than ~64KB.
+	const maxPayload = 1 << 20 // 1MB hard limit
+	if payloadLen > maxPayload {
+		return nil, opcode, fmt.Errorf("websocket frame too large: %d bytes (max %d)", payloadLen, maxPayload)
+	}
+
 	// Read masking key (always present for client→server frames).
 	var maskKey [4]byte
 	if masked {

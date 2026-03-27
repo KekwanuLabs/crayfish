@@ -98,6 +98,11 @@ func (a *Adapter) HandleTwiML(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
+	if a.config.TunnelURL == "" {
+		a.logger.Warn("TwiML requested but tunnel URL not configured")
+		http.Error(w, "tunnel not ready — phone calls unavailable until tunnel is established", http.StatusServiceUnavailable)
+		return
+	}
 	// Parse form body (POST) first, fall back to URL query params.
 	_ = r.ParseForm()
 	callSid := r.FormValue("CallSid")
@@ -231,6 +236,9 @@ func (a *Adapter) UpdateTunnelURL(url string) {
 func (a *Adapter) MakeCall(ctx context.Context, toNumber, contactName, callerName, purpose, opening string) (string, error) {
 	if a.config.TwilioAccountSID == "" {
 		return "", fmt.Errorf("Twilio not configured — run twilio_connect first")
+	}
+	if a.config.TwilioFromNumber == "" {
+		return "", fmt.Errorf("Twilio phone number not configured — add it in Settings → Twilio Phone Calls or run twilio_connect")
 	}
 	if a.config.TunnelURL == "" {
 		return "", fmt.Errorf("tunnel URL not set — phone calls need a public URL (Cloudflare Tunnel). Tell the user to set up a tunnel or set CRAYFISH_TUNNEL_URL.")

@@ -151,6 +151,7 @@ For the user's own number, set is_owner=true.`,
 			if err := json.Unmarshal(params, &input); err != nil {
 				return "", fmt.Errorf("invalid parameters: %w", err)
 			}
+			input.Name = strings.TrimSpace(input.Name)
 			if input.Name == "" {
 				return "", fmt.Errorf("name is required")
 			}
