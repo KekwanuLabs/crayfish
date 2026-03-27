@@ -424,22 +424,69 @@ func (g *Gateway) handleGoogleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Derive per-feature flags from scopes for the dashboard UI.
+	hasCalendar, hasDrive, hasContacts := false, false, false
+	email := ""
+	if g.appRef != nil {
+		cfg := g.appRef.DashboardConfig()
+		if e, ok := cfg["gmail_user"].(string); ok {
+			email = e
+		}
+	}
+	for _, s := range scopes {
+		switch s {
+		case oauth.CalendarScope:
+			hasCalendar = true
+		case oauth.DriveScope, oauth.DriveReadonly:
+			hasDrive = true
+		case oauth.ContactsScope:
+			hasContacts = true
+		}
+	}
+
 	json.NewEncoder(w).Encode(map[string]any{
-		"connected": connected,
-		"scopes":    scopes,
+		"connected":    connected,
+		"scopes":       scopes,
+		"email":        email,
+		"has_calendar": hasCalendar,
+		"has_drive":    hasDrive,
+		"has_contacts": hasContacts,
 	})
 }
 
 // handleGoogleConnect initiates the device authorization flow.
-// Returns the user_code and verification_url for the user to complete on their phone.
-// Then polls in a goroutine until the user completes consent.
+// Accepts optional JSON body: {"purpose": "contacts"} to request additional scopes.
+// Returns the user_code and verification_url for the user to complete.
 func (g *Gateway) handleGoogleConnect(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
 		return
 	}
 
-	dc, err := g.oauthClient.RequestDeviceCode(r.Context())
+	// Parse optional purpose to add extra scopes.
+	var body struct {
+		Purpose string `json:"purpose"`
+	}
+	json.NewDecoder(r.Body).Decode(&body)
+
+	// Build scope list based on purpose.
+	var scopes []string
+	switch body.Purpose {
+	case "contacts":
+		scopes = append(oauth.ScopesBase, oauth.ContactsScope)
+	case "drive", "drive_and_docs":
+		scopes = append(oauth.ScopesBase, oauth.DriveScope)
+	default:
+		scopes = oauth.ScopesBase
+	}
+
+	var dc *oauth.DeviceCode
+	var err error
+	if len(scopes) > len(oauth.ScopesBase) {
+		dc, err = g.oauthClient.RequestDeviceCodeWithScopes(r.Context(), scopes)
+	} else {
+		dc, err = g.oauthClient.RequestDeviceCode(r.Context())
+	}
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)

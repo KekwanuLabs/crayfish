@@ -411,6 +411,24 @@ const dashboardPageHTML = `<!DOCTYPE html>
         <div class="form-group"><label>Brave Search API Key</label><div class="pass-wrap"><input type="password" id="cfg-brave_api_key"><button class="pass-toggle" onclick="togglePass('cfg-brave_api_key')">&#128065;</button></div></div>
       </div>
       <div class="form-section">
+        <div class="form-section-header"><span class="dot-hot"></span> 🔗 Google Account</div>
+        <div id="google-status-panel" style="padding:0.75rem 1rem;border-radius:10px;background:rgba(15,23,42,0.5);border:1px solid rgba(71,85,105,0.4);margin-bottom:0.75rem;">
+          <div id="google-status-line" style="font-size:0.8125rem;color:#94a3b8;">Loading…</div>
+          <div id="google-scopes-line" style="font-size:0.75rem;color:#64748b;margin-top:0.25rem;"></div>
+        </div>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+          <button class="btn btn-secondary" id="google-connect-btn" onclick="connectGoogle()" style="display:none;">Connect Google</button>
+          <button class="btn btn-secondary" id="google-contacts-btn" onclick="connectGoogleContacts()" style="display:none;">+ Add Contacts Access</button>
+          <button class="btn btn-secondary" id="google-drive-btn" onclick="connectGoogleDrive()" style="display:none;">+ Add Drive &amp; Docs</button>
+        </div>
+        <div id="google-auth-box" style="display:none;margin-top:0.875rem;padding:0.875rem 1rem;border-radius:10px;background:rgba(249,115,22,0.08);border:1px solid rgba(249,115,22,0.2);">
+          <div style="font-size:0.8125rem;color:#f8fafc;font-weight:500;margin-bottom:0.375rem;">Authorization required</div>
+          <div style="font-size:0.8125rem;color:#94a3b8;margin-bottom:0.5rem;">Go to <a id="google-verify-url" href="#" target="_blank" rel="noopener" style="color:#f97316;text-decoration:underline;"></a> and enter this code:</div>
+          <div id="google-user-code" style="font-size:1.25rem;font-weight:700;color:#f8fafc;font-family:monospace;letter-spacing:0.1em;margin-bottom:0.5rem;"></div>
+          <div style="font-size:0.75rem;color:#64748b;">Then come back here — the page will update automatically when authorized.</div>
+        </div>
+      </div>
+      <div class="form-section">
         <div class="form-section-header"><span class="dot-hot"></span> 🎙️ ElevenLabs Voice</div>
         <div style="font-size:0.8125rem;color:#64748b;margin-bottom:0.75rem;">
           Gives Crayfish a natural, human-sounding voice for Telegram replies and phone calls.
@@ -928,6 +946,75 @@ async function loadSettings() {
 
   // Firewall status.
   loadFirewallStatus();
+  loadGoogleStatus();
+}
+
+async function loadGoogleStatus() {
+  try {
+    const s = await fetchJSON('/api/google/status');
+    const line = document.getElementById('google-status-line');
+    const scopes = document.getElementById('google-scopes-line');
+    const connectBtn = document.getElementById('google-connect-btn');
+    const contactsBtn = document.getElementById('google-contacts-btn');
+    const driveBtn = document.getElementById('google-drive-btn');
+    if (!line) return;
+
+    if (s.connected) {
+      const email = s.email || 'Google account';
+      line.innerHTML = '<span style="color:#6ee7b7;">✓ Connected</span> — ' + esc(email);
+      const activeScopes = [];
+      if (s.has_calendar) activeScopes.push('Calendar');
+      if (s.has_drive) activeScopes.push('Drive & Docs');
+      if (s.has_contacts) activeScopes.push('Contacts');
+      scopes.textContent = activeScopes.length ? 'Access: ' + activeScopes.join(', ') : 'No scopes active';
+      if (!s.has_contacts) contactsBtn.style.display = 'inline-flex';
+      if (!s.has_drive) driveBtn.style.display = 'inline-flex';
+    } else {
+      line.innerHTML = '<span style="color:#94a3b8;">Not connected</span> — connect for Calendar, Contacts, Drive & Docs';
+      scopes.textContent = '';
+      connectBtn.style.display = 'inline-flex';
+    }
+  } catch(e) { /* non-fatal */ }
+}
+
+async function connectGoogle(purpose) {
+  const box = document.getElementById('google-auth-box');
+  try {
+    const r = await fetchJSON('/api/google/connect', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({purpose: purpose || ''})
+    });
+    if (r.user_code && r.verification_url) {
+      document.getElementById('google-user-code').textContent = r.user_code;
+      const link = document.getElementById('google-verify-url');
+      link.href = r.verification_url;
+      link.textContent = r.verification_url;
+      box.style.display = 'block';
+      // Poll for completion
+      pollGoogleAuth();
+    }
+  } catch(e) {
+    showToast('Google connect failed: ' + (e.message || e), 'error');
+  }
+}
+
+function connectGoogleContacts() { connectGoogle('contacts'); }
+function connectGoogleDrive()    { connectGoogle('drive_and_docs'); }
+
+async function pollGoogleAuth() {
+  for (let i = 0; i < 60; i++) {
+    await new Promise(r => setTimeout(r, 5000));
+    try {
+      const s = await fetchJSON('/api/google/status');
+      if (s.connected) {
+        document.getElementById('google-auth-box').style.display = 'none';
+        showToast('Google connected!', 'success');
+        await loadGoogleStatus();
+        return;
+      }
+    } catch(e) {}
+  }
 }
 
 async function loadFirewallStatus() {
