@@ -8,6 +8,28 @@ import (
 	"github.com/KekwanuLabs/crayfish/internal/security"
 )
 
+// normalizePhone converts a phone number to E.164 format.
+// A 10-digit number is assumed to be a US number and gets +1 prepended.
+func normalizePhone(s string) string {
+	// Strip spaces, dashes, parens, dots.
+	clean := ""
+	for _, c := range s {
+		if c >= '0' && c <= '9' || c == '+' {
+			clean += string(c)
+		}
+	}
+	if len(clean) == 10 {
+		return "+1" + clean // US 10-digit
+	}
+	if len(clean) == 11 && clean[0] == '1' {
+		return "+" + clean // US 11-digit without +
+	}
+	if len(clean) > 0 && clean[0] != '+' {
+		return "+" + clean // international without +
+	}
+	return clean
+}
+
 // CallMaker is the interface for making phone calls (implemented by the phone adapter).
 type CallMaker interface {
 	MakeCall(ctx context.Context, toNumber, contactName, callerName, purpose, opening string) (string, error)
@@ -69,15 +91,18 @@ The call is a live two-way conversation — the person can respond and ask quest
 				return "", fmt.Errorf("phone number is required — look it up from memory first, or ask the user")
 			}
 
-			callSid, err := caller.MakeCall(ctx, input.To,
+			// Normalize to E.164: a 10-digit number is assumed to be a US number.
+			to := normalizePhone(input.To)
+
+			callSid, err := caller.MakeCall(ctx, to,
 				input.ContactName, input.CallerName, input.Purpose, input.Opening)
 			if err != nil {
 				return "", fmt.Errorf("call failed: %w", err)
 			}
 
-			who := input.To
+			who := to
 			if input.ContactName != "" {
-				who = input.ContactName + " (" + input.To + ")"
+				who = input.ContactName + " (" + to + ")"
 			}
 			return fmt.Sprintf("Calling %s now. The call is connecting — they'll hear from me shortly.\nCall ID: %s", who, callSid), nil
 		},
