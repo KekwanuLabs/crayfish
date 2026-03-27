@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"strings"
 	"sync"
 	"time"
@@ -1008,7 +1009,10 @@ func (a *App) Start(ctx context.Context) error {
 	}
 
 	// 13. Voice STT auto-installer (runs in background, local hardware only)
-	if a.Config.STTEnabled && devInfo.CanRunLocalSTT() {
+	// Local whisper.cpp install: skip on Windows — no pre-built Windows binaries
+	// in our release pipeline and compilation requires MSVC. Cloud STT (Groq)
+	// is faster and more accurate anyway, wired up separately below.
+	if a.Config.STTEnabled && devInfo.CanRunLocalSTT() && goruntime.GOOS != "windows" {
 		a.voiceInstaller = voice.NewInstaller(
 			voice.DefaultInstallerConfig(),
 			a.Logger.With("component", "voice-installer"),

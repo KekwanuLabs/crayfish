@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/KekwanuLabs/crayfish/internal/bus"
+	"github.com/KekwanuLabs/crayfish/internal/firewall"
 	"github.com/KekwanuLabs/crayfish/internal/storage"
 )
 
@@ -95,11 +96,11 @@ func (api *DashboardAPI) handleNetworkStatus(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	// Firewall status.
-	firewallEnabled := false
+	// Firewall status — uses the firewall package (cross-platform: ufw on Linux, netsh on Windows).
+	firewallEnabled := firewall.IsEnabled()
 	var firewallRules []string
-	if out, err := exec.CommandContext(r.Context(), "sudo", "ufw", "status", "verbose").Output(); err == nil {
-		firewallEnabled = strings.Contains(string(out), "Status: active")
+	// Try to read detailed rules (Linux only via ufw status verbose; best-effort).
+	if out, err := exec.CommandContext(r.Context(), "ufw", "status", "verbose").Output(); err == nil {
 		for _, line := range strings.Split(string(out), "\n") {
 			line = strings.TrimSpace(line)
 			if strings.Contains(line, "ALLOW IN") || strings.Contains(line, "DENY IN") ||
@@ -142,30 +143,12 @@ func (api *DashboardAPI) handleNetworkStatus(w http.ResponseWriter, r *http.Requ
 // Reads /etc/ufw/ufw.conf directly (no sudo needed) because the crayfish
 // systemd service runs with NoNewPrivileges=true which blocks sudo.
 func (api *DashboardAPI) handleSecurityStatus(w http.ResponseWriter, r *http.Request) {
-	firewallInstalled := false
-	firewallEnabled := false
+	// Use the firewall package which handles Linux (ufw), Windows (netsh), macOS.
+	firewallInstalled := firewall.IsAvailable()
+	firewallEnabled := firewall.IsEnabled()
 	firewallNote := ""
-
-	// Check if ufw binary exists.
-	if _, err := exec.LookPath("ufw"); err == nil {
-		firewallInstalled = true
-	} else if _, err := os.Stat("/usr/sbin/ufw"); err == nil {
-		firewallInstalled = true
-	}
-
-	if firewallInstalled {
-		// Read ufw.conf directly — doesn't require elevated privileges.
-		if data, err := os.ReadFile("/etc/ufw/ufw.conf"); err == nil {
-			for _, line := range strings.Split(string(data), "\n") {
-				line = strings.TrimSpace(line)
-				if line == "ENABLED=yes" {
-					firewallEnabled = true
-					break
-				}
-			}
-		} else {
-			firewallNote = "ufw.conf not readable — firewall state unknown"
-		}
+	if firewallInstalled && !firewallEnabled {
+		firewallNote = "Firewall installed but not active"
 	}
 
 	// Check whether any active interface has an IPv6 address.

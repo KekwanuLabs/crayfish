@@ -2,6 +2,7 @@ package voice
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"context"
@@ -282,7 +283,13 @@ func (i *TTSInstaller) downloadBinary(ctx context.Context) error {
 		return err
 	}
 
-	url := fmt.Sprintf("%s/piper_%s.tar.gz", i.config.PiperReleaseURL, platform)
+	// Windows releases are .zip; Linux/macOS are .tar.gz
+	ext := ".tar.gz"
+	if runtime.GOOS == "windows" {
+		ext = ".zip"
+	}
+
+	url := fmt.Sprintf("%s/piper_%s%s", i.config.PiperReleaseURL, platform, ext)
 	i.logger.Info("downloading piper binary", "url", url)
 
 	client := &http.Client{Timeout: 10 * time.Minute}
@@ -301,16 +308,33 @@ func (i *TTSInstaller) downloadBinary(ctx context.Context) error {
 		return fmt.Errorf("HTTP %d downloading piper binary", resp.StatusCode)
 	}
 
-	// Extract the tarball directly into DataDir.
-	// Tarball structure: piper/piper + piper/espeak-ng-data/
-	// We strip the top-level "piper/" prefix so files land directly in DataDir.
+	if runtime.GOOS == "windows" {
+		// Write zip to temp file then extract (archive/zip needs io.ReaderAt).
+		tmp, err := os.CreateTemp("", "piper-*.zip")
+		if err != nil {
+			return fmt.Errorf("create temp zip: %w", err)
+		}
+		tmpPath := tmp.Name()
+		defer os.Remove(tmpPath)
+		if _, err := io.Copy(tmp, resp.Body); err != nil {
+			tmp.Close()
+			return fmt.Errorf("download zip: %w", err)
+		}
+		tmp.Close()
+		return i.extractZipStripped(tmpPath, i.config.DataDir)
+	}
+
+	// Linux/macOS: extract tarball directly.
 	if err := i.extractTarGzStripped(resp.Body, i.config.DataDir); err != nil {
 		return err
 	}
 
-	// Create versioned .so symlinks (e.g. libfoo.so.1.2.0 → libfoo.so.1) so the
-	// piper binary can find its bundled shared libraries without system ldconfig.
-	return i.createSoSymlinks(i.config.DataDir)
+	// Create versioned .so symlinks on Linux so the piper binary can find
+	// its bundled shared libraries without system ldconfig.
+	if runtime.GOOS == "linux" {
+		return i.createSoSymlinks(i.config.DataDir)
+	}
+	return nil
 }
 
 // extractTarGzStripped extracts a .tar.gz, stripping the first path component.
@@ -612,8 +636,50 @@ func shortenSoName(s string) string {
 	return s[:soIdx] + rest[:firstDot]
 }
 
+// extractZipStripped extracts a .zip archive, stripping the first path component.
+// Used for piper on Windows since the Windows release ships as .zip, not .tar.gz.
+func (i *TTSInstaller) extractZipStripped(zipPath, destDir string) error {
+	r, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return fmt.Errorf("open zip: %w", err)
+	}
+	defer r.Close()
+
+	for _, f := range r.File {
+		name := stripFirstComponent(f.Name)
+		if name == "" {
+			continue
+		}
+		target := filepath.Join(destDir, name)
+		if f.FileInfo().IsDir() {
+			os.MkdirAll(target, 0755)
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			return err
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+		out, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR|os.O_TRUNC, f.Mode())
+		if err != nil {
+			rc.Close()
+			return err
+		}
+		_, err = io.Copy(out, rc)
+		rc.Close()
+		out.Close()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ensureLibEspeakNG installs libespeak-ng1 via apt-get if not already present.
-// Piper's binary is dynamically linked against it.
+// Piper's binary is dynamically linked against it on Linux.
+// On Windows, piper bundles its own espeak-ng DLL — no system install needed.
 func (i *TTSInstaller) ensureLibEspeakNG(ctx context.Context) error {
 	// Check if already installed by looking for the .so file.
 	checkCmd := exec.CommandContext(ctx, "dpkg", "-s", "libespeak-ng1")
