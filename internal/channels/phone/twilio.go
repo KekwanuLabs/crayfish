@@ -77,20 +77,30 @@ func ValidateTwilioCredentials(ctx context.Context, accountSID, authToken string
 	return nil
 }
 
-// UpdateWebhook sets the VoiceUrl on the Twilio phone number to twimlURL.
-// Called automatically whenever the tunnel URL changes.
+// UpdateWebhook configures the Twilio phone number's Voice and SMS webhooks.
+// Both use POST (not GET) — POST keeps params in the body, not the URL,
+// which is required for correct HMAC-SHA1 signature validation.
+//
+// twimlURL is the voice webhook (e.g. https://tunnel.com/phone/twiml).
+// The SMS webhook is derived from the same base: /sms/incoming.
 func UpdateWebhook(ctx context.Context, accountSID, authToken, fromNumber, twimlURL string) error {
 	sid, err := lookupPhoneNumberSID(ctx, accountSID, authToken, fromNumber)
 	if err != nil {
 		return fmt.Errorf("lookup phone SID: %w", err)
 	}
 
+	// Derive SMS URL from the same base as the voice URL.
+	// e.g. https://tunnel.com/phone/twiml → https://tunnel.com/sms/incoming
+	smsURL := deriveSMSURL(twimlURL)
+
 	endpoint := fmt.Sprintf("https://api.twilio.com/2010-04-01/Accounts/%s/IncomingPhoneNumbers/%s.json",
 		accountSID, sid)
 
 	form := url.Values{}
 	form.Set("VoiceUrl", twimlURL)
-	form.Set("VoiceMethod", "GET")
+	form.Set("VoiceMethod", "POST") // POST: params in body, correct for HMAC validation
+	form.Set("SmsUrl", smsURL)
+	form.Set("SmsMethod", "POST")
 
 	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, strings.NewReader(form.Encode()))
 	if err != nil {
@@ -110,6 +120,17 @@ func UpdateWebhook(ctx context.Context, accountSID, authToken, fromNumber, twiml
 		return fmt.Errorf("Twilio API %d: %s", resp.StatusCode, string(b))
 	}
 	return nil
+}
+
+// deriveSMSURL converts a voice TwiML URL to the SMS incoming URL.
+// e.g. https://tunnel.com/phone/twiml → https://tunnel.com/sms/incoming
+func deriveSMSURL(twimlURL string) string {
+	base := twimlURL
+	// Strip /phone/twiml suffix to get the base URL.
+	if idx := strings.LastIndex(base, "/phone/twiml"); idx != -1 {
+		base = base[:idx]
+	}
+	return base + "/sms/incoming"
 }
 
 // lookupPhoneNumberSID finds the SID for a given Twilio phone number.
@@ -142,4 +163,33 @@ func lookupPhoneNumberSID(ctx context.Context, accountSID, authToken, phoneNumbe
 		return "", fmt.Errorf("phone number %s not found in this Twilio account", phoneNumber)
 	}
 	return result.IncomingPhoneNumbers[0].SID, nil
+}
+
+// sendSMS sends an outbound SMS via the Twilio Messages REST API.
+func sendSMS(ctx context.Context, accountSID, authToken, from, to, body string) error {
+	endpoint := fmt.Sprintf("https://api.twilio.com/2010-04-01/Accounts/%s/Messages.json", accountSID)
+
+	form := url.Values{}
+	form.Set("From", from)
+	form.Set("To", to)
+	form.Set("Body", body)
+
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return err
+	}
+	req.SetBasicAuth(accountSID, authToken)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := twilioHTTPClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("send SMS: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 256))
+		return fmt.Errorf("Twilio SMS API %d: %s", resp.StatusCode, string(b))
+	}
+	return nil
 }

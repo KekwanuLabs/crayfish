@@ -151,8 +151,9 @@ func (g *Gateway) RegisterPhoneAdapter(adapter *phone.Adapter) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.phoneAdapter = adapter
-	g.adapters[adapter.Name()] = adapter
-	g.logger.Info("phone adapter registered (Twilio ConversationRelay)")
+	g.adapters["phone"] = adapter
+	g.adapters["sms"] = adapter // SMS responses routed here
+	g.logger.Info("phone adapter registered (voice + SMS)")
 }
 
 // Start initializes and runs the complete gateway stack.
@@ -379,7 +380,9 @@ func (g *Gateway) httpHandler() http.Handler {
 	if phoneAdapter != nil {
 		mux.HandleFunc("/phone/twiml", phoneAdapter.HandleTwiML)
 		mux.HandleFunc("/phone/ws", phoneAdapter.HandleWebSocket)
-		g.logger.Info("phone endpoints registered", "twiml", "/phone/twiml", "ws", "/phone/ws")
+		mux.HandleFunc("/sms/incoming", phoneAdapter.HandleSMS)
+		g.logger.Info("phone endpoints registered",
+			"twiml", "/phone/twiml", "ws", "/phone/ws", "sms", "/sms/incoming")
 	}
 
 	if g.appRef == nil {

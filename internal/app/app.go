@@ -1285,6 +1285,25 @@ func (a *App) Start(ctx context.Context) error {
 		if err := phoneAdapter.Start(ctx, a.bus); err != nil {
 			a.Logger.Warn("phone adapter start failed (non-fatal)", "error", err)
 		}
+		// Wire SMS handler — routes incoming SMS through the event bus
+		// exactly like a Telegram message (same AI, same memory, same tools).
+		phoneAdapter.SetSMSHandler(func(from, body string) {
+			sessionID := fmt.Sprintf("sms:%s", from)
+			event := bus.Event{
+				Type:      bus.TypeMessageInbound,
+				Channel:   "sms",
+				SessionID: sessionID,
+				Payload: bus.MustJSON(bus.InboundMessage{
+					From: from,
+					Text: body,
+				}),
+			}
+			if _, err := a.bus.Publish(context.Background(), event); err != nil {
+				a.Logger.Warn("failed to publish SMS to bus", "from", from, "error", err)
+			} else {
+				a.Logger.Info("SMS routed to agent", "from", from, "session", sessionID)
+			}
+		})
 	}
 
 	// Start Cloudflare Tunnel whenever cloudflared is available — not gated on Twilio.

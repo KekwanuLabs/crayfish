@@ -37,11 +37,12 @@ type Config struct {
 
 // Adapter is the Crayfish channel adapter for phone calls.
 type Adapter struct {
-	config   Config
-	llm      provider.Provider
-	logger   *slog.Logger
-	sessions sync.Map // callSid → *Session
-	mu       sync.RWMutex
+	config     Config
+	llm        provider.Provider
+	logger     *slog.Logger
+	sessions   sync.Map // callSid → *Session
+	mu         sync.RWMutex
+	smsHandler func(from, body string) // set by app.go for async SMS processing
 }
 
 // New creates a phone channel adapter.
@@ -71,8 +72,15 @@ func (a *Adapter) Stop() error {
 	return nil
 }
 
-// Send is a no-op — phone responses are sent inside WebSocket sessions directly.
-func (a *Adapter) Send(_ context.Context, _ channels.OutboundMessage) error { return nil }
+// Send delivers an outbound SMS reply via the Twilio Messages REST API.
+// Called by the gateway when the AI agent produces a response to an SMS.
+func (a *Adapter) Send(ctx context.Context, msg channels.OutboundMessage) error {
+	if msg.Text == "" || msg.To == "" {
+		return nil
+	}
+	return sendSMS(ctx, a.config.TwilioAccountSID, a.config.TwilioAuthToken,
+		a.config.TwilioFromNumber, msg.To, msg.Text)
+}
 
 // HandleTwiML is the HTTP handler that serves the ConversationRelay TwiML.
 // Twilio fetches this when the call connects (inbound or outbound).
@@ -83,11 +91,13 @@ func (a *Adapter) HandleTwiML(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	callSid := r.URL.Query().Get("CallSid")
+	// Parse form body (POST) first, fall back to URL query params.
+	_ = r.ParseForm()
+	callSid := r.FormValue("CallSid")
 	if callSid == "" {
-		callSid = r.FormValue("CallSid")
+		callSid = r.URL.Query().Get("CallSid")
 	}
-	// Read per-call context from query params set by MakeCall.
+	// Per-call context — set by MakeCall as query params on the TwiML URL.
 	contact := r.URL.Query().Get("contact")
 	caller  := r.URL.Query().Get("caller")
 	purpose := r.URL.Query().Get("purpose")
@@ -140,6 +150,41 @@ func (a *Adapter) HandleTwiML(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
 	fmt.Fprint(w, twiml)
 	a.logger.Info("TwiML served", "call_sid", callSid)
+}
+
+// HandleSMS is the HTTP handler for incoming SMS messages from Twilio.
+// Validates the Twilio signature, then routes the message to the event bus
+// for the AI agent to process. Responds with empty TwiML immediately and
+// sends the AI reply asynchronously via the Twilio Messages REST API.
+func (a *Adapter) HandleSMS(w http.ResponseWriter, r *http.Request) {
+	if !validateTwilioRequest(r, a.config.TwilioAuthToken) {
+		a.logger.Warn("rejected unauthorized SMS", "remote", r.RemoteAddr)
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	_ = r.ParseForm()
+	from := r.FormValue("From") // sender's phone number
+	body := r.FormValue("Body") // SMS text content
+	msgSID := r.FormValue("MessageSid")
+
+	a.logger.Info("SMS received", "from", from, "preview", truncate(body, 60), "sid", msgSID)
+
+	// Respond with empty TwiML immediately — Twilio has a 15s timeout.
+	// The AI processes the message asynchronously and replies via REST API.
+	w.Header().Set("Content-Type", "text/xml; charset=utf-8")
+	fmt.Fprint(w, `<?xml version="1.0" encoding="UTF-8"?><Response/>`)
+
+	// Route to event bus for async AI processing.
+	if a.smsHandler != nil {
+		go a.smsHandler(from, body)
+	}
+}
+
+// SetSMSHandler registers the callback that processes incoming SMS messages.
+// Called by app.go after wiring up the event bus.
+func (a *Adapter) SetSMSHandler(fn func(from, body string)) {
+	a.smsHandler = fn
 }
 
 // HandleWebSocket is the HTTP handler for the ConversationRelay WebSocket endpoint.
@@ -287,6 +332,13 @@ func validateTwilioRequest(r *http.Request, authToken string) bool {
 	expected := base64.StdEncoding.EncodeToString(mac.Sum(nil))
 
 	return hmac.Equal([]byte(expected), []byte(signature))
+}
+
+func truncate(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n] + "…"
 }
 
 func escapeXML(s string) string {
