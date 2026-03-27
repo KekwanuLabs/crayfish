@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 )
@@ -651,6 +652,10 @@ func (i *TTSInstaller) extractZipStripped(zipPath, destDir string) error {
 			continue
 		}
 		target := filepath.Join(destDir, name)
+		// Zip slip guard: ensure extracted path stays within destDir.
+		if !strings.HasPrefix(filepath.Clean(target)+string(filepath.Separator), filepath.Clean(destDir)+string(filepath.Separator)) {
+			return fmt.Errorf("zip slip detected: %q would escape destination", f.Name)
+		}
 		if f.FileInfo().IsDir() {
 			os.MkdirAll(target, 0755)
 			continue

@@ -65,23 +65,44 @@ Write-Ok "Directories created"
 $BinaryPath = "$BinDir\crayfish.exe"
 if (-not (Test-Path $BinaryPath)) {
     Write-Step "Downloading Crayfish ($Arch)..."
+    # Try GitHub API first; fall back to direct URL if rate-limited (60 req/hr unauthenticated).
+    $Downloaded = $false
     $ApiUrl = "https://api.github.com/repos/$Repo/releases/latest"
     try {
-        $release = Invoke-RestMethod -Uri $ApiUrl -UseBasicParsing
-        $asset = $release.assets | Where-Object { $_.name -like "*windows-$Arch*" } | Select-Object -First 1
-        if ($asset) {
-            Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $BinaryPath -UseBasicParsing
-        } else {
-            # Fallback: construct URL from tag
-            $tag = $release.tag_name
-            $url = "https://github.com/$Repo/releases/download/$tag/crayfish-windows-$Arch.exe"
-            Invoke-WebRequest -Uri $url -OutFile $BinaryPath -UseBasicParsing
+        $response = Invoke-WebRequest -Uri $ApiUrl -UseBasicParsing -ErrorAction Stop
+        if ($response.StatusCode -eq 200) {
+            $release = $response.Content | ConvertFrom-Json
+            $asset = $release.assets | Where-Object { $_.name -like "*windows-$Arch*" } | Select-Object -First 1
+            if ($asset) {
+                Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $BinaryPath -UseBasicParsing -ErrorAction Stop
+                $Downloaded = $true
+            } else {
+                # Asset list is there but no Windows binary yet — use direct URL fallback.
+                $tag = $release.tag_name
+                $url = "https://github.com/$Repo/releases/download/$tag/crayfish-windows-$Arch.exe"
+                Invoke-WebRequest -Uri $url -OutFile $BinaryPath -UseBasicParsing -ErrorAction Stop
+                $Downloaded = $true
+            }
+        } elseif ($response.StatusCode -eq 403) {
+            Write-Warn "GitHub API rate-limited — trying direct download..."
         }
+    } catch {}
+
+    if (-not $Downloaded) {
+        # Direct fallback to the 'latest' release tag (no API call needed).
+        $FallbackUrl = "https://github.com/$Repo/releases/download/latest/crayfish-windows-$Arch.exe"
+        try {
+            Invoke-WebRequest -Uri $FallbackUrl -OutFile $BinaryPath -UseBasicParsing -ErrorAction Stop
+            $Downloaded = $true
+        } catch {
+            Write-Warn "Could not download Crayfish automatically."
+            Write-Host "    Download manually from: https://github.com/$Repo/releases" -ForegroundColor Yellow
+            Write-Host "    Place the .exe at: $BinaryPath" -ForegroundColor Yellow
+        }
+    }
+
+    if ($Downloaded) {
         Write-Ok "Crayfish downloaded: $(([System.IO.FileInfo]$BinaryPath).Length / 1MB | [Math]::Round)MB"
-    } catch {
-        Write-Warn "Could not download Crayfish automatically."
-        Write-Host "    Download manually from: https://github.com/$Repo/releases" -ForegroundColor Yellow
-        Write-Host "    Place the .exe at: $BinaryPath" -ForegroundColor Yellow
     }
 } else {
     Write-Ok "Crayfish binary already present"

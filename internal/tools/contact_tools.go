@@ -163,13 +163,17 @@ For the user's own number, set is_owner=true.`,
 			// Normalize phone number.
 			phone := normalizePhone(input.Phone)
 
+			// Upsert by name — if a contact with this name already exists, update it.
+			// The UNIQUE index on name makes ON CONFLICT(name) work correctly.
 			_, err := db.ExecContext(ctx, `
 				INSERT INTO contacts (name, relationship, phone, email, notes, is_owner, updated_at)
 				VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
-				ON CONFLICT(id) DO UPDATE SET
-					name=excluded.name, relationship=excluded.relationship,
-					phone=excluded.phone, email=excluded.email,
-					notes=excluded.notes, is_owner=excluded.is_owner,
+				ON CONFLICT(name) DO UPDATE SET
+					relationship=excluded.relationship,
+					phone=excluded.phone,
+					email=excluded.email,
+					notes=excluded.notes,
+					is_owner=excluded.is_owner,
 					updated_at=datetime('now')`,
 				input.Name, input.Relationship, phone, input.Email, input.Notes, isOwner)
 			if err != nil {

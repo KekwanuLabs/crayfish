@@ -10,7 +10,6 @@ import (
 	"crypto/hmac"
 	"crypto/sha1"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -559,8 +558,3 @@ func buildCallSystemPrompt(base, callerName, contactName, purpose string) string
 
 // ensure Adapter implements channels.ChannelAdapter at compile time.
 var _ channels.ChannelAdapter = (*Adapter)(nil)
-
-// marshalJSON is a convenience for writing to the WebSocket.
-func marshalJSON(v any) ([]byte, error) {
-	return json.Marshal(v)
-}
