@@ -66,9 +66,10 @@ func (m *mockAppAccessor) UpdateConfig(updates map[string]any) (bool, error) {
 	}
 	return false, nil
 }
-func (m *mockAppAccessor) Uptime() time.Duration                { return m.uptime }
-func (m *mockAppAccessor) AppVersion() string                   { return m.version }
-func (m *mockAppAccessor) VoiceInstallProgress() map[string]any { return nil }
+func (m *mockAppAccessor) Uptime() time.Duration                                { return m.uptime }
+func (m *mockAppAccessor) AppVersion() string                                   { return m.version }
+func (m *mockAppAccessor) VoiceInstallProgress() map[string]any                 { return nil }
+func (m *mockAppAccessor) SyncGoogleContacts(_ context.Context) (int, error)    { return 0, nil }
 
 func testAPI(t *testing.T) (*DashboardAPI, *storage.DB) {
 	t.Helper()

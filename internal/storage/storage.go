@@ -506,6 +506,24 @@ var migrations = []migration{
 		);
 		`,
 	},
+	{
+		name: "contacts — private phone book separate from memory system",
+		sql: `
+		CREATE TABLE IF NOT EXISTS contacts (
+			id           INTEGER PRIMARY KEY AUTOINCREMENT,
+			name         TEXT    NOT NULL,
+			relationship TEXT    NOT NULL DEFAULT '',
+			phone        TEXT    NOT NULL DEFAULT '',
+			email        TEXT    NOT NULL DEFAULT '',
+			notes        TEXT    NOT NULL DEFAULT '',
+			is_owner     INTEGER NOT NULL DEFAULT 0,
+			created_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+			updated_at   TEXT    NOT NULL DEFAULT (datetime('now'))
+		);
+		CREATE INDEX IF NOT EXISTS idx_contacts_name ON contacts(name);
+		CREATE INDEX IF NOT EXISTS idx_contacts_owner ON contacts(is_owner);
+		`,
+	},
 }
 
 // Now returns the current time formatted for SQLite storage.

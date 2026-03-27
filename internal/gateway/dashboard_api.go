@@ -54,6 +54,9 @@ func (api *DashboardAPI) RegisterRoutes(mux *http.ServeMux, wrap func(http.Handl
 	mux.HandleFunc("/api/dashboard/snapshots", wrap(api.handleSnapshots))
 	mux.HandleFunc("/api/security/status", wrap(api.handleSecurityStatus))
 	mux.HandleFunc("/api/network/status", wrap(api.handleNetworkStatus))
+	mux.HandleFunc("/api/contacts", wrap(api.handleContacts))
+	mux.HandleFunc("/api/contacts/", wrap(api.handleContactByID))
+	mux.HandleFunc("/api/contacts/sync/google", wrap(api.handleContactsGoogleSync))
 }
 
 // GET /api/network/status — returns full network topology for the dashboard.
@@ -565,4 +568,139 @@ func (api *DashboardAPI) handleSnapshots(w http.ResponseWriter, r *http.Request)
 	}
 
 	api.writeJSON(w, map[string]any{"snapshots": snapshots, "count": len(snapshots)})
+}
+
+// GET /api/contacts — list all contacts
+// POST /api/contacts — create a contact
+func (api *DashboardAPI) handleContacts(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		type contact struct {
+			ID           int    `json:"id"`
+			Name         string `json:"name"`
+			Relationship string `json:"relationship"`
+			Phone        string `json:"phone"`
+			Email        string `json:"email"`
+			Notes        string `json:"notes"`
+			IsOwner      bool   `json:"is_owner"`
+		}
+		rows, err := api.db.Inner().QueryContext(r.Context(),
+			`SELECT id, name, relationship, phone, email, notes, is_owner
+			 FROM contacts ORDER BY is_owner DESC, name ASC`)
+		if err != nil {
+			api.writeError(w, "query failed", http.StatusInternalServerError)
+			return
+		}
+		defer rows.Close()
+		var contacts []contact
+		for rows.Next() {
+			var c contact
+			var isOwner int
+			if err := rows.Scan(&c.ID, &c.Name, &c.Relationship, &c.Phone, &c.Email, &c.Notes, &isOwner); err == nil {
+				c.IsOwner = isOwner == 1
+				contacts = append(contacts, c)
+			}
+		}
+		if contacts == nil {
+			contacts = []contact{}
+		}
+		api.writeJSON(w, contacts)
+
+	case http.MethodPost:
+		var body struct {
+			Name         string `json:"name"`
+			Relationship string `json:"relationship"`
+			Phone        string `json:"phone"`
+			Email        string `json:"email"`
+			Notes        string `json:"notes"`
+			IsOwner      bool   `json:"is_owner"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			api.writeError(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		if body.Name == "" {
+			api.writeError(w, "name required", http.StatusBadRequest)
+			return
+		}
+		isOwner := 0
+		if body.IsOwner {
+			isOwner = 1
+		}
+		res, err := api.db.Inner().ExecContext(r.Context(),
+			`INSERT INTO contacts (name, relationship, phone, email, notes, is_owner) VALUES (?,?,?,?,?,?)`,
+			body.Name, body.Relationship, body.Phone, body.Email, body.Notes, isOwner)
+		if err != nil {
+			api.writeError(w, "insert failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		id, _ := res.LastInsertId()
+		api.writeJSON(w, map[string]any{"id": id, "status": "created"})
+
+	default:
+		api.writeError(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// PUT /api/contacts/{id} — update a contact
+// DELETE /api/contacts/{id} — delete a contact
+func (api *DashboardAPI) handleContactByID(w http.ResponseWriter, r *http.Request) {
+	idStr := strings.TrimPrefix(r.URL.Path, "/api/contacts/")
+	if idStr == "" {
+		api.writeError(w, "id required", http.StatusBadRequest)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodPut:
+		var body struct {
+			Name         string `json:"name"`
+			Relationship string `json:"relationship"`
+			Phone        string `json:"phone"`
+			Email        string `json:"email"`
+			Notes        string `json:"notes"`
+			IsOwner      bool   `json:"is_owner"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			api.writeError(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		isOwner := 0
+		if body.IsOwner {
+			isOwner = 1
+		}
+		_, err := api.db.Inner().ExecContext(r.Context(),
+			`UPDATE contacts SET name=?, relationship=?, phone=?, email=?, notes=?, is_owner=?, updated_at=datetime('now') WHERE id=?`,
+			body.Name, body.Relationship, body.Phone, body.Email, body.Notes, isOwner, idStr)
+		if err != nil {
+			api.writeError(w, "update failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		api.writeJSON(w, map[string]any{"status": "updated"})
+
+	case http.MethodDelete:
+		_, err := api.db.Inner().ExecContext(r.Context(), `DELETE FROM contacts WHERE id=?`, idStr)
+		if err != nil {
+			api.writeError(w, "delete failed: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		api.writeJSON(w, map[string]any{"status": "deleted"})
+
+	default:
+		api.writeError(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// POST /api/contacts/sync/google — sync contacts from Google People API
+func (api *DashboardAPI) handleContactsGoogleSync(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		api.writeError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	n, err := api.appRef.SyncGoogleContacts(r.Context())
+	if err != nil {
+		api.writeError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	api.writeJSON(w, map[string]any{"synced": n, "message": "Synced " + strconv.Itoa(n) + " contacts from Google"})
 }

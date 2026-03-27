@@ -26,7 +26,8 @@ const (
 	GmailSend      = "https://www.googleapis.com/auth/gmail.send"
 	GmailModify    = "https://www.googleapis.com/auth/gmail.modify"
 	UserInfoEmail  = "https://www.googleapis.com/auth/userinfo.email"
-	DriveScope     = "https://www.googleapis.com/auth/drive.file" // drive.file works with device flow; full drive scope is blocked
+	DriveScope     = "https://www.googleapis.com/auth/drive.file"          // drive.file works with device flow; full drive scope is blocked
+	ContactsScope  = "https://www.googleapis.com/auth/contacts.readonly"   // read Google Contacts (People API)
 	DriveReadonly  = "https://www.googleapis.com/auth/drive.readonly"
 	DocsScope      = "https://www.googleapis.com/auth/documents"
 	DocsReadonly   = "https://www.googleapis.com/auth/documents.readonly"

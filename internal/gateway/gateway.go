@@ -28,6 +28,7 @@ type AppAccessor interface {
 	Uptime() time.Duration
 	AppVersion() string
 	VoiceInstallProgress() map[string]any
+	SyncGoogleContacts(ctx context.Context) (int, error)
 }
 
 // Config holds gateway configuration.

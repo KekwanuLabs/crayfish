@@ -346,6 +346,7 @@ const dashboardPageHTML = `<!DOCTYPE html>
     <button class="tab-btn active" onclick="switchTab('overview')">Overview</button>
     <button class="tab-btn" onclick="switchTab('settings')">Settings</button>
     <button class="tab-btn" onclick="switchTab('network')">Network</button>
+    <button class="tab-btn" onclick="switchTab('contacts')">Contacts</button>
     <button class="tab-btn" onclick="switchTab('skills')">Skills</button>
     <button class="tab-btn" onclick="switchTab('sessions')">Sessions</button>
     <button class="tab-btn" onclick="switchTab('memory')">Memory</button>
@@ -659,6 +660,51 @@ sudo systemctl restart sshd</pre>
     </div><!-- .card -->
   </div><!-- #tab-network -->
 
+  <!-- Contacts Tab -->
+  <div class="tab-content" id="tab-contacts">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
+        <div>
+          <div style="font-size:1rem;font-weight:600;color:#f8fafc;">Contacts</div>
+          <div style="font-size:0.8125rem;color:#64748b;margin-top:0.125rem;">Phone numbers stored privately on your device — never in the AI's searchable memory.</div>
+        </div>
+        <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+          <button class="btn btn-secondary" onclick="syncGoogleContacts()" id="google-sync-btn" style="white-space:nowrap;">🔄 Sync from Google</button>
+          <button class="btn btn-primary" onclick="showAddContact()" style="white-space:nowrap;">+ Add Contact</button>
+        </div>
+      </div>
+      <div id="google-sync-status" style="display:none;margin-bottom:0.75rem;padding:0.5rem 0.75rem;border-radius:8px;font-size:0.8125rem;"></div>
+
+      <!-- Add/Edit form -->
+      <div id="contact-form" style="display:none;padding:1rem;margin-bottom:1rem;border-radius:10px;background:rgba(15,23,42,0.6);border:1px solid rgba(71,85,105,0.4);">
+        <div style="font-weight:500;color:#f8fafc;margin-bottom:0.75rem;" id="contact-form-title">Add Contact</div>
+        <input type="hidden" id="contact-edit-id">
+        <div class="form-row">
+          <div class="form-group"><label>Name *</label><input type="text" id="contact-name" placeholder="Sarah Johnson" autocomplete="off"></div>
+          <div class="form-group"><label>Relationship</label><input type="text" id="contact-relationship" placeholder="wife, mom, boss, friend…" autocomplete="off"></div>
+        </div>
+        <div class="form-row">
+          <div class="form-group"><label>Phone</label><input type="tel" id="contact-phone" placeholder="+12025551234" autocomplete="off"></div>
+          <div class="form-group"><label>Email</label><input type="email" id="contact-email" placeholder="sarah@example.com" autocomplete="off"></div>
+        </div>
+        <div class="form-group"><label>Notes <span style="color:#64748b;font-weight:400;">(optional)</span></label><input type="text" id="contact-notes" placeholder="Birthday, preferences, etc." autocomplete="off"></div>
+        <div class="check-group" style="margin-bottom:0.75rem;">
+          <input type="checkbox" id="contact-is-owner">
+          <label for="contact-is-owner">This is me (the device owner) — Crayfish will call this number when asked to "call me"</label>
+        </div>
+        <div style="display:flex;gap:0.5rem;">
+          <button class="btn btn-primary" onclick="saveContact()">Save</button>
+          <button class="btn btn-secondary" onclick="hideContactForm()">Cancel</button>
+        </div>
+      </div>
+
+      <!-- Contacts list -->
+      <div id="contacts-list" style="display:grid;gap:0.5rem;">
+        <div style="color:#64748b;font-size:0.875rem;text-align:center;padding:2rem;">Loading contacts…</div>
+      </div>
+    </div>
+  </div>
+
   <!-- Skills Tab -->
   <div class="tab-content" id="tab-skills">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
@@ -767,6 +813,7 @@ async function loadTab(t) {
       case 'overview': await loadOverview(); break;
       case 'settings': await loadSettings(); break;
       case 'network': await loadNetwork(); break;
+      case 'contacts': await loadContacts(); break;
       case 'skills': await loadSkills(); break;
       case 'sessions': await loadSessions(); break;
       case 'memory': await loadMemory(''); break;
@@ -1067,6 +1114,127 @@ async function loadNetwork() {
       '<span style="color:#64748b;font-size:0.75rem;margin-left:auto;">' + esc(s.desc) + '</span>' +
       '</div>';
   }).join('');
+}
+
+/* === Contacts === */
+async function loadContacts() {
+  const list = document.getElementById('contacts-list');
+  try {
+    const contacts = await fetchJSON('/api/contacts');
+    if (!contacts || contacts.length === 0) {
+      list.innerHTML = '<div style="color:#64748b;font-size:0.875rem;text-align:center;padding:2rem;">No contacts yet. Add your own number first so Crayfish knows how to call you.</div>';
+      return;
+    }
+    list.innerHTML = contacts.map(c => {
+      const ownerBadge = c.is_owner ? '<span class="badge badge-green" style="margin-left:0.375rem;">owner</span>' : '';
+      const phone = c.phone ? '<span style="color:#94a3b8;font-family:monospace;">📞 '+esc(c.phone)+'</span>' : '';
+      const email = c.email ? '<span style="color:#94a3b8;font-size:0.75rem;">✉️ '+esc(c.email)+'</span>' : '';
+      const rel = c.relationship ? '<span style="color:#64748b;font-size:0.8125rem;">'+esc(c.relationship)+'</span>' : '';
+      return '<div style="display:flex;align-items:center;gap:0.75rem;padding:0.75rem 1rem;border-radius:10px;background:rgba(15,23,42,0.4);border:1px solid rgba(71,85,105,0.3);">' +
+        '<div style="flex:1;min-width:0;">' +
+          '<div style="font-weight:500;color:#f8fafc;display:flex;align-items:center;gap:0.25rem;">'+esc(c.name)+ownerBadge+'</div>' +
+          '<div style="display:flex;gap:1rem;margin-top:0.25rem;flex-wrap:wrap;">'+rel+' '+phone+' '+email+'</div>' +
+          (c.notes ? '<div style="color:#64748b;font-size:0.75rem;margin-top:0.125rem;">'+esc(c.notes)+'</div>' : '') +
+        '</div>' +
+        '<div style="display:flex;gap:0.375rem;flex-shrink:0;">' +
+          '<button class="btn btn-secondary" style="padding:0.25rem 0.625rem;font-size:0.75rem;" onclick="editContact('+c.id+')">Edit</button>' +
+          '<button class="btn btn-danger" style="padding:0.25rem 0.625rem;font-size:0.75rem;" onclick="deleteContact('+c.id+',\''+esc(c.name)+'\')">Delete</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+  } catch(e) {
+    list.innerHTML = '<div style="color:#fca5a5;font-size:0.875rem;padding:1rem;">Failed to load contacts.</div>';
+  }
+}
+
+function showAddContact() {
+  document.getElementById('contact-form-title').textContent = 'Add Contact';
+  document.getElementById('contact-edit-id').value = '';
+  document.getElementById('contact-name').value = '';
+  document.getElementById('contact-relationship').value = '';
+  document.getElementById('contact-phone').value = '';
+  document.getElementById('contact-email').value = '';
+  document.getElementById('contact-notes').value = '';
+  document.getElementById('contact-is-owner').checked = false;
+  document.getElementById('contact-form').style.display = 'block';
+  document.getElementById('contact-name').focus();
+}
+
+function hideContactForm() {
+  document.getElementById('contact-form').style.display = 'none';
+}
+
+async function editContact(id) {
+  const contacts = await fetchJSON('/api/contacts');
+  const c = contacts.find(x => x.id === id);
+  if (!c) return;
+  document.getElementById('contact-form-title').textContent = 'Edit Contact';
+  document.getElementById('contact-edit-id').value = c.id;
+  document.getElementById('contact-name').value = c.name || '';
+  document.getElementById('contact-relationship').value = c.relationship || '';
+  document.getElementById('contact-phone').value = c.phone || '';
+  document.getElementById('contact-email').value = c.email || '';
+  document.getElementById('contact-notes').value = c.notes || '';
+  document.getElementById('contact-is-owner').checked = !!c.is_owner;
+  document.getElementById('contact-form').style.display = 'block';
+  document.getElementById('contact-name').focus();
+}
+
+async function saveContact() {
+  const id = document.getElementById('contact-edit-id').value;
+  const body = {
+    name: document.getElementById('contact-name').value.trim(),
+    relationship: document.getElementById('contact-relationship').value.trim(),
+    phone: document.getElementById('contact-phone').value.trim(),
+    email: document.getElementById('contact-email').value.trim(),
+    notes: document.getElementById('contact-notes').value.trim(),
+    is_owner: document.getElementById('contact-is-owner').checked,
+  };
+  if (!body.name) { showToast('Name is required', 'error'); return; }
+  const method = id ? 'PUT' : 'POST';
+  const url = id ? '/api/contacts/'+id : '/api/contacts';
+  await fetchJSON(url, {method, headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+  hideContactForm();
+  showToast(id ? 'Contact updated' : 'Contact saved', 'success');
+  await loadContacts();
+}
+
+async function syncGoogleContacts() {
+  const btn = document.getElementById('google-sync-btn');
+  const status = document.getElementById('google-sync-status');
+  btn.disabled = true;
+  btn.textContent = '🔄 Syncing…';
+  status.style.display = 'none';
+  try {
+    const r = await fetchJSON('/api/contacts/sync/google', {method:'POST'});
+    status.style.display = 'block';
+    status.style.background = 'rgba(16,185,129,0.08)';
+    status.style.border = '1px solid rgba(16,185,129,0.2)';
+    status.style.color = '#6ee7b7';
+    status.textContent = r.message || ('Synced ' + r.synced + ' contacts from Google');
+    await loadContacts();
+  } catch(e) {
+    status.style.display = 'block';
+    status.style.background = 'rgba(239,68,68,0.08)';
+    status.style.border = '1px solid rgba(239,68,68,0.2)';
+    status.style.color = '#fca5a5';
+    const msg = (e && e.message) ? e.message : String(e);
+    if (msg.includes('not connected') || msg.includes('not authorized')) {
+      status.innerHTML = '⚠️ Google account not connected or contacts permission not granted. Go to <b>Settings → Integrations</b> and reconnect Google with contacts access.';
+    } else {
+      status.textContent = '⚠️ Sync failed: ' + msg;
+    }
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔄 Sync from Google';
+  }
+}
+
+async function deleteContact(id, name) {
+  if (!confirm('Delete contact "'+name+'"?')) return;
+  await fetchJSON('/api/contacts/'+id, {method:'DELETE'});
+  showToast('Contact deleted', 'success');
+  await loadContacts();
 }
 
 /* === Skills === */

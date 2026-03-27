@@ -21,6 +21,7 @@ import (
 	"github.com/KekwanuLabs/crayfish/internal/channels/cli"
 	"github.com/KekwanuLabs/crayfish/internal/channels/phone"
 	"github.com/KekwanuLabs/crayfish/internal/channels/telegram"
+	"github.com/KekwanuLabs/crayfish/internal/contacts"
 	"github.com/KekwanuLabs/crayfish/internal/firewall"
 	"github.com/KekwanuLabs/crayfish/internal/tunnel"
 	"github.com/KekwanuLabs/crayfish/internal/drive"
@@ -243,6 +244,9 @@ func (a *App) Start(ctx context.Context) error {
 	// 6. Tool registry
 	toolReg := tools.NewRegistry(a.Logger.With("component", "tools"))
 	tools.RegisterBuiltins(toolReg, adapterMap, db.Inner())
+
+	// Contacts — private phone book, separate from memory system.
+	tools.RegisterContactTools(toolReg, db.Inner())
 
 	// Weather tools — free, no API key required (Open-Meteo).
 	tools.RegisterWeatherTools(toolReg)
@@ -1868,6 +1872,20 @@ func (a *App) runTunnelManager(ctx context.Context, phoneAdapter *phone.Adapter)
 	}, a.Logger.With("component", "tunnel"))
 
 	mgr.Start(ctx)
+}
+
+// SyncGoogleContacts fetches contacts from Google People API and upserts
+// them into the local contacts table. Requires contacts.readonly OAuth scope.
+func (a *App) SyncGoogleContacts(ctx context.Context) (int, error) {
+	a.googleMu.RLock()
+	tok := a.googleToken
+	a.googleMu.RUnlock()
+
+	if tok == nil || tok.AccessToken == "" {
+		return 0, fmt.Errorf("Google account not connected — connect Google first")
+	}
+
+	return contacts.SyncFromGoogle(ctx, a.db.Inner(), tok.AccessToken)
 }
 
 // generateAPIKey creates a cryptographically random 32-character hex API key.
