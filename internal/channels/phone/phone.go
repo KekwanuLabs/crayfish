@@ -36,13 +36,14 @@ type Config struct {
 
 // Adapter is the Crayfish channel adapter for phone calls.
 type Adapter struct {
-	config     Config
-	llm        provider.Provider
-	logger     *slog.Logger
-	sessions   sync.Map // callSid → *Session
-	mu         sync.RWMutex
-	smsHandler func(from, body string) // set by app.go for async SMS processing
-	started    bool                    // guards against duplicate Start() calls
+	config        Config
+	llm           provider.Provider
+	logger        *slog.Logger
+	sessions      sync.Map // callSid → *Session
+	mu            sync.RWMutex
+	smsHandler    func(from, body string)  // set by app.go for async SMS processing
+	notifyOwner   func(msg string)         // set by app.go — sends summary to Telegram after call ends
+	started       bool                     // guards against duplicate Start() calls
 }
 
 // New creates a phone channel adapter.
@@ -193,6 +194,11 @@ func (a *Adapter) HandleSMS(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// SetNotifyOwner registers the callback that sends call summaries to the owner (via Telegram).
+func (a *Adapter) SetNotifyOwner(fn func(msg string)) {
+	a.notifyOwner = fn
+}
+
 // SetSMSHandler registers the callback that processes incoming SMS messages.
 // Called by app.go after wiring up the event bus.
 func (a *Adapter) SetSMSHandler(fn func(from, body string)) {
@@ -213,7 +219,7 @@ func (a *Adapter) HandleWebSocket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sess := newSession(ws, a.config.SystemPrompt, a.llm, a.logger)
+	sess := newSession(ws, a.config.SystemPrompt, a.llm, a.logger, a.notifyOwner)
 	go func() {
 		sess.run()
 		if sess.callSid != "" {
@@ -390,15 +396,58 @@ type Session struct {
 	logger       *slog.Logger
 	cancelStream context.CancelFunc
 	mu           sync.Mutex
+	notifyOwner  func(msg string) // callback to send summary to Telegram
 }
 
-func newSession(ws *WSConn, systemPrompt string, llm provider.Provider, logger *slog.Logger) *Session {
+func newSession(ws *WSConn, systemPrompt string, llm provider.Provider, logger *slog.Logger, notifyOwner func(string)) *Session {
 	return &Session{
 		ws:           ws,
 		systemPrompt: systemPrompt,
 		llm:          llm,
 		logger:       logger,
+		notifyOwner:  notifyOwner,
 	}
+}
+
+// sendSummary generates a brief summary of the call and sends it to the owner via Telegram.
+func (s *Session) sendSummary() {
+	if s.notifyOwner == nil || len(s.history) == 0 {
+		return
+	}
+
+	// Build a one-paragraph summary from the conversation history.
+	var turns []string
+	for _, m := range s.history {
+		if m.Role == provider.RoleUser {
+			turns = append(turns, "Caller: "+m.Content)
+		} else if m.Role == provider.RoleAssistant {
+			turns = append(turns, "Me: "+m.Content)
+		}
+	}
+	if len(turns) == 0 {
+		s.notifyOwner("📞 Call ended (no conversation recorded).")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	summaryReq := provider.CompletionRequest{
+		Messages: []provider.Message{
+			{Role: provider.RoleSystem, Content: "Summarize this phone call in 1-3 sentences. Be specific about what was said and any outcomes. No filler."},
+			{Role: provider.RoleUser, Content: strings.Join(turns, "\n")},
+		},
+		MaxTokens: 150,
+	}
+	resp, err := s.llm.Complete(ctx, summaryReq)
+	if err != nil || resp.Content == "" {
+		// Fall back to a simple recap if LLM call fails.
+		s.notifyOwner(fmt.Sprintf("📞 Call ended (%d exchanges). Summary unavailable.", len(turns)/2))
+		return
+	}
+
+	s.notifyOwner("📞 Call summary: " + resp.Content)
+	s.logger.Info("call summary sent", "call_sid", s.callSid, "turns", len(turns))
 }
 
 // run is the main conversation loop for a call.
@@ -457,6 +506,7 @@ func (s *Session) run() {
 
 		case "end":
 			s.logger.Info("call ended", "call_sid", s.callSid)
+			s.sendSummary()
 			return
 		}
 	}

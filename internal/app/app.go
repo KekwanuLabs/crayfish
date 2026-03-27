@@ -1312,6 +1312,14 @@ func (a *App) Start(ctx context.Context) error {
 				a.Logger.Info("SMS routed to agent", "from", from, "session", sessionID)
 			}
 		})
+
+		// Send call summaries to the operator via Telegram when a call ends.
+		phoneAdapter.SetNotifyOwner(func(msg string) {
+			if a.gateway != nil {
+				_ = a.gateway.NotifyOperator(context.Background(), msg)
+			}
+			a.Logger.Info("call summary sent to operator", "msg", msg)
+		})
 	}
 
 	// Start Cloudflare Tunnel whenever cloudflared is available — not gated on Twilio.
