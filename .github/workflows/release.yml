@@ -155,6 +155,16 @@ jobs:
             goos: darwin
             goarch: amd64
             name: darwin-amd64
+          - os: ubuntu-latest
+            goos: windows
+            goarch: amd64
+            name: windows-amd64
+            ext: .exe
+          - os: ubuntu-latest
+            goos: windows
+            goarch: arm64
+            name: windows-arm64
+            ext: .exe
 
     runs-on: ${{ matrix.os }}
     steps:
@@ -179,17 +189,25 @@ jobs:
           LDFLAGS="${LDFLAGS} -X '${OAUTH_PKG}.CrayfishClientID=${{ secrets.GOOGLE_CLIENT_ID }}'"
           LDFLAGS="${LDFLAGS} -X '${OAUTH_PKG}.CrayfishClientSecret=${{ secrets.GOOGLE_CLIENT_SECRET }}'"
 
-          go build -ldflags "${LDFLAGS}" -o crayfish-${{ matrix.name }} ./cmd/crayfish
-          tar -czvf crayfish-${{ matrix.name }}.tar.gz crayfish-${{ matrix.name }}
-          chmod +x crayfish-${{ matrix.name }}
+          EXT="${{ matrix.ext }}"
+          OUTFILE="crayfish-${{ matrix.name }}${EXT}"
+          go build -ldflags "${LDFLAGS}" -o "${OUTFILE}" ./cmd/crayfish
+
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            zip "crayfish-${{ matrix.name }}.zip" "${OUTFILE}"
+          else
+            tar -czvf "crayfish-${{ matrix.name }}.tar.gz" "${OUTFILE}"
+            chmod +x "${OUTFILE}"
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: crayfish-${{ matrix.name }}
           path: |
-            crayfish-${{ matrix.name }}
+            crayfish-${{ matrix.name }}${{ matrix.ext }}
             crayfish-${{ matrix.name }}.tar.gz
+            crayfish-${{ matrix.name }}.zip
 
   # Build whisper binaries (only when WHISPER_VERSION changes)
   build-whisper:
@@ -342,13 +360,29 @@ jobs:
 
           ### Downloads
 
-          | Platform | Binary |
-          |----------|--------|
+          ### Install
+
+          **Linux / macOS:**
+          \`\`\`bash
+          curl -fsSL https://raw.githubusercontent.com/KekwanuLabs/crayfish/main/scripts/install.sh | bash
+          \`\`\`
+
+          **Windows (PowerShell):**
+          \`\`\`powershell
+          iwr https://raw.githubusercontent.com/KekwanuLabs/crayfish/main/scripts/install.ps1 | iex
+          \`\`\`
+
+          ### Downloads
+
+          | Platform | File |
+          |----------|------|
           | Raspberry Pi 3/4/5 (64-bit) | crayfish-linux-arm64 |
           | Raspberry Pi 2 (32-bit) | crayfish-linux-armv7 |
           | Linux x86_64 | crayfish-linux-amd64 |
           | Mac Apple Silicon | crayfish-darwin-arm64 |
           | Mac Intel | crayfish-darwin-amd64 |
+          | Windows x64 | crayfish-windows-amd64.exe (.zip) |
+          | Windows ARM64 | crayfish-windows-arm64.exe (.zip) |
 
           **Whisper version:** ${WHISPER_VERSION}" \
             --latest \
