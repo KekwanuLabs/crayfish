@@ -14,14 +14,17 @@ import (
 var twilioHTTPClient = &http.Client{Timeout: 15 * time.Second}
 
 // twilioCall initiates an outbound call via the Twilio REST API.
-// Returns the call SID.
-func twilioCall(ctx context.Context, accountSID, authToken, from, to, twimlURL string) (string, error) {
+// Passes TwiML inline via the Twiml parameter rather than a Url parameter.
+// This avoids Twilio pre-fetching/pre-validating the TwiML URL before dialing,
+// which was causing calls to fail with 0 PDD when URL validation failed.
+// The WebSocket URL is embedded directly in the TwiML XML.
+func twilioCall(ctx context.Context, accountSID, authToken, from, to, twimlXML string) (string, error) {
 	endpoint := fmt.Sprintf("https://api.twilio.com/2010-04-01/Accounts/%s/Calls.json", accountSID)
 
 	form := url.Values{}
 	form.Set("To", to)
 	form.Set("From", from)
-	form.Set("Url", twimlURL)
+	form.Set("Twiml", twimlXML) // Inline TwiML — no URL fetch needed
 
 	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, strings.NewReader(form.Encode()))
 	if err != nil {

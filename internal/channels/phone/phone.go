@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -94,8 +93,24 @@ func (a *Adapter) Send(ctx context.Context, msg channels.OutboundMessage) error 
 // Twilio fetches this when the call connects (inbound or outbound).
 // Requests not originating from Twilio are rejected (HMAC-SHA1 signature check).
 func (a *Adapter) HandleTwiML(w http.ResponseWriter, r *http.Request) {
+	// Debug: log all incoming TwiML requests to diagnose signature issues
+	a.logger.Info("TwiML request received",
+		"method", r.Method,
+		"url", r.URL.String(),
+		"host", r.Host,
+		"remote", r.RemoteAddr,
+		"has_signature", r.Header.Get("X-Twilio-Signature") != "",
+		"x_forwarded_proto", r.Header.Get("X-Forwarded-Proto"),
+		"x_forwarded_for", r.Header.Get("X-Forwarded-For"),
+	)
 	if !validateTwilioRequest(r, a.config.TwilioAuthToken) {
-		a.logger.Warn("rejected unauthorized TwiML request", "remote", r.RemoteAddr)
+		a.logger.Warn("rejected unauthorized TwiML request",
+			"remote", r.RemoteAddr,
+			"has_sig", r.Header.Get("X-Twilio-Signature") != "",
+			"method", r.Method,
+			"host", r.Host,
+			"uri", r.RequestURI,
+		)
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -250,33 +265,52 @@ func (a *Adapter) MakeCall(ctx context.Context, toNumber, contactName, callerNam
 		return "", fmt.Errorf("tunnel URL not set — phone calls need a public URL (Cloudflare Tunnel). Tell the user to set up a tunnel or set CRAYFISH_TUNNEL_URL.")
 	}
 
-	twimlURL := strings.TrimSuffix(a.config.TunnelURL, "/") + "/phone/twiml"
+	// Build the TwiML inline instead of passing a URL.
+	// Using the Twiml parameter avoids Twilio's URL pre-validation step
+	// which was causing 0 PDD failures when Twilio couldn't reach our endpoint.
+	wsURL := a.wsURL("")
+	voice := a.elevenLabsVoice()
 
-	// Encode call context as query params — TwiML handler reads them and
-	// passes them to the WebSocket session as ConversationRelay <Parameter> elements.
-	q := url.Values{}
+	var welcomeAttr string
+	if opening != "" {
+		welcomeAttr = fmt.Sprintf(`welcomeGreeting="%s"`, escapeXML(opening))
+	} else if contactName != "" && callerName != "" {
+		auto := fmt.Sprintf("Hi %s, this is Crayfish calling on behalf of %s.", contactName, callerName)
+		welcomeAttr = fmt.Sprintf(`welcomeGreeting="%s"`, escapeXML(auto))
+	}
+
+	var paramXML strings.Builder
 	if contactName != "" {
-		q.Set("contact", contactName)
+		paramXML.WriteString(fmt.Sprintf(`      <Parameter name="contact" value="%s"/>`, escapeXML(contactName)) + "\n")
 	}
 	if callerName != "" {
-		q.Set("caller", callerName)
+		paramXML.WriteString(fmt.Sprintf(`      <Parameter name="caller" value="%s"/>`, escapeXML(callerName)) + "\n")
 	}
 	if purpose != "" {
-		q.Set("purpose", purpose)
+		paramXML.WriteString(fmt.Sprintf(`      <Parameter name="purpose" value="%s"/>`, escapeXML(purpose)) + "\n")
 	}
-	if opening != "" {
-		q.Set("opening", opening)
-	}
-	if len(q) > 0 {
-		twimlURL += "?" + q.Encode()
-	}
+
+	twimlXML := fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Connect>
+    <ConversationRelay
+      url="%s"
+      ttsProvider="ElevenLabs"
+      voice="%s"
+      interruptible="any"
+      interruptSensitivity="high"
+      %s
+    >
+%s    </ConversationRelay>
+  </Connect>
+</Response>`, wsURL, voice, welcomeAttr, paramXML.String())
 
 	sid, err := twilioCall(ctx,
 		a.config.TwilioAccountSID,
 		a.config.TwilioAuthToken,
 		a.config.TwilioFromNumber,
 		toNumber,
-		twimlURL,
+		twimlXML,
 	)
 	if err != nil {
 		return "", err
