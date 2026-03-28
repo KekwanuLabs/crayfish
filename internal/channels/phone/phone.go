@@ -321,10 +321,11 @@ func validateTwilioRequest(r *http.Request, authToken string) bool {
 	}
 
 	// Build the full URL including scheme.
+	// Default to https — our endpoints are always reached via the Cloudflare Tunnel
+	// which is HTTPS publicly. Cloudflare strips TLS before forwarding to localhost
+	// so r.TLS is always nil; we cannot rely on it for scheme detection.
+	// Use X-Forwarded-Proto if present (some proxies set it), otherwise https.
 	scheme := "https"
-	if r.TLS == nil && r.Header.Get("X-Forwarded-Proto") == "" {
-		scheme = "http"
-	}
 	if proto := r.Header.Get("X-Forwarded-Proto"); proto != "" {
 		scheme = proto
 	}
